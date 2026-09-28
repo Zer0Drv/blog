@@ -29,6 +29,18 @@ public enum StatusCode {
     EMAIL_EXISTS("40021", "邮箱已被注册"),
     USER_BANNED("40022", "账号已被封禁，请联系管理员"),
     PARAM_INVALID("40023", "参数校验失败"),
+    ARTICLE_NOT_EXIST("40030", "文章不存在"),
+    CATEGORY_NOT_EXIST("40031", "分类不存在"),
+    TAG_NOT_EXIST("40032", "标签不存在"),
+    ARTICLE_STATUS_INVALID("40033", "文章状态不合法"),
+    EDITOR_TYPE_INVALID("40034", "编辑器类型不合法"),
+    TAG_EXISTS("40035", "标签已存在"),
+    CATEGORY_HAS_CHILDREN("40036", "该分类存在子分类，无法删除"),
+    CATEGORY_HAS_ARTICLES("40037", "该分类下存在文章，无法删除"),
+    FILE_TYPE_NOT_ALLOWED("40038", "仅支持 jpg/png/gif/webp 格式的图片"),
+    FILE_TOO_LARGE("40039", "文件大小不能超过 5MB"),
+    FILE_UPLOAD_FAILED("40040", "文件上传失败"),
+    NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 
     /**

@@ -1,4 +1,9 @@
 spring:
+  # 图片上传限制：单文件 / 单请求均 5MB（超限抛 MaxUploadSizeExceededException → FILE_TOO_LARGE）
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
   datasource:
     # 本地默认连 3307（docker 容器 blog-mysql）；可用环境变量覆盖
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:blog_dev}?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
