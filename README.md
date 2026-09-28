@@ -62,7 +62,7 @@ src/main/java/com/zer0drv/blog/
 └── config/                    JwtConfig / MybatisPlusConfig / SecurityConfig / WebMvcConfig
 ```
 
-## 接口（M1 + M2 + M3）
+## 接口（M1 + M2 + M3 + M4）
 
 统一响应体 `Result<T>{code, data, message}`，`code == "200"` 为成功；登录/注册返回 `data.access_token`。
 分页统一 `PageResult<T>{records, total, page, size}`。
@@ -106,6 +106,32 @@ src/main/java/com/zer0drv/blog/
 **VO 形状**：`ArticleListVO{id,title,summary,cover,categoryId,categoryName,tags:[{id,name}],author:{id,username,nickname,avatar},status,publishTime,createTime,updateTime}`；`ArticleDetailVO` 追加 `{content,editorType}`。
 
 防刷：同一邮箱 **60 秒内**只能发一次验证码（Redis 计数，`EmailCodeServiceImpl.LIMIT_TTL`）。
+
+### M4 社交模块
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|---|---|---|---|
+| POST | `/users/{id}/follow` | 关注（幂等；不能关注自己 40050） | 需登录 |
+| DELETE | `/users/{id}/follow` | 取关（物理删除；未关注 40051） | 需登录 |
+| GET | `/users/{id}/followers?page=1&size=10` | 粉丝分页 `FollowUserVO{id,username,nickname,avatar,bio,followed}` | 公开 |
+| GET | `/users/{id}/following?page=1&size=10` | 关注分页（VO 同上） | 公开 |
+| GET | `/users/{id}/profile` | 用户主页 `{id,username,nickname,avatar,bio,followerCount,followingCount,articleCount,followed}` | 公开 |
+| GET | `/users/{id}/articles?page=1&size=10` | 该用户 PUBLISHED 文章分页（ArticleListVO，publish_time 倒序） | 公开 |
+| GET | `/feed?page=1&size=10` | 关注作者的 PUBLISHED 文章分页（未关注任何人返回空页） | 需登录 |
+| GET | `/notifications?page=1&size=10&type=` | 我的通知分页（create_time 倒序；type 可空过滤） | 需登录 |
+| GET | `/notifications/unread-count` | 未读数 `{count}` | 需登录 |
+| PUT | `/notifications/{id}/read` | 标记已读（仅本人，否则 40301） | 需登录 |
+| PUT | `/notifications/read-all` | 全部已读 | 需登录 |
+| GET | `/messages/conversations` | 会话列表 `[{peer,lastMessage:{content,createTime,senderId},unreadCount}]` 按最新消息倒序 | 需登录 |
+| GET | `/messages?peerId=&page=1&size=20` | 与某人的消息分页（create_time 倒序；peerId 不能是自己 40053） | 需登录 |
+| POST | `/messages` `{receiverId*, content*(≤1000)}` | 发送私信（不能发给自己 40053；内容非法 40052） | 需登录 |
+| PUT | `/messages/read?peerId=` | 该会话中发给我的未读消息全部置已读 | 需登录 |
+
+**通知触发点**（创建失败仅 log.warn，不回滚主业务；自己给自己不发）：
+- 评论创建：主评论 → 文章作者收 `COMMENT_REPLY`；回复：`replyToUserId` 为空 → root 作者收 `COMMENT_REPLY`，非空 → root 作者收 `COMMENT_REPLY` + 被 @ 人收 `MENTION`（两者同人只发 `MENTION`）
+- 文章点赞 → 作者收 `ARTICLE_LIKE`（首次点赞才发；已存在同 actor/article/type 未删通知则跳过，取消再赞不重复发）
+- 关注 → 被关注者收 `FOLLOW`（同上防重）
+- 私信发送 → 接收者收 `PRIVATE_MESSAGE`（summary = 内容前 50 字）
 
 ## 数据库
 

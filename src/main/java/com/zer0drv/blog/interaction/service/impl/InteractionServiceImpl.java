@@ -19,6 +19,8 @@ import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
 import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.interaction.service.InteractionService;
+import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -43,22 +45,33 @@ public class InteractionServiceImpl implements InteractionService {
     private final CommentLikeMapper commentLikeMapper;
     private final CommentMapper commentMapper;
     private final ArticleService articleService;
+    private final NotificationService notificationService;
 
     @Override
     public void likeArticle(Long articleId, Jwt jwt) {
-        requireArticle(articleId);
+        Article article = articleService.getById(articleId);
+        if (Objects.isNull(article)) {
+            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+        }
         Long userId = JwtSubjects.userIdOf(jwt);
         if (isLiked(articleId, userId)) {
             // 幂等：已赞则静默成功
             return;
         }
+        boolean inserted = false;
         try {
             ArticleLike like = new ArticleLike();
             like.setArticleId(articleId);
             like.setUserId(userId);
             articleLikeMapper.insert(like);
+            inserted = true;
         } catch (DuplicateKeyException _) {
-            // 并发重复点赞：唯一索引兜底，静默成功
+            // 并发重复点赞：唯一索引兜底，静默成功（不再重复发通知）
+        }
+        if (inserted) {
+            // M4 通知触发：首次点赞通知作者（防重：取消再赞不重复发；失败不影响主业务）
+            notificationService.notify(article.getAuthorId(), NotificationType.ARTICLE_LIKE,
+                    userId, articleId, null, article.getTitle(), true);
         }
     }
 

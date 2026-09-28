@@ -41,9 +41,10 @@ public class SecurityConfig {
                         // 不放行会把真实异常改写成 401。
                         .requestMatchers("/error", "/actuator/health").permitAll()
                         .requestMatchers("/auth/login", "/auth/register", "/auth/email-code").permitAll()
-                        // 公开浏览：文章/评论/标签/分类的只读接口（M2 起逐步落地）
+                        // 公开浏览：文章/评论/标签/分类/用户主页（粉丝/关注/profile/文章）的只读接口
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
-                                "/articles/**", "/comments/**", "/tags/**", "/categories/**").permitAll()
+                                "/articles/**", "/comments/**", "/tags/**", "/categories/**",
+                                "/users/**").permitAll()
                         // 上传图片的静态访问（上传本身需登录）
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/uploads/**").permitAll()
                         .requestMatchers("/admin/**").hasRole(UserRole.ADMIN.name())

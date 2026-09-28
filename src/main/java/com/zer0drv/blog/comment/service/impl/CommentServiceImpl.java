@@ -22,6 +22,8 @@ import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.interaction.domain.CommentLike;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
+import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.user.domain.User;
 import com.zer0drv.blog.user.enums.UserRole;
 import com.zer0drv.blog.user.service.UserService;
@@ -58,10 +60,16 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
      */
     private static final int CONTENT_MAX_LENGTH = 1000;
 
+    /**
+     * 通知摘要长度：取评论内容前 50 字
+     */
+    private static final int NOTIFY_SUMMARY_MAX_LENGTH = 50;
+
     private final ArticleMapper articleMapper;
     private final CommentLikeMapper commentLikeMapper;
     private final UserService userService;
     private final Converter converter;
+    private final NotificationService notificationService;
 
     @Override
     public PageResult<CommentVO> pageRootComments(Long articleId, String sort, long page, long size, Jwt jwt) {
@@ -126,6 +134,8 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             comment.setReplyToUserId(dto.getReplyToUserId());
         }
         save(comment);
+        // M4 通知触发：主评论通知文章作者；回复按 COMMENT_REPLY + MENTION 组合规则（内部自己给自己不发、异常不回滚主业务）
+        notifyCommentCreated(comment, article);
         return comment.getId();
     }
 
@@ -145,6 +155,41 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (comment.getParentId() == 0L) {
             remove(Wrappers.lambdaQuery(Comment.class).eq(Comment::getParentId, id));
         }
+    }
+
+    /**
+     * M4 评论通知规则：
+     * 主评论 → 文章作者收 COMMENT_REPLY；
+     * 回复：replyToUserId 为空 → root 评论作者收 COMMENT_REPLY；
+     * replyToUserId 非空 → root 作者收 COMMENT_REPLY + 被 @ 人收 MENTION（两者同人只发 MENTION）。
+     * 自己给自己不发由 NotificationService.notify 兜底。
+     */
+    private void notifyCommentCreated(Comment comment, Article article) {
+        Long commenterId = comment.getUserId();
+        String summary = comment.getContent().length() <= NOTIFY_SUMMARY_MAX_LENGTH
+                ? comment.getContent() : comment.getContent().substring(0, NOTIFY_SUMMARY_MAX_LENGTH);
+        if (comment.getParentId() == 0L) {
+            notificationService.notify(article.getAuthorId(), NotificationType.COMMENT_REPLY,
+                    commenterId, article.getId(), comment.getId(), summary, false);
+            return;
+        }
+        Comment root = getById(comment.getParentId());
+        Long rootAuthorId = Objects.nonNull(root) ? root.getUserId() : null;
+        Long replyToUserId = comment.getReplyToUserId();
+        if (Objects.isNull(replyToUserId)) {
+            notificationService.notify(rootAuthorId, NotificationType.COMMENT_REPLY,
+                    commenterId, article.getId(), comment.getId(), summary, false);
+            return;
+        }
+        if (Objects.equals(rootAuthorId, replyToUserId)) {
+            notificationService.notify(replyToUserId, NotificationType.MENTION,
+                    commenterId, article.getId(), comment.getId(), summary, false);
+            return;
+        }
+        notificationService.notify(rootAuthorId, NotificationType.COMMENT_REPLY,
+                commenterId, article.getId(), comment.getId(), summary, false);
+        notificationService.notify(replyToUserId, NotificationType.MENTION,
+                commenterId, article.getId(), comment.getId(), summary, false);
     }
 
     /**

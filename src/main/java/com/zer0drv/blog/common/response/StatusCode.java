@@ -43,6 +43,10 @@ public enum StatusCode {
     COMMENT_NOT_EXIST("40041", "评论不存在"),
     ARTICLE_NOT_PUBLISHED("40042", "文章未发布，无法评论"),
     COMMENT_CONTENT_INVALID("40043", "评论内容不能为空且不能超过 1000 个字符"),
+    FOLLOW_SELF_INVALID("40050", "不能关注自己"),
+    USER_NOT_FOLLOWED("40051", "尚未关注该用户"),
+    MESSAGE_CONTENT_INVALID("40052", "消息内容不能为空且不能超过 1000 个字符"),
+    MESSAGE_PEER_INVALID("40053", "不能选择自己为私信对象"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 
