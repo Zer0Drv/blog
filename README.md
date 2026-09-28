@@ -1,6 +1,6 @@
 # blog — 动态博客后端
 
-个人博客后端服务。**当前进度：M1（用户体系 + 鉴权骨架）、M2（内容模块）已完成**，需求基线见 [`docs/requirements-v1.md`](docs/requirements-v1.md)。
+个人博客后端服务。**当前进度：M1（用户体系 + 鉴权骨架）、M2（内容模块）、M3（互动模块）已完成**，需求基线见 [`docs/requirements-v1.md`](docs/requirements-v1.md)。
 
 ## 技术栈
 
@@ -42,6 +42,18 @@ src/main/java/com/zer0drv/blog/
 │   └── vo/                    ArticleListVO / ArticleDetailVO / ArticleAuthorVO
 ├── tag/                       标签模块（M2，完整 CRUD）
 ├── category/                  分类模块（M2，树形结构，完整 CRUD）
+├── comment/                   评论模块（M3，两层楼中楼 + 时间/热度排序 + @）
+│   ├── controller/CommentController.java
+│   ├── domain/Comment.java    enums/CommentStatus（NORMAL/FOLDED）/ CommentSort（time_desc/time_asc/hot）
+│   ├── dto/CommentCreateDTO.java
+│   ├── mapper/CommentMapper.java
+│   ├── service/               CommentService (+ impl)
+│   └── vo/                    CommentVO / CommentUserVO
+├── interaction/               互动模块（M3，文章点赞/收藏 + 评论点赞 + 我的收藏）
+│   ├── controller/InteractionController.java
+│   ├── domain/                ArticleLike / ArticleFavorite / CommentLike（实体不映射 deleted，取消走物理删除）
+│   ├── mapper/                ArticleLikeMapper / ArticleFavoriteMapper / CommentLikeMapper
+│   └── service/               InteractionService (+ impl)
 ├── upload/                    图片上传（M2，本地存储 /uploads/**）
 ├── common/
 │   ├── exception/             BusinessException / GlobalExceptionHandler
@@ -50,7 +62,7 @@ src/main/java/com/zer0drv/blog/
 └── config/                    JwtConfig / MybatisPlusConfig / SecurityConfig / WebMvcConfig
 ```
 
-## 接口（M1 + M2）
+## 接口（M1 + M2 + M3）
 
 统一响应体 `Result<T>{code, data, message}`，`code == "200"` 为成功；登录/注册返回 `data.access_token`。
 分页统一 `PageResult<T>{records, total, page, size}`。
@@ -102,6 +114,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 - `V1__init_user.sql` — `user` 表（含逻辑删除 `deleted`、`uk_username`、`uk_email`、`idx_github_id`）
 - `V2__seed_admin.sql` — 种子管理员 `admin / admin123`（BCrypt）
 - `V3__content.sql` — M2 内容模块：`category` / `tag`（`uk_name`）/ `article`（`idx_status_publish`、`idx_author`、`idx_category`）/ `article_tag`（`uk_article_tag`）
+- `V4__interaction.sql` — M3 互动模块：`article` 加 `view_count`；新增 `comment`（`idx_article_parent`、`idx_user`）/ `article_like` / `article_favorite`（`uk_article_user`）/ `comment_like`（`uk_comment_user`）
 
 MyBatis-Plus 全局逻辑删除字段为 `deleted`（`0` 未删除 / `1` 已删除）。
 
@@ -133,6 +146,6 @@ mvn spring-boot:run                  # 或 java -jar target/blog-0.0.1-SNAPSHOT.
 
 - **M1 骨架** ✅ 工程脚手架、Flyway 初始化、邮箱验证码注册 / 登录、JWT 安全层
 - **M2 内容** ✅ 文章 CRUD（Markdown/富文本双模式、图片上传、标签分类）、首页 / 列表 / 详情
-- **M3 互动** 评论（两层楼中楼 + 时间/热度双排序 + @）、点赞收藏、浏览量
+- **M3 互动** ✅ 评论（两层楼中楼 + 时间/热度双排序 + @）、点赞收藏、浏览量
 - **M4 社交** 关注 + Feed、私信（v1 轮询）、通知中心
 - **M5 后台** 文章管理、评论治理、用户管理、站点数据 dashboard
