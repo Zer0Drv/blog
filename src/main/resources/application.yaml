@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: blog
+  profiles:
+    active: dev
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # 本项目 JWT 的角色放在自定义声明 roles 中（值形如 ROLE_ADMIN）。
+          # 默认的 JwtGrantedAuthoritiesConverter 只读 scope/scp 声明，且默认前缀是 SCOPE_，
+          # 因此必须显式指定声明名并把前缀置空，否则 hasRole('ADMIN')/hasAuthority 会一律 403。
+          authorities-claim-name: roles
+          authority-prefix: ""
+
+mybatis-plus:
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+      id-type: auto

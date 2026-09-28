@@ -1,0 +1,43 @@
+package com.zer0drv.blog.common.response;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
+/**
+ * @author Yoruhaki
+ */
+@RequiredArgsConstructor
+@Getter
+public enum StatusCode {
+
+    OK("200", "success"),
+    FAIL("40000", "fail"),
+    USER_NOT_EXIST("40001", "用户不存在"),
+    USER_PASSWORD_ERROR("40002", "用户名或密码错误"),
+    USER_CREATE_FAILED("40003", "用户创建失败"),
+    USER_UPDATE_FAILED("40004", "用户更新失败"),
+    USER_DELETE_FAILED("40005", "用户删除失败"),
+    ROLE_CHOICE_ERROR("40006", "角色选择错误"),
+    USER_NOT_EXIST_OR_DELETED("40010", "用户不存在或已删除"),
+    LOGIN_STATUS_INVALID("40011", "登录状态无效，请重新登录"),
+    PASSWORD_NOT_MATCH("40012", "密码不匹配"),
+    NO_RESOURCE_FOUND("40013", "资源不存在"),
+    HTTP_REQUEST_METHOD_NOT_SUPPORTED("40015", "HTTP请求方法不支持"),
+    EMAIL_CODE_INVALID("40018", "邮箱验证码错误或已过期"),
+    EMAIL_CODE_TOO_FREQUENT("40019", "验证码发送过于频繁，请稍后再试"),
+    USERNAME_EXISTS("40020", "用户名已存在"),
+    EMAIL_EXISTS("40021", "邮箱已被注册"),
+    USER_BANNED("40022", "账号已被封禁，请联系管理员"),
+    PARAM_INVALID("40023", "参数校验失败"),
+    INTERNAL_SERVER_ERROR("50000", "服务器错误");
+
+    /**
+     * 状态码
+     */
+    private final String code;
+
+    /**
+     * 状态码对应的消息
+     */
+    private final String message;
+}

@@ -1,0 +1,50 @@
+spring:
+  datasource:
+    # 本地默认连 3307（docker 容器 blog-mysql）；可用环境变量覆盖
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:blog_dev}?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:blog123}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+  docker:
+    compose:
+      enabled: false
+  # 邮箱验证码 SMTP：配置后验证码走真实邮件；未配置时走 dev 日志兜底（见 EmailCodeServiceImpl）
+  # mail:
+  #   host: smtp.example.com
+  #   port: 465
+  #   username: ${MAIL_USERNAME}
+  #   password: ${MAIL_PASSWORD}
+  #   properties:
+  #     mail.smtp.ssl.enable: true
+  # GitHub OAuth 登录：拿到 client-id/secret 后取消注释并在 SecurityConfig 启用 oauth2Login
+  # security:
+  #   oauth2:
+  #     client:
+  #       registration:
+  #         github:
+  #           client-id: ${GITHUB_CLIENT_ID}
+  #           client-secret: ${GITHUB_CLIENT_SECRET}
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+# MyBatis 的 SQL 日志器名 = Mapper 接口全限定名，默认 root=INFO 会压掉，需给 mapper 包开 DEBUG
+logging:
+  level:
+    com.zer0drv.blog: debug
+
+server:
+  port: 8082
+
+jwt:
+  secret: my-very-long-and-secure-secret-key-32bytes-minimum
+  expiration-ms: 3600000
