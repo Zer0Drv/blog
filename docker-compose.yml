@@ -1,0 +1,45 @@
+# 本地开发基础设施：MySQL 8.4（宿主 3307）+ Redis（6379）
+# 用法：docker compose up -d   （停止：docker compose down；清空数据：down -v）
+# 说明：pom.xml 已带 spring-boot-docker-compose，但 application-dev.yaml 里
+#       spring.docker.compose.enabled=false（默认关闭，避免启动时隐式拉起容器）。
+#       如需 Boot 自动接管 compose，把该开关打开即可。
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: blog-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-blog123}
+      MYSQL_DATABASE: ${DB_NAME:-blog_dev}
+      TZ: Asia/Shanghai
+    ports:
+      - "3307:3306"          # 避开宿主可能已占用的 3306
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - blog-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-p$${MYSQL_ROOT_PASSWORD}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: [ "redis-server", "--appendonly", "yes" ]
+    volumes:
+      - blog-redis-data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  blog-mysql-data:
+  blog-redis-data:
