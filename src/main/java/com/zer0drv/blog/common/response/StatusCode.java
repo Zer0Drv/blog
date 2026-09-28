@@ -47,6 +47,10 @@ public enum StatusCode {
     USER_NOT_FOLLOWED("40051", "尚未关注该用户"),
     MESSAGE_CONTENT_INVALID("40052", "消息内容不能为空且不能超过 1000 个字符"),
     MESSAGE_PEER_INVALID("40053", "不能选择自己为私信对象"),
+    MESSAGE_SENSITIVE_HIT("40060", "内容包含敏感词，发送失败"),
+    CANNOT_OPERATE_ADMIN("40061", "不能对管理员账号执行该操作"),
+    CANNOT_OPERATE_SELF("40062", "不能对自己执行该操作"),
+    SENSITIVE_WORD_EXISTS("40063", "敏感词已存在"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 

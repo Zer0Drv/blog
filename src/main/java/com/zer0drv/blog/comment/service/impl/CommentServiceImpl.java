@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.enums.ArticleStatus;
 import com.zer0drv.blog.article.mapper.ArticleMapper;
@@ -70,6 +71,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     private final UserService userService;
     private final Converter converter;
     private final NotificationService notificationService;
+    private final SensitiveWordService sensitiveWordService;
 
     @Override
     public PageResult<CommentVO> pageRootComments(Long articleId, String sort, long page, long size, Jwt jwt) {
@@ -114,12 +116,14 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (!ArticleStatus.PUBLISHED.name().equals(article.getStatus())) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_PUBLISHED);
         }
+        // M5 敏感词过滤：命中则以 FOLDED 落库、不触发通知，响应 message 由 controller 覆盖提示
+        boolean sensitiveHit = sensitiveWordService.containsSensitiveWord(content);
         Comment comment = new Comment();
         comment.setArticleId(dto.getArticleId());
         comment.setUserId(JwtSubjects.userIdOf(jwt));
         comment.setContent(content);
         comment.setLikeCount(0);
-        comment.setStatus(CommentStatus.NORMAL.name());
+        comment.setStatus(sensitiveHit ? CommentStatus.FOLDED.name() : CommentStatus.NORMAL.name());
         if (Objects.isNull(dto.getParentId()) || dto.getParentId() == 0L) {
             // 主评论
             comment.setParentId(0L);
@@ -135,7 +139,10 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         }
         save(comment);
         // M4 通知触发：主评论通知文章作者；回复按 COMMENT_REPLY + MENTION 组合规则（内部自己给自己不发、异常不回滚主业务）
-        notifyCommentCreated(comment, article);
+        // M5：命中敏感词的评论（FOLDED）不产生通知
+        if (!sensitiveHit) {
+            notifyCommentCreated(comment, article);
+        }
         return comment.getId();
     }
 

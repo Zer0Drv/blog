@@ -3,6 +3,7 @@ package com.zer0drv.blog.social.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
@@ -55,6 +56,7 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
 
     private final UserService userService;
     private final NotificationService notificationService;
+    private final SensitiveWordService sensitiveWordService;
 
     @Override
     public List<ConversationVO> conversations(Jwt jwt) {
@@ -129,6 +131,10 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
         String content = dto.getContent();
         if (Objects.isNull(content) || content.isBlank() || content.length() > CONTENT_MAX_LENGTH) {
             throw new BusinessException(StatusCode.MESSAGE_CONTENT_INVALID);
+        }
+        // M5 敏感词过滤：命中直接拒绝（40060）
+        if (sensitiveWordService.containsSensitiveWord(content)) {
+            throw new BusinessException(StatusCode.MESSAGE_SENSITIVE_HIT);
         }
         if (Objects.isNull(userService.getById(receiverId))) {
             throw new BusinessException(StatusCode.USER_NOT_EXIST);

@@ -80,6 +80,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         LambdaQueryWrapper<Article> wrapper = Wrappers.lambdaQuery(Article.class)
                 .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
                 .eq(Objects.nonNull(categoryId), Article::getCategoryId, categoryId)
+                // M5：置顶优先，其后按发布时间倒序
+                .orderByDesc(Article::getIsTop)
                 .orderByDesc(Article::getPublishTime);
         if (Objects.nonNull(keyword) && !keyword.isBlank()) {
             // keyword 模糊匹配 title / summary

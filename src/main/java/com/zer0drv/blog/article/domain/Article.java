@@ -89,6 +89,18 @@ public class Article {
     private Long viewCount;
 
     /**
+     * 置顶：0-否；1-是（M5，首页 is_top DESC 优先展示）
+     */
+    @TableField(value = "is_top")
+    private Short isTop;
+
+    /**
+     * 推荐位：0-否；1-是（M5）
+     */
+    @TableField(value = "is_recommended")
+    private Short isRecommended;
+
+    /**
      * 创建时间
      */
     @TableField(value = "create_time")

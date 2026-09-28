@@ -32,6 +32,16 @@ public class ArticleListVO {
 
     private String status;
 
+    /**
+     * 置顶：0-否；1-是（M5，前端首页「置顶」标）
+     */
+    private Short isTop;
+
+    /**
+     * 推荐位：0-否；1-是（M5）
+     */
+    private Short isRecommended;
+
     private LocalDateTime publishTime;
 
     private LocalDateTime createTime;

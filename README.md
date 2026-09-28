@@ -1,6 +1,6 @@
 # blog — 动态博客后端
 
-个人博客后端服务。**当前进度：M1（用户体系 + 鉴权骨架）、M2（内容模块）、M3（互动模块）已完成**，需求基线见 [`docs/requirements-v1.md`](docs/requirements-v1.md)。
+个人博客后端服务。**当前进度：M1（用户体系 + 鉴权骨架）、M2（内容模块）、M3（互动模块）、M4（社交模块）、M5（管理后台）已完成**，需求基线见 [`docs/requirements-v1.md`](docs/requirements-v1.md)。
 
 ## 技术栈
 
@@ -55,6 +55,13 @@ src/main/java/com/zer0drv/blog/
 │   ├── mapper/                ArticleLikeMapper / ArticleFavoriteMapper / CommentLikeMapper
 │   └── service/               InteractionService (+ impl)
 ├── upload/                    图片上传（M2，本地存储 /uploads/**）
+├── social/                    社交模块（M4，关注/Feed、私信、通知中心）
+├── admin/                     管理后台（M5）
+│   ├── controller/            AdminUser / AdminArticle / AdminComment / AdminSensitiveWord / AdminStats
+│   ├── domain/SensitiveWord.java
+│   ├── dto/                   RoleUpdateDTO / TopDTO / RecommendDTO / SensitiveWordAddDTO
+│   ├── service/               AdminUser / AdminArticle / AdminComment / SensitiveWord / AdminStats (+ impl)
+│   └── vo/                    AdminCommentVO / SensitiveWordVO / StatsOverviewVO / StatsRecentVO
 ├── common/
 │   ├── exception/             BusinessException / GlobalExceptionHandler
 │   ├── response/              Result<T> / StatusCode / PageResult<T>
@@ -62,7 +69,7 @@ src/main/java/com/zer0drv/blog/
 └── config/                    JwtConfig / MybatisPlusConfig / SecurityConfig / WebMvcConfig
 ```
 
-## 接口（M1 + M2 + M3 + M4）
+## 接口（M1 + M2 + M3 + M4 + M5）
 
 统一响应体 `Result<T>{code, data, message}`，`code == "200"` 为成功；登录/注册返回 `data.access_token`。
 分页统一 `PageResult<T>{records, total, page, size}`。
@@ -83,7 +90,7 @@ src/main/java/com/zer0drv/blog/
 
 | 方法 | 路径 | 说明 | 鉴权 |
 |---|---|---|---|
-| GET | `/articles?page=1&size=10&keyword=&tagId=&categoryId=` | 已发布文章分页（publish_time 倒序；keyword 模糊匹配 title/summary） | 公开 |
+| GET | `/articles?page=1&size=10&keyword=&tagId=&categoryId=` | 已发布文章分页（is_top DESC + publish_time 倒序；keyword 模糊匹配 title/summary） | 公开 |
 | GET | `/articles/{id}` | 文章详情（匿名/非作者仅 PUBLISHED 可见；作者本人/ADMIN 可看任意状态） | 公开 |
 | GET | `/articles/mine?page=1&size=10&status=` | 本人文章（含草稿/下架，status 可空） | ADMIN/AUTHOR |
 | POST | `/articles` | 新建文章（ArticleSaveDTO，允许直接发布） | ADMIN/AUTHOR |
@@ -103,7 +110,7 @@ src/main/java/com/zer0drv/blog/
 
 **ArticleSaveDTO**：`{title* (≤200), content*, editorType*: MARKDOWN|RICHTEXT, summary (≤500，缺省取 content 纯文本前200字), cover, categoryId, tagIds: [Long], status: DRAFT|PUBLISHED}`。
 
-**VO 形状**：`ArticleListVO{id,title,summary,cover,categoryId,categoryName,tags:[{id,name}],author:{id,username,nickname,avatar},status,publishTime,createTime,updateTime}`；`ArticleDetailVO` 追加 `{content,editorType}`。
+**VO 形状**：`ArticleListVO{id,title,summary,cover,categoryId,categoryName,tags:[{id,name}],author:{id,username,nickname,avatar},status,isTop,isRecommended,publishTime,createTime,updateTime}`；`ArticleDetailVO` 追加 `{content,editorType}`。
 
 防刷：同一邮箱 **60 秒内**只能发一次验证码（Redis 计数，`EmailCodeServiceImpl.LIMIT_TTL`）。
 
@@ -133,6 +140,37 @@ src/main/java/com/zer0drv/blog/
 - 关注 → 被关注者收 `FOLLOW`（同上防重）
 - 私信发送 → 接收者收 `PRIVATE_MESSAGE`（summary = 内容前 50 字）
 
+### M5 管理后台
+
+所有 `/admin/**` 接口由 SecurityConfig 统一 `hasRole("ADMIN")` 保护，Controller 不再加 `@PreAuthorize`。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/admin/users?page=1&size=10&keyword=&role=&status=` | 用户分页（keyword 匹配 username/nickname/email；VO = UserVO 含 status） |
+| PUT | `/admin/users/{id}/ban` | 封禁（status=1；不能封 ADMIN 40061、不能封自己 40062） |
+| PUT | `/admin/users/{id}/unban` | 解封（status=0） |
+| PUT | `/admin/users/{id}/role` | body `{role: "AUTHOR"\|"USER"}`；不允许改成 ADMIN、不允许改自己 |
+| GET | `/admin/articles?page=1&size=10&status=&keyword=&authorId=` | 全状态文章分页（ArticleListVO 含 isTop/isRecommended） |
+| PUT | `/admin/articles/{id}/top` | body `{isTop: 0\|1}` 置顶切换 |
+| PUT | `/admin/articles/{id}/recommend` | body `{isRecommended: 0\|1}` 推荐位切换 |
+| PUT | `/admin/articles/{id}/offline` | 强制下架（status=OFFLINE，不校验作者） |
+| GET | `/admin/comments?page=1&size=10&status=&keyword=&articleId=` | 评论分页（含 FOLDED），VO 冗余 username/articleTitle |
+| PUT | `/admin/comments/{id}/fold` | 折叠（status=FOLDED，前台不再展示） |
+| PUT | `/admin/comments/{id}/unfold` | 恢复（status=NORMAL） |
+| DELETE | `/admin/comments/{id}` | 删除（逻辑删除，连带回复） |
+| GET | `/admin/sensitive-words?page=1&size=50&keyword=` | 敏感词分页 |
+| POST | `/admin/sensitive-words` | body `{word*}`（重复静默成功） |
+| DELETE | `/admin/sensitive-words/{id}` | 逻辑删除 |
+| GET | `/admin/stats/overview` | `{userCount, articleCount(PUBLISHED), commentCount(NORMAL), totalViews(SUM view_count), likeCount, favoriteCount, followCount, todayNewUsers, todayNewArticles, todayNewComments, unreadNotificationCount}`（todayXxx 按当天 00:00 起算） |
+| GET | `/admin/stats/recent` | `{latestUsers(5), latestArticles(5, 含 authorNickname), latestComments(5, content 截断 30 字)}` |
+
+**敏感词过滤联动**（忽略大小写包含，词表全量加载）：
+- 评论发布命中 → 评论以 `FOLDED` 落库、**不触发通知**，接口正常返回但响应 message 覆盖为「包含敏感内容，已进入审核」（前端按 message 提示）
+- 私信发送命中 → 直接拒绝，抛 `MESSAGE_SENSITIVE_HIT(40060)`
+- 新增错误码：`MESSAGE_SENSITIVE_HIT(40060)`、`CANNOT_OPERATE_ADMIN(40061)`、`CANNOT_OPERATE_SELF(40062)`、`SENSITIVE_WORD_EXISTS(40063)`
+
+**封禁联动**：登录时 `SecurityUser.isEnabled()` 已校验 status，被封用户登录抛 `USER_BANNED(40022)`；已登录被封者的旧 token 不做主动失效（到期自然失效）。
+
 ## 数据库
 
 Flyway 迁移位于 `src/main/resources/db/migration/`：
@@ -141,6 +179,8 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 - `V2__seed_admin.sql` — 种子管理员 `admin / admin123`（BCrypt）
 - `V3__content.sql` — M2 内容模块：`category` / `tag`（`uk_name`）/ `article`（`idx_status_publish`、`idx_author`、`idx_category`）/ `article_tag`（`uk_article_tag`）
 - `V4__interaction.sql` — M3 互动模块：`article` 加 `view_count`；新增 `comment`（`idx_article_parent`、`idx_user`）/ `article_like` / `article_favorite`（`uk_article_user`）/ `comment_like`（`uk_comment_user`）
+- `V5__social.sql` — M4 社交模块：`follow`（`uk_follow`）/ `notification`（`idx_user_read`、`idx_user_create`）/ `private_message`
+- `V6__admin.sql` — M5 管理后台：`article` 加 `is_top` / `is_recommended`；新增 `sensitive_word`（`uk_word`）
 
 MyBatis-Plus 全局逻辑删除字段为 `deleted`（`0` 未删除 / `1` 已删除）。
 
@@ -173,5 +213,5 @@ mvn spring-boot:run                  # 或 java -jar target/blog-0.0.1-SNAPSHOT.
 - **M1 骨架** ✅ 工程脚手架、Flyway 初始化、邮箱验证码注册 / 登录、JWT 安全层
 - **M2 内容** ✅ 文章 CRUD（Markdown/富文本双模式、图片上传、标签分类）、首页 / 列表 / 详情
 - **M3 互动** ✅ 评论（两层楼中楼 + 时间/热度双排序 + @）、点赞收藏、浏览量
-- **M4 社交** 关注 + Feed、私信（v1 轮询）、通知中心
-- **M5 后台** 文章管理、评论治理、用户管理、站点数据 dashboard
+- **M4 社交** ✅ 关注 + Feed、私信（v1 轮询）、通知中心
+- **M5 后台** ✅ 文章管理（置顶/推荐位/下架）、评论治理（审核 + 敏感词过滤）、用户管理（封禁/角色）、站点数据 dashboard

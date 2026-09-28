@@ -1,5 +1,6 @@
 package com.zer0drv.blog.comment.controller;
 
+import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.comment.dto.CommentCreateDTO;
 import com.zer0drv.blog.comment.service.CommentService;
 import com.zer0drv.blog.comment.vo.CommentVO;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class CommentController {
 
     private final CommentService commentService;
+    private final SensitiveWordService sensitiveWordService;
 
     /**
      * 主评论分页（公开）。sort：time_desc(默认) / time_asc / hot；
@@ -59,7 +61,12 @@ public class CommentController {
     @PostMapping
     @PreAuthorize("isAuthenticated()")
     public Result<Long> create(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid CommentCreateDTO dto) {
-        return Result.ok(commentService.create(dto, jwt));
+        Result<Long> result = Result.ok(commentService.create(dto, jwt));
+        // M5：命中敏感词的评论以 FOLDED 落库进入审核，接口正常返回但 message 覆盖提示（前端按 message 提示）
+        if (sensitiveWordService.containsSensitiveWord(dto.getContent())) {
+            result.setMessage("包含敏感内容，已进入审核");
+        }
+        return result;
     }
 
     /**
