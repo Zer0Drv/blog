@@ -22,6 +22,15 @@ import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.common.util.JwtSubjects;
+import com.zer0drv.blog.comment.domain.Comment;
+import com.zer0drv.blog.comment.enums.CommentStatus;
+import com.zer0drv.blog.comment.mapper.CommentMapper;
+import com.zer0drv.blog.interaction.domain.ArticleFavorite;
+import com.zer0drv.blog.interaction.domain.ArticleLike;
+import com.zer0drv.blog.interaction.domain.CommentLike;
+import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
+import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
+import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.tag.domain.Tag;
 import com.zer0drv.blog.tag.mapper.TagMapper;
 import com.zer0drv.blog.tag.vo.TagVO;
@@ -61,6 +70,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private final CategoryMapper categoryMapper;
     private final UserService userService;
     private final Converter converter;
+    private final CommentMapper commentMapper;
+    private final CommentLikeMapper commentLikeMapper;
+    private final ArticleLikeMapper articleLikeMapper;
+    private final ArticleFavoriteMapper articleFavoriteMapper;
 
     @Override
     public PageResult<ArticleListVO> pagePublished(long page, long size, String keyword, Long tagId, Long categoryId) {
@@ -96,8 +109,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (!published && !isAuthorOrAdmin(article, jwt)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
+        // 浏览量原子自增（一条 update 语句，不先查后写）；草稿 / 下架详情不加
+        if (published) {
+            baseMapper.update(null, Wrappers.lambdaUpdate(Article.class)
+                    .setSql("view_count = view_count + 1")
+                    .eq(Article::getId, id));
+        }
         ArticleDetailVO vo = converter.convert(article, ArticleDetailVO.class);
         fillAssociations(List.of(vo), List.of(article));
+        fillInteraction(vo, article, published, jwt);
         return vo;
     }
 
@@ -156,6 +176,19 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         removeById(id);
         // 关联表无逻辑删除字段，物理删除
         articleTagMapper.delete(Wrappers.lambdaQuery(ArticleTag.class).eq(ArticleTag::getArticleId, id));
+        // M3 级联：评论点赞关联物理删除（先取评论id，逻辑删除后查不到）
+        List<Long> commentIds = commentMapper.selectList(Wrappers.lambdaQuery(Comment.class)
+                        .eq(Comment::getArticleId, id))
+                .stream().map(Comment::getId).toList();
+        if (!commentIds.isEmpty()) {
+            commentLikeMapper.delete(Wrappers.lambdaQuery(CommentLike.class)
+                    .in(CommentLike::getCommentId, commentIds));
+        }
+        // 该文章的评论走 MP 逻辑删除（comment 有 deleted 字段）
+        commentMapper.delete(Wrappers.lambdaQuery(Comment.class).eq(Comment::getArticleId, id));
+        // 文章点赞 / 收藏关联物理删除
+        articleLikeMapper.delete(Wrappers.lambdaQuery(ArticleLike.class).eq(ArticleLike::getArticleId, id));
+        articleFavoriteMapper.delete(Wrappers.lambdaQuery(ArticleFavorite.class).eq(ArticleFavorite::getArticleId, id));
     }
 
     @Override
@@ -283,9 +316,42 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     /**
+     * 填充详情的互动数据：浏览量 / 点赞收藏评论数 / 当前用户点赞收藏状态。
+     * likeCount / favoriteCount / commentCount 实时 count 关联表，不落列。
+     */
+    private void fillInteraction(ArticleDetailVO vo, Article article, boolean published, Jwt jwt) {
+        Long articleId = article.getId();
+        // 已发布详情刚自增过一次，内存值 +1 与库内一致；未发布展示当前值
+        long viewCount = Objects.isNull(article.getViewCount()) ? 0L : article.getViewCount();
+        vo.setViewCount(published ? viewCount + 1 : viewCount);
+        vo.setLikeCount(articleLikeMapper.selectCount(Wrappers.lambdaQuery(ArticleLike.class)
+                .eq(ArticleLike::getArticleId, articleId)));
+        vo.setFavoriteCount(articleFavoriteMapper.selectCount(Wrappers.lambdaQuery(ArticleFavorite.class)
+                .eq(ArticleFavorite::getArticleId, articleId)));
+        vo.setCommentCount(commentMapper.selectCount(Wrappers.lambdaQuery(Comment.class)
+                .eq(Comment::getArticleId, articleId)
+                .eq(Comment::getStatus, CommentStatus.NORMAL.name())));
+        // 匿名一律 false；登录人实时查关联表
+        boolean liked = false;
+        boolean favorited = false;
+        if (Objects.nonNull(jwt)) {
+            Long userId = JwtSubjects.userIdOf(jwt);
+            liked = articleLikeMapper.selectCount(Wrappers.lambdaQuery(ArticleLike.class)
+                    .eq(ArticleLike::getArticleId, articleId)
+                    .eq(ArticleLike::getUserId, userId)) > 0;
+            favorited = articleFavoriteMapper.selectCount(Wrappers.lambdaQuery(ArticleFavorite.class)
+                    .eq(ArticleFavorite::getArticleId, articleId)
+                    .eq(ArticleFavorite::getUserId, userId)) > 0;
+        }
+        vo.setLiked(liked);
+        vo.setFavorited(favorited);
+    }
+
+    /**
      * 批量组装列表 VO：作者 / 分类名 / 标签 内存联查，避免 N+1
      */
-    private List<ArticleListVO> assemble(List<Article> articles) {
+    @Override
+    public List<ArticleListVO> assemble(List<Article> articles) {
         if (articles.isEmpty()) {
             return List.of();
         }
