@@ -40,6 +40,9 @@ public enum StatusCode {
     FILE_TYPE_NOT_ALLOWED("40038", "仅支持 jpg/png/gif/webp 格式的图片"),
     FILE_TOO_LARGE("40039", "文件大小不能超过 5MB"),
     FILE_UPLOAD_FAILED("40040", "文件上传失败"),
+    COMMENT_NOT_EXIST("40041", "评论不存在"),
+    ARTICLE_NOT_PUBLISHED("40042", "文章未发布，无法评论"),
+    COMMENT_CONTENT_INVALID("40043", "评论内容不能为空且不能超过 1000 个字符"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 

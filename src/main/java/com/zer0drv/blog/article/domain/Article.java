@@ -83,6 +83,12 @@ public class Article {
     private LocalDateTime publishTime;
 
     /**
+     * 浏览量（M3，仅 PUBLISHED 详情访问时原子自增）
+     */
+    @TableField(value = "view_count")
+    private Long viewCount;
+
+    /**
      * 创建时间
      */
     @TableField(value = "create_time")

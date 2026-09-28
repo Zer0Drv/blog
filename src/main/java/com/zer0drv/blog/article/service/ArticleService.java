@@ -9,6 +9,8 @@ import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.common.response.PageResult;
 import org.springframework.security.oauth2.jwt.Jwt;
 
+import java.util.List;
+
 /**
  * @author Yoruhaki
  */
@@ -49,4 +51,9 @@ public interface ArticleService extends IService<Article> {
      * 本人文章分页（含草稿 / 下架，status 可空）
      */
     PageResult<ArticleListVO> pageMine(long page, long size, String status, Jwt jwt);
+
+    /**
+     * 批量组装文章列表 VO（作者 / 分类名 / 标签 内存联查，供我的收藏等场景复用）
+     */
+    List<ArticleListVO> assemble(List<Article> articles);
 }
