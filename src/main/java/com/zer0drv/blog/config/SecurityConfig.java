@@ -44,6 +44,8 @@ public class SecurityConfig {
                         // 公开浏览：文章/评论/标签/分类的只读接口（M2 起逐步落地）
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/articles/**", "/comments/**", "/tags/**", "/categories/**").permitAll()
+                        // 上传图片的静态访问（上传本身需登录）
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/uploads/**").permitAll()
                         .requestMatchers("/admin/**").hasRole(UserRole.ADMIN.name())
                         .anyRequest().authenticated())
                 // 资源服务器：解析 Authorization: Bearer；权限映射由配置驱动
