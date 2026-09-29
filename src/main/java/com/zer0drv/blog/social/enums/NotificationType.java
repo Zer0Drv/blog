@@ -25,6 +25,11 @@ public enum NotificationType {
     ARTICLE_LIKE,
 
     /**
+     * 评论被点赞
+     */
+    COMMENT_LIKE,
+
+    /**
      * 被关注
      */
     FOLLOW,

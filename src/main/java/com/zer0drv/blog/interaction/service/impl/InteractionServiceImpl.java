@@ -136,6 +136,11 @@ public class InteractionServiceImpl implements InteractionService {
         }
         // 原子自增，防并发丢计数
         commentMapper.update(null, likeCountWrapper(commentId, true));
+        // 通知评论作者（首次点赞才触发；自己给自己不发、失败不回滚主业务均由 notify 兜底）
+        String summary = Objects.nonNull(comment.getContent()) && comment.getContent().length() > 50
+                ? comment.getContent().substring(0, 50) : comment.getContent();
+        notificationService.notify(comment.getUserId(), NotificationType.COMMENT_LIKE, userId,
+                comment.getArticleId(), commentId, summary, true);
     }
 
     @Override

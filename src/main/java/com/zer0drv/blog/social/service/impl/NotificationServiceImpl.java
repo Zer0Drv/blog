@@ -111,7 +111,9 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                         .eq(Notification::getActorId, actorId)
                         .eq(Notification::getType, type.name())
                         .eq(Objects.nonNull(articleId), Notification::getArticleId, articleId)
-                        .isNull(Objects.isNull(articleId), Notification::getArticleId);
+                        .isNull(Objects.isNull(articleId), Notification::getArticleId)
+                        .eq(Objects.nonNull(commentId), Notification::getCommentId, commentId)
+                        .isNull(Objects.isNull(commentId), Notification::getCommentId);
                 if (count(exists) > 0) {
                     // 已存在同 actor/article/type 的未删通知：取消再操作不重复发
                     return;
