@@ -29,14 +29,17 @@ spring:
   #   password: ${MAIL_PASSWORD}
   #   properties:
   #     mail.smtp.ssl.enable: true
-  # GitHub OAuth 登录：拿到 client-id/secret 后取消注释并在 SecurityConfig 启用 oauth2Login
-  # security:
-  #   oauth2:
-  #     client:
-  #       registration:
-  #         github:
-  #           client-id: ${GITHUB_CLIENT_ID}
-  #           client-secret: ${GITHUB_CLIENT_SECRET}
+  # GitHub OAuth 登录（M6 启用）。创建 OAuth App 后配置 GITHUB_CLIENT_ID/SECRET 环境变量；
+  # 回调地址固定为 http://localhost:8082/login/oauth2/code/github（详见 README「GitHub OAuth 登录」）。
+  # 占位值仅保证无凭据时应用可正常启动，实际点击 GitHub 登录前必须换成真实凭据。
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: ${GITHUB_CLIENT_ID:replace-me}
+            client-secret: ${GITHUB_CLIENT_SECRET:replace-me}
+            scope: [read:user, user:email]
 
 mybatis-plus:
   configuration:

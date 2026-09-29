@@ -135,4 +135,46 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(StatusCode.USER_UPDATE_FAILED);
         }
     }
+
+    @Override
+    public Map<String, String> loginByGithub(Long githubId, String login, String name, String avatarUrl, String email) {
+        if (Objects.isNull(githubId)) {
+            throw new BusinessException(StatusCode.OAUTH_USER_INFO_INVALID);
+        }
+        User user = userService.getOne(Wrappers.lambdaQuery(User.class)
+                .eq(User::getGithubId, githubId));
+        if (Objects.nonNull(user)) {
+            // 已绑定：与密码登录同规则校验封禁
+            if (Objects.nonNull(user.getStatus()) && user.getStatus() == 1) {
+                throw new BusinessException(StatusCode.USER_BANNED);
+            }
+        } else {
+            // 未绑定：自动注册。username 撞唯一索引时追加 githubId 兜底
+            user = new User();
+            String username = "gh_" + (Objects.isNull(login) || login.isBlank() ? "user" : login);
+            long usernameCount = userService.count(Wrappers.lambdaQuery(User.class)
+                    .eq(User::getUsername, username));
+            if (usernameCount > 0) {
+                username = username + "_" + githubId;
+            }
+            user.setUsername(username);
+            // password 留空串：BCrypt 永不匹配，该账号只能走 OAuth 登录
+            user.setPassword("");
+            // GitHub 用户隐藏邮箱时 email 为 null，用占位邮箱满足 uk_email 唯一约束
+            user.setEmail(Objects.isNull(email) || email.isBlank()
+                    ? "gh_" + githubId + "@oauth.local" : email);
+            user.setNickname(Objects.isNull(name) || name.isBlank()
+                    ? (Objects.isNull(login) ? username : login) : name);
+            user.setAvatar(Objects.isNull(avatarUrl) ? "" : avatarUrl);
+            user.setGithubId(githubId);
+            user.setRole(UserRole.USER.name());
+            user.setStatus((short) 0);
+            boolean saved = userService.save(user);
+            if (!saved) {
+                throw new BusinessException(StatusCode.USER_CREATE_FAILED);
+            }
+        }
+        String token = tokenService.generateToken(user.getId(), List.of("ROLE_" + user.getRole()));
+        return Map.of("access_token", token, "token_type", "Bearer");
+    }
 }

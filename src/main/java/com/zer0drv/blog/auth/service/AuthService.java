@@ -43,4 +43,17 @@ public interface AuthService {
      * 修改密码（旧 token 作废，需重新登录）
      */
     void changePassword(Jwt jwt, ChangePasswordDTO dto);
+
+    /**
+     * GitHub OAuth 登录：已绑定用户直接签发 token；未绑定则自动注册（用户名 gh_+login 兜底去重，
+     * 邮箱为空时用 gh_{githubId}@oauth.local 占位以满足 uk_email 唯一约束）。
+     *
+     * @param githubId  GitHub 用户 id（attributes.id）
+     * @param login     GitHub 登录名
+     * @param name      显示名（可为空）
+     * @param avatarUrl 头像 URL（可为空）
+     * @param email     邮箱（GitHub 用户隐藏邮箱时为 null）
+     * @return access_token / token_type
+     */
+    Map<String, String> loginByGithub(Long githubId, String login, String name, String avatarUrl, String email);
 }
