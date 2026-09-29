@@ -10,6 +10,11 @@ public interface EmailCodeService {
     String SCENE_REGISTER = "register";
 
     /**
+     * 找回密码场景（与注册场景隔离，验证码不可跨场景复用）
+     */
+    String SCENE_RESET = "password_reset";
+
+    /**
      * 发送验证码（60s 限频，10min 有效）。
      * 未配置 SMTP（spring.mail.host 缺失）时走 dev 兜底：验证码打印到后端日志。
      *

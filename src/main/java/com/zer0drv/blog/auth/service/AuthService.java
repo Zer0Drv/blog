@@ -1,6 +1,7 @@
 package com.zer0drv.blog.auth.service;
 
 import com.zer0drv.blog.auth.dto.ChangePasswordDTO;
+import com.zer0drv.blog.auth.dto.PasswordResetDTO;
 import com.zer0drv.blog.auth.dto.RegisterDTO;
 import com.zer0drv.blog.auth.dto.UserLoginDTO;
 import com.zer0drv.blog.user.domain.User;
@@ -43,6 +44,22 @@ public interface AuthService {
      * 修改密码（旧 token 作废，需重新登录）
      */
     void changePassword(Jwt jwt, ChangePasswordDTO dto);
+
+    /**
+     * 找回密码：发送验证码（邮箱未注册时报 EMAIL_NOT_REGISTERED，不向未注册邮箱发码）
+     *
+     * @param email 注册邮箱
+     */
+    void sendPasswordResetCode(String email);
+
+    /**
+     * 找回密码：验证码校验通过后以 BCrypt 重置密码。
+     * 注：历史已签发 token 不作废（README 已声明的 JWT 取舍：黑名单仅覆盖登出/改密场景），到期自然失效。
+     * OAuth 占位账号（password=''）通过本流程设置密码后即开通密码登录——预期行为。
+     *
+     * @param dto email + code + newPassword
+     */
+    void resetPassword(PasswordResetDTO dto);
 
     /**
      * GitHub OAuth 登录：已绑定用户直接签发 token；未绑定则自动注册（用户名 gh_+login 兜底去重，

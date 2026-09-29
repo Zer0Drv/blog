@@ -2,6 +2,8 @@ package com.zer0drv.blog.auth.controller;
 
 import com.zer0drv.blog.auth.dto.ChangePasswordDTO;
 import com.zer0drv.blog.auth.dto.EmailCodeDTO;
+import com.zer0drv.blog.auth.dto.PasswordResetCodeDTO;
+import com.zer0drv.blog.auth.dto.PasswordResetDTO;
 import com.zer0drv.blog.auth.dto.RegisterDTO;
 import com.zer0drv.blog.auth.dto.UserLoginDTO;
 import com.zer0drv.blog.auth.service.AuthService;
@@ -76,6 +78,24 @@ public class AuthController {
             throw new BusinessException(StatusCode.USER_NOT_EXIST);
         }
         return Result.ok(converter.convert(profile, UserVO.class));
+    }
+
+    /**
+     * 找回密码：发送验证码（邮箱未注册 → 40065）
+     */
+    @PostMapping("/password-reset-code")
+    public Result<Void> sendPasswordResetCode(@RequestBody @Valid PasswordResetCodeDTO dto) {
+        authService.sendPasswordResetCode(dto.getEmail());
+        return Result.ok();
+    }
+
+    /**
+     * 找回密码：验证码 + 新密码重置（历史 token 不作废，到期自然失效）
+     */
+    @PostMapping("/password-reset")
+    public Result<Void> resetPassword(@RequestBody @Valid PasswordResetDTO dto) {
+        authService.resetPassword(dto);
+        return Result.ok();
     }
 
     /**

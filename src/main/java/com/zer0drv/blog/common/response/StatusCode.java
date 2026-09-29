@@ -52,6 +52,7 @@ public enum StatusCode {
     CANNOT_OPERATE_SELF("40062", "不能对自己执行该操作"),
     SENSITIVE_WORD_EXISTS("40063", "敏感词已存在"),
     OAUTH_USER_INFO_INVALID("40064", "OAuth 用户信息无效"),
+    EMAIL_NOT_REGISTERED("40065", "该邮箱未注册"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 

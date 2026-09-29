@@ -84,6 +84,8 @@ src/main/java/com/zer0drv/blog/
 | POST | `/auth/logout` | 登出（token 加入黑名单） | 需登录 |
 | GET | `/auth/me` | 当前登录用户信息 | 需登录 |
 | PUT | `/auth/password` | 修改密码（成功后需重新登录） | 需登录 |
+| POST | `/auth/password-reset-code` | 找回密码：发送验证码（邮箱未注册 → 40065） | 公开 |
+| POST | `/auth/password-reset` | 找回密码：验证码 + 新密码重置（历史 token 不作废，到期自然失效） | 公开 |
 | GET | `/actuator/health` | 健康检查 | 公开 |
 
 ### M2 内容模块

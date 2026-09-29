@@ -2,6 +2,7 @@ package com.zer0drv.blog.auth.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.zer0drv.blog.auth.dto.ChangePasswordDTO;
+import com.zer0drv.blog.auth.dto.PasswordResetDTO;
 import com.zer0drv.blog.auth.dto.RegisterDTO;
 import com.zer0drv.blog.auth.dto.UserLoginDTO;
 import com.zer0drv.blog.auth.service.AuthService;
@@ -134,6 +135,36 @@ public class AuthServiceImpl implements AuthService {
         if (!updated) {
             throw new BusinessException(StatusCode.USER_UPDATE_FAILED);
         }
+    }
+
+    @Override
+    public void sendPasswordResetCode(String email) {
+        // 不向未注册邮箱发码（也避免借发码接口探测/骚扰任意邮箱）
+        long emailCount = userService.count(Wrappers.lambdaQuery(User.class)
+                .eq(User::getEmail, email));
+        if (emailCount == 0) {
+            throw new BusinessException(StatusCode.EMAIL_NOT_REGISTERED);
+        }
+        emailCodeService.sendCode(EmailCodeService.SCENE_RESET, email);
+    }
+
+    @Override
+    public void resetPassword(PasswordResetDTO dto) {
+        if (!emailCodeService.verify(EmailCodeService.SCENE_RESET, dto.getEmail(), dto.getCode())) {
+            throw new BusinessException(StatusCode.EMAIL_CODE_INVALID);
+        }
+        User user = userService.getOne(Wrappers.lambdaQuery(User.class)
+                .eq(User::getEmail, dto.getEmail()));
+        if (Objects.isNull(user)) {
+            throw new BusinessException(StatusCode.EMAIL_NOT_REGISTERED);
+        }
+        // OAuth 占位账号（password=''）重置后即开通密码登录——预期行为（SPEC-M7）
+        user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
+        boolean updated = userService.updateById(user);
+        if (!updated) {
+            throw new BusinessException(StatusCode.USER_UPDATE_FAILED);
+        }
+        // 注：历史已签发 token 不作废（README 已声明的 JWT 取舍），到期自然失效
     }
 
     @Override

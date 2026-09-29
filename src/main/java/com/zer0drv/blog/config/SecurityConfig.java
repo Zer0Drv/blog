@@ -51,7 +51,8 @@ public class SecurityConfig {
                         // /error 必须放行：错误转发（ERROR dispatch）也经过安全链，
                         // 不放行会把真实异常改写成 401。
                         .requestMatchers("/error", "/actuator/health").permitAll()
-                        .requestMatchers("/auth/login", "/auth/register", "/auth/email-code").permitAll()
+                        .requestMatchers("/auth/login", "/auth/register", "/auth/email-code",
+                                "/auth/password-reset-code", "/auth/password-reset").permitAll()
                         // GitHub OAuth2 登录端点与回调
                         .requestMatchers("/oauth2/authorization/**", "/login/oauth2/code/**").permitAll()
                         // 公开浏览：文章/评论/标签/分类/用户主页（粉丝/关注/profile/文章）的只读接口
