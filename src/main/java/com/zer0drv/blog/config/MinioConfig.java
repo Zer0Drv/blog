@@ -3,6 +3,7 @@ package com.zer0drv.blog.config;
 import io.minio.BucketExistsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
+import io.minio.SetBucketPolicyArgs;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
@@ -31,7 +32,8 @@ public class MinioConfig {
     }
 
     /**
-     * 启动期 bucket 自检：不存在则尝试创建（minio-init 容器失败时兜底）；
+     * 启动期幂等自检：bucket 不存在则创建，并无条件（重）设匿名只读（download）策略，
+     * 保证图片直链可匿名访问（原 minio-init 容器的职责已下沉到此处，不再依赖额外容器）；
      * MinIO 不可用只告警不阻断启动，上传时才会报 FILE_UPLOAD_FAILED。
      */
     @Bean
@@ -41,8 +43,25 @@ public class MinioConfig {
             try {
                 if (!minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucket).build())) {
                     minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucket).build());
-                    log.info("MinIO bucket '{}' 不存在，已自动创建（匿名下载策略依赖 minio-init 容器）", bucket);
+                    log.info("MinIO bucket '{}' 不存在，已自动创建", bucket);
                 }
+                // 匿名只读策略：允许任何人 GetObject（图片直链由该策略提供，由本自检幂等保证）
+                String policyJson = """
+                        {
+                          "Version": "2012-10-17",
+                          "Statement": [
+                            {
+                              "Effect": "Allow",
+                              "Principal": { "AWS": [ "*" ] },
+                              "Action": [ "s3:GetObject" ],
+                              "Resource": [ "arn:aws:s3:::%s/*" ]
+                            }
+                          ]
+                        }
+                        """.formatted(bucket);
+                minioClient.setBucketPolicy(
+                        SetBucketPolicyArgs.builder().bucket(bucket).config(policyJson).build());
+                log.info("MinIO bucket '{}' 匿名下载策略已由本自检设置（允许匿名 GetObject）", bucket);
             } catch (Exception e) {
                 log.error("MinIO 连接失败（{}），图片上传将不可用：{}", e.getClass().getSimpleName(), e.getMessage());
             }

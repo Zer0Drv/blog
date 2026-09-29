@@ -1,0 +1,30 @@
+# 测试环境：H2 内存库替代 MySQL、关 Flyway、关 MinIO（走本地磁盘 fallback），
+# 使 @SpringBootTest 上下文测试无需任何外部服务即可在 CI 运行
+spring:
+  datasource:
+    url: jdbc:h2:mem:blog_test;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: test-only-client-id
+            client-secret: test-only-client-secret
+            scope: [ read:user, user:email ]
+
+blog:
+  minio:
+    enabled: false
+
+jwt:
+  secret: test-only-jwt-secret-key-32bytes-minimum
+  expiration-ms: 3600000

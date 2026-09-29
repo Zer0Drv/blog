@@ -112,6 +112,12 @@
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 上下文烟雾测试用内存库替代 MySQL（版本由 Boot BOM 管理） -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <!-- spring boot3 引入可选模块 -->
         <dependency>

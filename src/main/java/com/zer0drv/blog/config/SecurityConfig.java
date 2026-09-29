@@ -4,20 +4,18 @@ import com.zer0drv.blog.user.enums.UserRole;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
  * 安全过滤器链（STATELESS + Bearer JWT）。
  * CSRF 关闭依据：①无会话 Cookie ②凭据经 Authorization 头显式携带 ③无 formLogin/remember-me
  * ④一旦改回 Cookie 认证必须恢复 CSRF。
+ * 注意：PasswordEncoder / AuthenticationManager 定义在 PasswordEncoderConfig
+ * （独立成类以避免与本类形成构造器循环依赖）。
  *
  * @author Yoruhaki
  */
@@ -34,11 +32,6 @@ public class SecurityConfig {
     @org.springframework.beans.factory.annotation.Value(
             "${blog.oauth.failure-redirect:http://localhost:5173/login?error=oauth_failed}")
     private String oauthFailureRedirect;
-
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) {
@@ -72,13 +65,5 @@ public class SecurityConfig {
                 // （authorities-claim-name=roles + authority-prefix=""，Boot 自动装配转换器）
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
         return http.build();
-    }
-
-    /**
-     * Spring Security 6 起 AuthenticationManager 不再自动暴露为 Bean，需显式导出。
-     */
-    @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) {
-        return configuration.getAuthenticationManager();
     }
 }
