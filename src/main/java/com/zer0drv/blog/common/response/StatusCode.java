@@ -53,6 +53,8 @@ public enum StatusCode {
     SENSITIVE_WORD_EXISTS("40063", "敏感词已存在"),
     OAUTH_USER_INFO_INVALID("40064", "OAuth 用户信息无效"),
     EMAIL_NOT_REGISTERED("40065", "该邮箱未注册"),
+    // 40050 已被 FOLLOW_SELF_INVALID 占用，取下一个空闲码
+    CAPTCHA_REQUIRED("40066", "操作过于频繁，请完成图形验证"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 

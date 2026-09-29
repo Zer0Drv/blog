@@ -46,8 +46,11 @@ public class SecurityConfig {
                         .requestMatchers("/error", "/actuator/health").permitAll()
                         .requestMatchers("/auth/login", "/auth/register", "/auth/email-code",
                                 "/auth/password-reset-code", "/auth/password-reset").permitAll()
+                        // 图形验证码端点（频率触发，匿名可获取/预检）
+                        .requestMatchers("/auth/captcha", "/auth/captcha/required").permitAll()
                         // GitHub OAuth2 登录端点与回调
                         .requestMatchers("/oauth2/authorization/**", "/login/oauth2/code/**").permitAll()
+                        .requestMatchers("/ws").permitAll()
                         // 公开浏览：文章/评论/标签/分类/用户主页（粉丝/关注/profile/文章）的只读接口
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/articles/**", "/comments/**", "/tags/**", "/categories/**",

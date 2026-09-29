@@ -2,7 +2,9 @@ package com.zer0drv.blog.social;
 
 import com.zer0drv.blog.social.domain.Notification;
 import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.RealtimePushService;
 import com.zer0drv.blog.social.service.impl.NotificationServiceImpl;
+import com.zer0drv.blog.social.vo.NotificationVO;
 import com.zer0drv.blog.user.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -32,11 +35,14 @@ class NotificationServiceImplTest {
     @Mock
     private UserService userService;
 
+    @Mock
+    private RealtimePushService realtimePushService;
+
     private NotificationServiceImpl notificationService;
 
     @BeforeEach
     void setUp() {
-        notificationService = spy(new NotificationServiceImpl(userService));
+        notificationService = spy(new NotificationServiceImpl(userService, realtimePushService));
     }
 
     @Test
@@ -103,6 +109,28 @@ class NotificationServiceImplTest {
         verify(notificationService).save(captor.capture());
         // summary 为 null 时落库为空串而非 null
         assertEquals("hi", captor.getValue().getSummary());
+    }
+
+    @Test
+    void notify_saved_pushesRealtimeToRecipient() {
+        doReturn(true).when(notificationService).save(any(Notification.class));
+
+        notificationService.notify(1L, NotificationType.COMMENT_REPLY, 2L, 10L, 100L, "hi", false);
+
+        // 落库成功后向接收者推送 {"type":"notification","data":<NotificationVO>}
+        ArgumentCaptor<NotificationVO> captor = ArgumentCaptor.forClass(NotificationVO.class);
+        verify(realtimePushService).pushToUser(eq(1L), eq("notification"), captor.capture());
+        NotificationVO pushed = captor.getValue();
+        assertEquals(NotificationType.COMMENT_REPLY.name(), pushed.getType());
+        assertEquals("hi", pushed.getSummary());
+        assertEquals(10L, pushed.getArticleId());
+    }
+
+    @Test
+    void notify_selfAction_noRealtimePush() {
+        notificationService.notify(1L, NotificationType.ARTICLE_LIKE, 1L, 10L, null, "t", true);
+
+        verify(realtimePushService, never()).pushToUser(any(), any(), any());
     }
 
     @Test

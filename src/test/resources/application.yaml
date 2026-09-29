@@ -2,12 +2,23 @@
 # 使 @SpringBootTest 上下文测试无需任何外部服务即可在 CI 运行
 spring:
   datasource:
-    url: jdbc:h2:mem:blog_test;DB_CLOSE_DELAY=-1
+    # MODE=MySQL：让 H2 尽量兼容 MySQL DDL（ENGINE/CHARSET/反引号/ON UPDATE 等）；
+    # NON_KEYWORDS=USER：H2 中 USER 是保留字，而业务表名即 user 且 SQL 不加引号
+    url: jdbc:h2:mem:blog_test;MODE=MySQL;NON_KEYWORDS=USER;DB_CLOSE_DELAY=-1
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
   flyway:
     enabled: false
+  sql:
+    init:
+      # 方案 B：手写 H2 专用 schema。直接跑生产 migration（方案 A）失败——
+      # H2 的约束名是 schema 级全局唯一（MySQL 是表级），article_like 与 article_favorite
+      # 的 UNIQUE KEY 同名 `uk_article_user` 冲突，故精简为单文件、约束名加表名前缀，
+      # 列与 V1~V6 迁移后的最终结构对齐
+      mode: always
+      schema-locations:
+        - classpath:schema-h2.sql
   data:
     redis:
       host: localhost
@@ -20,6 +31,13 @@ spring:
             client-id: test-only-client-id
             client-secret: test-only-client-secret
             scope: [ read:user, user:email ]
+      resourceserver:
+        jwt:
+          # 测试 yaml 会整体遮蔽主 application.yaml，须重复声明：
+          # 本项目 JWT 角色放在自定义 roles 声明（值形如 ROLE_ADMIN），
+          # 缺省 converter 只读 scope/scp 且前缀 SCOPE_，不配则 hasRole 一律 403
+          authorities-claim-name: roles
+          authority-prefix: ""
 
 blog:
   minio:

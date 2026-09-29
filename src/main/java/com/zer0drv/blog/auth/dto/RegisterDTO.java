@@ -30,4 +30,14 @@ public class RegisterDTO {
 
     @Size(max = 32, message = "昵称最长 32 字符")
     private String nickname;
+
+    /**
+     * 图形验证码 id（触发频率阈值后必填，正常注册留空）
+     */
+    private String captchaId;
+
+    /**
+     * 图形验证码答案（触发频率阈值后必填）
+     */
+    private String captchaCode;
 }

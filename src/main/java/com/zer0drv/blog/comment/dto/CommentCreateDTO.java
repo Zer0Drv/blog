@@ -33,4 +33,14 @@ public class CommentCreateDTO {
      * 被回复人id（回复/@ 场景，可空）
      */
     private Long replyToUserId;
+
+    /**
+     * 图形验证码 id（触发频率阈值后必填，正常评论留空）
+     */
+    private String captchaId;
+
+    /**
+     * 图形验证码答案（触发频率阈值后必填）
+     */
+    private String captchaCode;
 }

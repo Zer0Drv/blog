@@ -4,8 +4,10 @@ import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.comment.dto.CommentCreateDTO;
 import com.zer0drv.blog.comment.service.CommentService;
 import com.zer0drv.blog.comment.vo.CommentVO;
+import com.zer0drv.blog.common.captcha.CaptchaService;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.Result;
+import com.zer0drv.blog.common.util.JwtSubjects;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -30,6 +32,7 @@ public class CommentController {
 
     private final CommentService commentService;
     private final SensitiveWordService sensitiveWordService;
+    private final CaptchaService captchaService;
 
     /**
      * 主评论分页（公开）。sort：time_desc(默认) / time_asc / hot；
@@ -61,6 +64,10 @@ public class CommentController {
     @PostMapping
     @PreAuthorize("isAuthenticated()")
     public Result<Long> create(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid CommentCreateDTO dto) {
+        // 业务执行前校验图形验证码（未达阈值直接放行），评论按当前用户 ID 计数
+        String userId = String.valueOf(JwtSubjects.userIdOf(jwt));
+        captchaService.verify(CaptchaService.SCENE_COMMENT, userId, dto.getCaptchaId(), dto.getCaptchaCode());
+        captchaService.recordAttempt(CaptchaService.SCENE_COMMENT, userId);
         Result<Long> result = Result.ok(commentService.create(dto, jwt));
         // M5：命中敏感词的评论以 FOLDED 落库进入审核，接口正常返回但 message 覆盖提示（前端按 message 提示）
         if (sensitiveWordService.containsSensitiveWord(dto.getContent())) {

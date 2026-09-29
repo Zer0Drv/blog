@@ -14,6 +14,7 @@ import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.mapper.PrivateMessageMapper;
 import com.zer0drv.blog.social.service.MessageService;
 import com.zer0drv.blog.social.service.NotificationService;
+import com.zer0drv.blog.social.service.RealtimePushService;
 import com.zer0drv.blog.social.vo.ConversationVO;
 import com.zer0drv.blog.social.vo.MessageVO;
 import com.zer0drv.blog.social.vo.SocialUserVO;
@@ -57,6 +58,7 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
     private final UserService userService;
     private final NotificationService notificationService;
     private final SensitiveWordService sensitiveWordService;
+    private final RealtimePushService realtimePushService;
 
     @Override
     public List<ConversationVO> conversations(Jwt jwt) {
@@ -150,6 +152,13 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
                 ? content : content.substring(0, SUMMARY_MAX_LENGTH);
         notificationService.notify(receiverId, NotificationType.PRIVATE_MESSAGE, userId,
                 null, null, summary, false);
+        // 实时推送私信帧给接收者（推送内部已全量 catch，失败不影响主流程）
+        MessageVO vo = toMessageVO(message);
+        if (Objects.isNull(vo.getCreateTime())) {
+            // create_time 走数据库默认值，实体回查前为 null，推送帧兜底取当前时间
+            vo.setCreateTime(LocalDateTime.now());
+        }
+        realtimePushService.pushToUser(receiverId, "private_message", vo);
         return message.getId();
     }
 

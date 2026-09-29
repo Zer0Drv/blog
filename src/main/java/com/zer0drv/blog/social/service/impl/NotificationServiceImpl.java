@@ -12,6 +12,7 @@ import com.zer0drv.blog.social.domain.Notification;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.mapper.NotificationMapper;
 import com.zer0drv.blog.social.service.NotificationService;
+import com.zer0drv.blog.social.service.RealtimePushService;
 import com.zer0drv.blog.social.vo.NotificationVO;
 import com.zer0drv.blog.social.vo.SocialUserVO;
 import com.zer0drv.blog.user.domain.User;
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -41,6 +43,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     private static final short READ = 1;
 
     private final UserService userService;
+    private final RealtimePushService realtimePushService;
 
     @Override
     public PageResult<NotificationVO> pageMine(long page, long size, String type, Jwt jwt) {
@@ -128,6 +131,9 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             notification.setSummary(Objects.isNull(summary) ? "" : summary);
             notification.setReadFlag(UNREAD);
             save(notification);
+            // 实时推送通知帧给接收者（在 notify 的 try/catch 兜底内，失败不影响主业务）
+            realtimePushService.pushToUser(userId, "notification",
+                    assemble(List.of(notification)).getFirst());
         } catch (Exception e) {
             // 通知创建失败不回滚主业务
             log.warn("通知创建失败：type={}, userId={}, actorId={}, articleId={}, reason={}",
@@ -156,7 +162,9 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             vo.setArticleId(notification.getArticleId());
             vo.setCommentId(notification.getCommentId());
             vo.setReadFlag(notification.getReadFlag());
-            vo.setCreateTime(notification.getCreateTime());
+            // create_time 走数据库默认值：落库后实时推送时实体尚未回查为 null，兜底取当前时间
+            vo.setCreateTime(Objects.nonNull(notification.getCreateTime())
+                    ? notification.getCreateTime() : LocalDateTime.now());
             User actor = Objects.nonNull(notification.getActorId())
                     ? actorMap.get(notification.getActorId()) : null;
             if (Objects.nonNull(actor)) {

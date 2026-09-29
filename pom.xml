@@ -75,6 +75,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
+        <!-- WebSocket 实时推送（私信+通知）：/ws 端点，握手走 JWT query token -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
         <!-- 邮箱验证码：未配置 spring.mail.host 时 JavaMailSender 不存在，代码走 dev 日志兜底 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -140,6 +145,12 @@
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-core</artifactId>
+            <version>5.8.47</version>
+        </dependency>
+        <!-- 图形验证码生成（LineCaptcha），版本与 hutool-core 保持一致 -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-captcha</artifactId>
             <version>5.8.47</version>
         </dependency>
 

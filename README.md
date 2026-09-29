@@ -217,9 +217,21 @@ mvn spring-boot:run                  # 或 java -jar target/blog-0.0.1-SNAPSHOT.
 
 ## MinIO 对象存储（M6）
 
-`docker-compose.yml` 已含 `minio`（API `9000`、控制台 `9001`，默认账密 `minioadmin`/`minioadmin123`）与一次性初始化容器 `minio-init`（自动建 `blog-images` bucket 并开放匿名下载）。上传接口在 `blog.minio.enabled=true`（默认）时写入 MinIO 并返回绝对 URL（`{public-url}/{bucket}/{yyyyMM}/{uuid}.{ext}`）；`MINIO_ENABLED=false` 时回退本地磁盘（`/uploads/**`）。
+`docker-compose.yml` 含 `minio`（API `9000`、控制台 `9001`，默认账密 `minioadmin`/`minioadmin123`）。
+上游官方镜像 `minio/minio` 已 EOL 并从 Docker Hub 下架，compose 改用 pin 版本的
+`alpine/minio:RELEASE.2025-10-15T17-29-55Z`（非 root 运行，从旧官方镜像迁移数据卷需先 `down -v` 重建）；
+`blog-images` bucket 创建与匿名下载策略由后端启动自检（`MinioConfig#minioBucketCheck`，幂等）保证，不再依赖 `mc` 初始化容器。
+上传接口在 `blog.minio.enabled=true`（默认）时写入 MinIO 并返回绝对 URL（`{public-url}/{bucket}/{yyyyMM}/{uuid}.{ext}`）；`MINIO_ENABLED=false` 时回退本地磁盘（`/uploads/**`）。
 
 可用环境变量：`MINIO_ENABLED` `MINIO_ENDPOINT` `MINIO_ACCESS_KEY` `MINIO_SECRET_KEY` `MINIO_BUCKET` `MINIO_PUBLIC_URL`（生产环境把 `MINIO_PUBLIC_URL` 指到浏览器可达的对外地址）。
+
+## 增量功能（2026-09-30）
+
+- **自适应图形验证码**：敏感操作（登录/注册/邮箱验证码/找回密码/评论）按来源频率计数，超过阈值（`blog.captcha.*` 配置，默认 3~10 次 / 10 分钟）才要求图形验证码，正常使用零打扰。
+  取图 `GET /auth/captcha?scene=`、预检 `GET /auth/captcha/required?scene=`（均匿名放行）；未带/带错验证码返回 `40066 CAPTCHA_REQUIRED`，请求 DTO 带可选 `captchaId/captchaCode`。
+- **个人资料编辑**：`PUT /users/me`（`nickname`/`avatar`/`bio`），返回更新后的 `UserVO`。
+- **WebSocket 实时推送**：`GET /ws?token=<jwt>`（握手鉴权走 `JwtDecoder`，含黑名单校验）。
+  服务端推送 `{"type":"private_message","data":MessageVO}`（私信）与 `{"type":"notification","data":NotificationVO}`（通知），前端断线自动回退轮询。
 
 ## 配置注意事项（踩过的坑）
 
@@ -233,5 +245,6 @@ mvn spring-boot:run                  # 或 java -jar target/blog-0.0.1-SNAPSHOT.
 - **M1 骨架** ✅ 工程脚手架、Flyway 初始化、邮箱验证码注册 / 登录、JWT 安全层
 - **M2 内容** ✅ 文章 CRUD（Markdown/富文本双模式、图片上传、标签分类）、首页 / 列表 / 详情
 - **M3 互动** ✅ 评论（两层楼中楼 + 时间/热度双排序 + @）、点赞收藏、浏览量
-- **M4 社交** ✅ 关注 + Feed、私信（v1 轮询）、通知中心
+- **M4 社交** ✅ 关注 + Feed、私信（WebSocket 实时推送，轮询兜底）、通知中心（WS + 轮询）
 - **M5 后台** ✅ 文章管理（置顶/推荐位/下架）、评论治理（审核 + 敏感词过滤）、用户管理（封禁/角色）、站点数据 dashboard
+- **增量** ✅ 自适应图形验证码（频率触发）、个人资料编辑（PUT /users/me）、接口级集成测试（MockMvc + H2）

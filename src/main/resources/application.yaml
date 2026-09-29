@@ -38,3 +38,28 @@ blog:
   oauth:
     success-redirect: ${OAUTH_SUCCESS_REDIRECT:http://localhost:5173/oauth/callback}
     failure-redirect: ${OAUTH_FAILURE_REDIRECT:http://localhost:5173/login?error=oauth_failed}
+  # 自适应图形验证码：按 scene+来源计数，窗口内达到阈值后该来源必须过验证码（正常使用零打扰）
+  captcha:
+    # 验证码文本 Redis TTL（秒），一次性，校验一次即删
+    code-ttl-seconds: 300
+    scenes:
+      # 登录失败 +1、登录成功清零（计数键：客户端 IP）
+      login:
+        threshold: 5
+        window-seconds: 600
+      # 注册尝试 +1（计数键：客户端 IP）
+      register:
+        threshold: 3
+        window-seconds: 600
+      # 发送邮箱验证码尝试 +1（计数键：客户端 IP）
+      email-code:
+        threshold: 5
+        window-seconds: 600
+      # 密码重置尝试 +1（计数键：客户端 IP）
+      password-reset:
+        threshold: 3
+        window-seconds: 600
+      # 发表评论 +1（计数键：当前用户 ID）
+      comment:
+        threshold: 10
+        window-seconds: 600

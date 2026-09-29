@@ -23,4 +23,14 @@ public class PasswordResetDTO {
     @NotBlank(message = "新密码不能为空")
     @Size(min = 6, max = 32, message = "密码长度须在 6~32 之间")
     private String newPassword;
+
+    /**
+     * 图形验证码 id（触发频率阈值后必填，正常重置留空）
+     */
+    private String captchaId;
+
+    /**
+     * 图形验证码答案（触发频率阈值后必填）
+     */
+    private String captchaCode;
 }
