@@ -35,23 +35,35 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
     @Value("${blog.oauth.success-redirect:http://localhost:5173/oauth/callback}")
     private String successRedirect;
 
+    /**
+     * 失败回跳（successHandler 不走 @RestControllerAdvice，业务异常在此捕获后统一回跳）
+     */
+    @Value("${blog.oauth.failure-redirect:http://localhost:5173/login?error=oauth_failed}")
+    private String failureRedirect;
+
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
                                         Authentication authentication) throws IOException {
-        OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
-        Map<String, Object> attributes = oAuth2User.getAttributes();
-        // GitHub id 为数值型（Integer/Long 均可能出现）
-        Object idAttr = attributes.get("id");
-        Long githubId = idAttr instanceof Number number ? number.longValue() : null;
-        Map<String, String> token = authService.loginByGithub(
-                githubId,
-                strAttr(attributes.get("login")),
-                strAttr(attributes.get("name")),
-                strAttr(attributes.get("avatar_url")),
-                strAttr(attributes.get("email")));
-        String target = successRedirect + "?token="
-                + URLEncoder.encode(token.get("access_token"), StandardCharsets.UTF_8);
-        response.sendRedirect(target);
+        try {
+            OAuth2User oAuth2User = (OAuth2User) authentication.getPrincipal();
+            Map<String, Object> attributes = oAuth2User.getAttributes();
+            // GitHub id 为数值型（Integer/Long 均可能出现）
+            Object idAttr = attributes.get("id");
+            Long githubId = idAttr instanceof Number number ? number.longValue() : null;
+            Map<String, String> token = authService.loginByGithub(
+                    githubId,
+                    strAttr(attributes.get("login")),
+                    strAttr(attributes.get("name")),
+                    strAttr(attributes.get("avatar_url")),
+                    strAttr(attributes.get("email")));
+            String target = successRedirect + "?token="
+                    + URLEncoder.encode(token.get("access_token"), StandardCharsets.UTF_8);
+            response.sendRedirect(target);
+        } catch (Exception e) {
+            // 封禁/撞键等业务异常：不能走 @RestControllerAdvice（此处不在 MVC 流程），回跳前端提示
+            log.warn("GitHub OAuth 登录失败: {}", e.getMessage());
+            response.sendRedirect(failureRedirect);
+        }
     }
 
     private String strAttr(Object value) {

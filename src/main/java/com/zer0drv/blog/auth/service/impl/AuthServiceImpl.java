@@ -149,6 +149,20 @@ public class AuthServiceImpl implements AuthService {
                 throw new BusinessException(StatusCode.USER_BANNED);
             }
         } else {
+            // GitHub 主邮箱与已有本地账号一致时，直接绑定 github_id 而非新建（避免 uk_email 冲突）
+            if (Objects.nonNull(email) && !email.isBlank()) {
+                User byEmail = userService.getOne(Wrappers.lambdaQuery(User.class)
+                        .eq(User::getEmail, email));
+                if (Objects.nonNull(byEmail)) {
+                    byEmail.setGithubId(githubId);
+                    userService.updateById(byEmail);
+                    if (Objects.nonNull(byEmail.getStatus()) && byEmail.getStatus() == 1) {
+                        throw new BusinessException(StatusCode.USER_BANNED);
+                    }
+                    String boundToken = tokenService.generateToken(byEmail.getId(), List.of("ROLE_" + byEmail.getRole()));
+                    return Map.of("access_token", boundToken, "token_type", "Bearer");
+                }
+            }
             // 未绑定：自动注册。username 撞唯一索引时追加 githubId 兜底
             user = new User();
             String username = "gh_" + (Objects.isNull(login) || login.isBlank() ? "user" : login);
