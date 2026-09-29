@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.domain.Article;
+import com.zer0drv.blog.article.enums.ArticleStatus;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.comment.domain.Comment;
@@ -50,7 +51,7 @@ public class InteractionServiceImpl implements InteractionService {
     @Override
     public void likeArticle(Long articleId, Jwt jwt) {
         Article article = articleService.getById(articleId);
-        if (Objects.isNull(article)) {
+        if (Objects.isNull(article) || !ArticleStatus.PUBLISHED.name().equals(article.getStatus())) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
         Long userId = JwtSubjects.userIdOf(jwt);
@@ -192,7 +193,12 @@ public class InteractionServiceImpl implements InteractionService {
     }
 
     private void requireArticle(Long articleId) {
-        if (Objects.isNull(articleService.getById(articleId))) {
+        Article article = articleService.getById(articleId);
+        if (Objects.isNull(article) || !ArticleStatus.PUBLISHED.name().equals(article.getStatus())) {
+            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+        }
+        // 互动操作仅对已发布文章开放（草稿/下架不可点赞收藏，也避免泄露未发布内容）
+        if (!ArticleStatus.PUBLISHED.name().equals(article.getStatus())) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
     }
