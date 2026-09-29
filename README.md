@@ -201,6 +201,24 @@ mvn spring-boot:run                  # 或 java -jar target/blog-0.0.1-SNAPSHOT.
 
 **GitHub OAuth**：依赖（`oauth2-client`）与配置位已预留，填入环境变量 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` 后在 `SecurityConfig` 启用 `oauth2Login` 即可。
 
+## GitHub OAuth 登录（M6）
+
+授权码流程由 Spring Security 托管：前端按钮直连后端 `/oauth2/authorization/github` → GitHub 授权 → 回调 `/login/oauth2/code/github` → `OAuth2LoginSuccessHandler` 按 `github_id` 查库（不存在则自动注册，用户名 `gh_+login`、隐藏邮箱时用 `gh_{id}@oauth.local` 占位、密码留空仅能 OAuth 登录）→ 签发本站 JWT → 302 回前端 `/oauth/callback?token=...`。
+
+**接入步骤**：
+
+1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App：
+   - Homepage URL：`http://localhost:5173`
+   - Authorization callback URL：`http://localhost:8082/login/oauth2/code/github`
+2. 配置环境变量 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`（`application-dev.yaml` 中默认为占位值 `replace-me`，仅保证无凭据时可启动）
+3. 回跳地址可用 `OAUTH_SUCCESS_REDIRECT` / `OAUTH_FAILURE_REDIRECT` 覆盖（默认 `http://localhost:5173/oauth/callback` 与 `/login?error=oauth_failed`）
+
+## MinIO 对象存储（M6）
+
+`docker-compose.yml` 已含 `minio`（API `9000`、控制台 `9001`，默认账密 `minioadmin`/`minioadmin123`）与一次性初始化容器 `minio-init`（自动建 `blog-images` bucket 并开放匿名下载）。上传接口在 `blog.minio.enabled=true`（默认）时写入 MinIO 并返回绝对 URL（`{public-url}/{bucket}/{yyyyMM}/{uuid}.{ext}`）；`MINIO_ENABLED=false` 时回退本地磁盘（`/uploads/**`）。
+
+可用环境变量：`MINIO_ENABLED` `MINIO_ENDPOINT` `MINIO_ACCESS_KEY` `MINIO_SECRET_KEY` `MINIO_BUCKET` `MINIO_PUBLIC_URL`（生产环境把 `MINIO_PUBLIC_URL` 指到浏览器可达的对外地址）。
+
 ## 配置注意事项（踩过的坑）
 
 - **JWT 角色声明必须是 `roles`**：本项目把角色放在自定义声明 `roles`（值形如 `ROLE_ADMIN`）。Spring 默认的 `JwtGrantedAuthoritiesConverter` 只读 `scope`/`scp` 且默认前缀 `SCOPE_`，因此 `application.yaml` 里显式配了 `authorities-claim-name: roles` + `authority-prefix: ""`，否则 `hasRole('ADMIN')` 会一律 403。
