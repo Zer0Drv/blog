@@ -42,6 +42,8 @@ public class ArticleListVO {
      */
     private Short isRecommended;
 
+    private Long viewCount;
+
     private LocalDateTime publishTime;
 
     private LocalDateTime createTime;
