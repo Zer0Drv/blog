@@ -13,6 +13,8 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -37,6 +39,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler({MissingServletRequestParameterException.class, HttpMessageNotReadableException.class})
     public Result<Void> badRequest(Exception e) {
+        return Result.fail(StatusCode.PARAM_INVALID.getCode(), StatusCode.PARAM_INVALID.getMessage());
+    }
+
+    /**
+     * 路径/查询参数类型不匹配（如 /articles/abc）与 multipart 缺 part：客户端错误，按 400 语义返回
+     */
+    @ExceptionHandler({MethodArgumentTypeMismatchException.class, MissingServletRequestPartException.class})
+    public Result<Void> badRequestTypeMismatch(Exception e) {
         return Result.fail(StatusCode.PARAM_INVALID.getCode(), StatusCode.PARAM_INVALID.getMessage());
     }
 
