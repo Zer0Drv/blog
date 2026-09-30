@@ -3,6 +3,7 @@ package com.zer0drv.blog.article.domain;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
@@ -45,6 +46,12 @@ public class Article {
      */
     @TableField(value = "content")
     private String content;
+
+    /**
+     * 正文纯文本（V7，全文搜索用；保存时由 content 清洗生成）
+     */
+    @TableField(value = "content_text")
+    private String contentText;
 
     /**
      * 编辑器类型：MARKDOWN / RICHTEXT
@@ -113,8 +120,10 @@ public class Article {
     private LocalDateTime updateTime;
 
     /**
-     * 逻辑删除：0-未删除；1-删除
+     * 逻辑删除：0-未删除；1-删除（显式 @TableLogic：全局 logic-delete-field 配置在本工程未生效，
+     * 实测 removeById 走了物理删除，回收站依赖实体级注解保证逻辑删）
      */
+    @TableLogic
     @TableField(value = "deleted")
     private Short deleted;
 }

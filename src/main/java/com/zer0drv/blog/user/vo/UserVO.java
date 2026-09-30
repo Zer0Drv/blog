@@ -26,5 +26,10 @@ public class UserVO {
 
     private Short status;
 
+    /**
+     * 评论邮件通知开关（P0 §2.3）：0-关；1-开
+     */
+    private Short emailNotifyEnabled;
+
     private LocalDateTime createTime;
 }

@@ -55,6 +55,10 @@ public enum StatusCode {
     EMAIL_NOT_REGISTERED("40065", "该邮箱未注册"),
     // 40050 已被 FOLLOW_SELF_INVALID 占用，取下一个空闲码
     CAPTCHA_REQUIRED("40066", "操作过于频繁，请完成图形验证"),
+    ARTICLE_VERSION_NOT_EXIST("40067", "文章版本不存在"),
+    ATTACHMENT_NOT_EXIST("40069", "附件不存在"),
+    ATTACHMENT_GROUP_NOT_EXIST("40070", "附件分组不存在"),
+    ATTACHMENT_GROUP_HAS_ITEMS("40071", "分组内仍有附件，无法删除"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 

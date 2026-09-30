@@ -123,9 +123,12 @@ public abstract class IntegrationTestSupport {
 
     /**
      * 预置文章并返回 id；status 为 PUBLISHED 时写发布时间
+     * （截断到秒：H2/MySQL DATETIME 精度为秒且会四舍五入，带纳秒的时间可能进位到未来，
+     * 使 P0 的 publish_time <= now 可见性谓词把刚预置的文章误判为「定时中」）
      */
     protected long seedArticle(long authorId, String title, String status) {
-        Timestamp publishTime = "PUBLISHED".equals(status) ? Timestamp.valueOf(LocalDateTime.now()) : null;
+        Timestamp publishTime = "PUBLISHED".equals(status)
+                ? Timestamp.valueOf(LocalDateTime.now().withNano(0)) : null;
         jdbcTemplate.update(
                 "INSERT INTO article (title, summary, content, editor_type, cover, author_id, status, publish_time)"
                         + " VALUES (?,?,?,?,?,?,?,?)",

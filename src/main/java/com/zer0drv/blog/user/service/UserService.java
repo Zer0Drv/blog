@@ -5,6 +5,8 @@ import com.zer0drv.blog.user.domain.User;
 import com.zer0drv.blog.user.dto.ProfileUpdateDTO;
 import com.zer0drv.blog.user.vo.UserVO;
 
+import java.util.Map;
+
 /**
  * @author Yoruhaki
  */
@@ -18,4 +20,22 @@ public interface UserService extends IService<User> {
      * @return 更新后的用户信息
      */
     UserVO updateProfile(Long userId, ProfileUpdateDTO dto);
+
+    /**
+     * 查询指定用户的通知偏好（P0 §2.3）
+     *
+     * @param userId 用户 id
+     * @return {emailNotifyEnabled: true|false}
+     */
+    Map<String, Boolean> getPreferences(Long userId);
+
+    /**
+     * 更新指定用户的通知偏好（P0 §2.3）。
+     * body 必须包含布尔值 emailNotifyEnabled，缺失或非布尔 → PARAM_INVALID。
+     *
+     * @param userId      用户 id
+     * @param preferences 偏好请求体
+     * @return 更新后的最新偏好
+     */
+    Map<String, Boolean> updatePreferences(Long userId, Map<String, Object> preferences);
 }

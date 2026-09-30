@@ -240,6 +240,24 @@ mvn spring-boot:run                  # 或 java -jar target/blog-0.0.1-SNAPSHOT.
 - **CSRF 关闭的前提**是无 Cookie 会话、凭据走 `Authorization` 头、无 `formLogin`；一旦改回 Cookie 认证必须恢复 CSRF。
 - **`jwt.secret` 目前是 dev 明文默认值**，上生产前必须替换为环境变量注入的强随机值。
 
+## 增量功能（P0，2026-09-30）
+
+对标 WordPress / Halo 的 P0 补缺（规划见 `../SPEC-P0.md` 或交付文档）：
+
+- **文章版本历史**：`PUT /articles/{id}` 每次保存自动快照旧行（同事务，版本号递增）；`GET /articles/{id}/versions`、`GET /articles/{id}/versions/{version}`、`POST /articles/{id}/restore/{version}`（恢复也留痕）。
+- **自动保存**：`PUT/GET /articles/{id}/autosave`（Redis `blog:autosave:{articleId}:{userId}`，TTL 2h，正式保存后自动清除）。
+- **定时发布**：`ArticleSaveDTO.publishTime` 可选（须晚于当前 60s 以上）；公众可见性谓词统一为 `status=PUBLISHED AND publish_time<=now`（列表/详情/Feed/归档/搜索/RSS 一致生效）。
+- **回收站**：删除文章/评论改为仅逻辑删（不再级联）；`pageMine` 与 `/admin/articles`、`/admin/comments` 支持伪状态 `TRASH`；`POST /articles/{id}/restore`（回草稿）、`DELETE /articles/{id}/force`（物理级联）；评论端 `POST /admin/comments/{id}/restore`、`DELETE /admin/comments/{id}/force`。
+- **全文搜索**：`GET /articles/search?keyword=&page=&size=`；`article.content_text` 冗余纯文本 + ngram FULLTEXT（`blog.search.fulltext-enabled=false` 时降级 title/summary/content_text 三路 LIKE，H2 测试即走兜底）。
+- **归档**：`GET /articles/archives`（按月分组，内存聚合）。
+- **评论审核队列**：`CommentStatus` 新增 `PENDING`；站点配置 `comment.review_required=true` 时新评论先落 PENDING（不通知、公开不可见），`PUT /admin/comments/{id}/approve`（补发通知+邮件）/ `reject`（折叠）。
+- **评论邮件通知**：`COMMENT_REPLY`/`MENTION` 通知异步发邮件（@Async + JavaMailSender ObjectProvider，未配 SMTP 走 dev-fallback 日志）；跳过 `@oauth.local` 占位邮箱；用户在 `GET/PUT /users/me/preferences` 管理 `emailNotifyEnabled` 开关。
+- **SEO 三件套**：`GET /rss.xml`、`/atom.xml`（Rome，最近 20 篇可见文章）、`/sitemap.xml`（≤1000 条，lastmod=updateTime）、`/robots.txt`（均匿名放行）。
+- **站点设置中心**：`site_config` 表（7 个内置键：site.name/description/logo/icp/footer/base_url、comment.review_required）；`GET /site/config`（白名单 5 键公开）；`GET/PUT /admin/site/config`；`SiteConfigService` 内存缓存读。
+- **附件库**：`attachment`/`attachment_group` 表；上传接口响应扩为 `{url, id}` 并落库；`GET /attachments`（分组/搜索/分页）、分组 CRUD、`PUT /attachments/{id}` 换组、`DELETE` 逻辑删记录（不删存储对象）；管理端 `GET/DELETE /admin/attachments`。
+
+**工程修正**：MP 全局 `logic-delete-field` 配置实测不生效，`Article`/`ArticleVersion`/`Comment`/`Attachment`/`SiteConfig` 实体已改实体级 `@TableLogic`；`publish_time` 写入统一截断到秒（DATETIME 秒精度四舍五入竞态）。新增迁移 V7（article_version + content_text + ngram 索引）、V8（user.email_notify_enabled）、V9（site_config + attachment 两表）。
+
 ## 路线图
 
 - **M1 骨架** ✅ 工程脚手架、Flyway 初始化、邮箱验证码注册 / 登录、JWT 安全层
@@ -248,3 +266,5 @@ mvn spring-boot:run                  # 或 java -jar target/blog-0.0.1-SNAPSHOT.
 - **M4 社交** ✅ 关注 + Feed、私信（WebSocket 实时推送，轮询兜底）、通知中心（WS + 轮询）
 - **M5 后台** ✅ 文章管理（置顶/推荐位/下架）、评论治理（审核 + 敏感词过滤）、用户管理（封禁/角色）、站点数据 dashboard
 - **增量** ✅ 自适应图形验证码（频率触发）、个人资料编辑（PUT /users/me）、接口级集成测试（MockMvc + H2）
+- **P0（对标 WordPress/Halo）** ✅ 版本历史、自动保存、定时发布、回收站、全文搜索、归档、评论审核队列 + 邮件通知、RSS/Sitemap/robots、站点设置中心、附件库
+- **候选（P1）** 文章 slug 固定链接、密码保护/私密文章、Markdown 导入导出、友情链接、自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、附件对象物理清理

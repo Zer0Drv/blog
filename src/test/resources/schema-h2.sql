@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS `user`
     `role`        VARCHAR(20)  NOT NULL DEFAULT 'USER' COMMENT '角色：ADMIN/AUTHOR/USER',
     `status`      TINYINT      NOT NULL DEFAULT 0 COMMENT '状态：0-正常；1-封禁',
     `github_id`   BIGINT       NULL COMMENT 'GitHub账号id（OAuth绑定）',
+    `email_notify_enabled` TINYINT NOT NULL DEFAULT 1 COMMENT '评论邮件通知开关：0-关；1-开',
     `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted`     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除；1-删除',
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS `article`
     `title`          VARCHAR(200) NOT NULL COMMENT '标题',
     `summary`        VARCHAR(500) NOT NULL DEFAULT '' COMMENT '摘要',
     `content`        LONGTEXT     NOT NULL COMMENT '正文（Markdown 或富文本 HTML）',
+    `content_text`   LONGTEXT     NULL COMMENT '正文纯文本（全文搜索用，V7）',
     `editor_type`    VARCHAR(16)  NOT NULL COMMENT '编辑器类型：MARKDOWN/RICHTEXT',
     `cover`          VARCHAR(512) NOT NULL DEFAULT '' COMMENT '封面图URL',
     `category_id`    BIGINT       NULL COMMENT '分类id',
@@ -197,3 +199,91 @@ CREATE TABLE IF NOT EXISTS `sensitive_word`
     PRIMARY KEY (`id`),
     CONSTRAINT `uk_sensitive_word_word` UNIQUE (`word`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '敏感词表';
+
+-- ========== V7 P0 article 系 ==========
+-- 文章版本快照表；content_text 列已并入上方 article CREATE TABLE。
+-- H2 不支持 FULLTEXT ngram 索引，测试库不建 ft_article_search（搜索走 LIKE 兜底路径）。
+CREATE TABLE IF NOT EXISTS `article_version`
+(
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `article_id`  BIGINT       NOT NULL COMMENT '文章id',
+    `version`     INT          NOT NULL COMMENT '版本号（自 1 递增）',
+    `title`       VARCHAR(200) NOT NULL,
+    `summary`     VARCHAR(500) NOT NULL DEFAULT '',
+    `content`     LONGTEXT     NOT NULL,
+    `editor_type` VARCHAR(16)  NOT NULL,
+    `cover`       VARCHAR(512) NOT NULL DEFAULT '',
+    `category_id` BIGINT       NULL,
+    `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '快照时间',
+    `deleted`     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除；1-删除',
+    PRIMARY KEY (`id`),
+    CONSTRAINT `uk_article_version_article_version` UNIQUE (`article_id`, `version`),
+    KEY `idx_article_version_article` (`article_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '文章版本快照表';
+
+-- ========== V9 P0 infra 系（站点配置 + 附件库） ==========
+CREATE TABLE IF NOT EXISTS `site_config`
+(
+    `id`           BIGINT        NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `config_key`   VARCHAR(64)   NOT NULL COMMENT '配置键',
+    `config_value` VARCHAR(1024) NOT NULL DEFAULT '' COMMENT '配置值',
+    `description`  VARCHAR(255)  NOT NULL DEFAULT '' COMMENT '说明',
+    `update_time`  DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`      TINYINT       NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除；1-删除',
+    PRIMARY KEY (`id`),
+    CONSTRAINT `uk_site_config_key` UNIQUE (`config_key`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '站点配置表';
+
+-- 种子：7 个已知配置键（幂等，与 V9 迁移一致）
+INSERT INTO `site_config` (`config_key`, `config_value`, `description`)
+SELECT 'site.name', 'Blog', '站点名称'
+WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'site.name');
+INSERT INTO `site_config` (`config_key`, `config_value`, `description`)
+SELECT 'site.description', '记录与分享', '站点描述'
+WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'site.description');
+INSERT INTO `site_config` (`config_key`, `config_value`, `description`)
+SELECT 'site.logo', '', '站点 Logo URL'
+WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'site.logo');
+INSERT INTO `site_config` (`config_key`, `config_value`, `description`)
+SELECT 'site.icp', '', 'ICP 备案号'
+WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'site.icp');
+INSERT INTO `site_config` (`config_key`, `config_value`, `description`)
+SELECT 'site.footer', '', '页脚自定义内容'
+WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'site.footer');
+INSERT INTO `site_config` (`config_key`, `config_value`, `description`)
+SELECT 'site.base_url', 'http://localhost:5173', '前端站点对外地址（RSS/邮件链接拼接用，不对外公开）'
+WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'site.base_url');
+INSERT INTO `site_config` (`config_key`, `config_value`, `description`)
+SELECT 'comment.review_required', 'false', '评论审核开关：true-发表评论先进入待审核队列'
+WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'comment.review_required');
+
+CREATE TABLE IF NOT EXISTS `attachment_group`
+(
+    `id`          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `user_id`     BIGINT      NOT NULL COMMENT '属主用户id',
+    `name`        VARCHAR(64) NOT NULL COMMENT '分组名',
+    `sort`        INT         NOT NULL DEFAULT 0 COMMENT '排序值，越小越靠前',
+    `create_time` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted`     TINYINT     NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除；1-删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_attachment_group_user` (`user_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '附件分组表';
+
+CREATE TABLE IF NOT EXISTS `attachment`
+(
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
+    `user_id`     BIGINT       NOT NULL COMMENT '上传者id',
+    `group_id`    BIGINT       NULL COMMENT '分组id（NULL=未分组）',
+    `url`         VARCHAR(512) NOT NULL COMMENT '访问URL',
+    `object_key`  VARCHAR(255) NOT NULL DEFAULT '' COMMENT '存储对象名（yyyyMM/uuid.ext）',
+    `storage`     VARCHAR(16)  NOT NULL DEFAULT 'LOCAL' COMMENT '存储：MINIO/LOCAL',
+    `filename`    VARCHAR(255) NOT NULL DEFAULT '' COMMENT '原始文件名',
+    `media_type`  VARCHAR(64)  NOT NULL DEFAULT '',
+    `size_bytes`  BIGINT       NOT NULL DEFAULT 0,
+    `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `deleted`     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除；1-删除',
+    PRIMARY KEY (`id`),
+    KEY `idx_attachment_user` (`user_id`),
+    KEY `idx_attachment_group` (`group_id`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '附件表';

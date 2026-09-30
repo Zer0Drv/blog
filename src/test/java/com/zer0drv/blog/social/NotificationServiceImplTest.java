@@ -2,6 +2,7 @@ package com.zer0drv.blog.social;
 
 import com.zer0drv.blog.social.domain.Notification;
 import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.NotificationMailService;
 import com.zer0drv.blog.social.service.RealtimePushService;
 import com.zer0drv.blog.social.service.impl.NotificationServiceImpl;
 import com.zer0drv.blog.social.vo.NotificationVO;
@@ -38,11 +39,14 @@ class NotificationServiceImplTest {
     @Mock
     private RealtimePushService realtimePushService;
 
+    @Mock
+    private NotificationMailService notificationMailService;
+
     private NotificationServiceImpl notificationService;
 
     @BeforeEach
     void setUp() {
-        notificationService = spy(new NotificationServiceImpl(userService, realtimePushService));
+        notificationService = spy(new NotificationServiceImpl(userService, realtimePushService, notificationMailService));
     }
 
     @Test
@@ -141,5 +145,27 @@ class NotificationServiceImplTest {
         // 通知失败不回滚主业务：异常被吞掉
         assertDoesNotThrow(() -> notificationService.notify(
                 1L, NotificationType.ARTICLE_LIKE, 2L, 10L, null, "t", true));
+    }
+
+    @Test
+    void notify_commentReply_triggersCommentMail() {
+        // P0 §2.2：COMMENT_REPLY 落库+推送成功后触发评论邮件（异步，由 mail service 自兜底）
+        doReturn(true).when(notificationService).save(any(Notification.class));
+
+        notificationService.notify(1L, NotificationType.COMMENT_REPLY, 2L, 10L, 100L, "hi", false);
+
+        verify(notificationMailService).sendCommentMailAsync(eq(1L), eq(NotificationType.COMMENT_REPLY),
+                any(), eq(10L), eq("hi"));
+    }
+
+    @Test
+    void notify_articleLike_doesNotTriggerCommentMail() {
+        // P0 §2.2：仅 COMMENT_REPLY/MENTION 触发邮件，点赞等类型不触发
+        doReturn(0L).when(notificationService).count(any());
+        doReturn(true).when(notificationService).save(any(Notification.class));
+
+        notificationService.notify(1L, NotificationType.ARTICLE_LIKE, 2L, 10L, null, "t", true);
+
+        verify(notificationMailService, never()).sendCommentMailAsync(any(), any(), any(), any(), any());
     }
 }

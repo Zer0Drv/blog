@@ -17,3 +17,6 @@ logs/
 
 # 本地运行状态
 .run/
+
+# 本地上传目录（MINIO_ENABLED=false 时的磁盘 fallback；IT 上传用例也会写入）
+uploads/

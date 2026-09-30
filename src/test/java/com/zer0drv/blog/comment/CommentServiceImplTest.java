@@ -11,6 +11,7 @@ import com.zer0drv.blog.comment.service.impl.CommentServiceImpl;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
+import com.zer0drv.blog.site.service.SiteConfigService;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.user.service.UserService;
@@ -21,26 +22,31 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 评论创建/删除纯单测：敏感词折叠、二级回复归一化、删除连带回复。
+ * 评论创建/删除纯单测：敏感词折叠、P0 审核队列（PENDING）、定时发布可见性谓词、二级回复归一化、删除连带回复。
  * MP 继承方法（save/getById/removeById/remove）用 spy + doReturn 桩掉。
  *
  * @author Yoruhaki
@@ -60,6 +66,10 @@ class CommentServiceImplTest {
     private NotificationService notificationService;
     @Mock
     private SensitiveWordService sensitiveWordService;
+    @Mock
+    private ObjectProvider<SiteConfigService> siteConfigServiceProvider;
+    @Mock
+    private SiteConfigService siteConfigService;
 
     private CommentServiceImpl commentService;
 
@@ -67,7 +77,10 @@ class CommentServiceImplTest {
     void setUp() {
         commentService = spy(new CommentServiceImpl(
                 articleMapper, commentLikeMapper, userService, converter,
-                notificationService, sensitiveWordService));
+                notificationService, sensitiveWordService, siteConfigServiceProvider));
+        // 默认：SiteConfigService 可用但审核开关关闭（非 create 路径的测试不触达该桩，lenient 防误报）
+        lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(siteConfigService);
+        lenient().when(siteConfigService.getBool(anyString(), anyBoolean())).thenReturn(false);
     }
 
     private static Jwt jwtOf(long userId, String... roles) {
@@ -81,6 +94,8 @@ class CommentServiceImplTest {
         article.setId(id);
         article.setAuthorId(authorId);
         article.setStatus(ArticleStatus.PUBLISHED.name());
+        // P0 §1.3 可见性谓词要求 publish_time 非空且不晚于 now
+        article.setPublishTime(LocalDateTime.now().minusMinutes(1));
         return article;
     }
 
@@ -180,6 +195,82 @@ class CommentServiceImplTest {
                 () -> commentService.create(dtoOf(10L, "hi", null), jwtOf(2L)));
         assertEquals(StatusCode.ARTICLE_NOT_PUBLISHED.getCode(), ex.getCode());
         verify(commentService, never()).save(any());
+    }
+
+    @Test
+    void create_onScheduledArticle_rejected() {
+        // P0 §1.3：PUBLISHED 但 publish_time 在未来（定时发布未到点）→ 不可评论
+        Article scheduled = publishedArticle(10L, 1L);
+        scheduled.setPublishTime(LocalDateTime.now().plusHours(1));
+        when(articleMapper.selectById(10L)).thenReturn(scheduled);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> commentService.create(dtoOf(10L, "hi", null), jwtOf(2L)));
+        assertEquals(StatusCode.ARTICLE_NOT_PUBLISHED.getCode(), ex.getCode());
+        verify(commentService, never()).save(any());
+    }
+
+    @Test
+    void create_onPublishedArticleWithoutPublishTime_rejected() {
+        // P0 §1.3：publish_time 为空视为未发布
+        Article noTime = publishedArticle(10L, 1L);
+        noTime.setPublishTime(null);
+        when(articleMapper.selectById(10L)).thenReturn(noTime);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> commentService.create(dtoOf(10L, "hi", null), jwtOf(2L)));
+        assertEquals(StatusCode.ARTICLE_NOT_PUBLISHED.getCode(), ex.getCode());
+        verify(commentService, never()).save(any());
+    }
+
+    @Test
+    void create_reviewRequired_savedPendingWithoutNotification() {
+        // P0 §2.1：审核开关开启 → PENDING 落库、不触发通知
+        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(siteConfigService.getBool("comment.review_required", false)).thenReturn(true);
+        doReturn(true).when(commentService).save(any(Comment.class));
+
+        commentService.create(dtoOf(10L, "great article", null), jwtOf(2L));
+
+        ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
+        verify(commentService).save(captor.capture());
+        assertEquals(CommentStatus.PENDING.name(), captor.getValue().getStatus());
+        verify(notificationService, never()).notify(anyLong(), any(), anyLong(),
+                any(), any(), any(), eq(false));
+    }
+
+    @Test
+    void create_reviewRequiredButSensitiveHit_savedFolded() {
+        // 分支顺序：敏感词优先于审核开关（命中 → FOLDED，不进入 PENDING）
+        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        when(sensitiveWordService.containsSensitiveWord("bad word here")).thenReturn(true);
+        doReturn(true).when(commentService).save(any(Comment.class));
+
+        commentService.create(dtoOf(10L, "bad word here", null), jwtOf(2L));
+
+        ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
+        verify(commentService).save(captor.capture());
+        assertEquals(CommentStatus.FOLDED.name(), captor.getValue().getStatus());
+        verify(notificationService, never()).notify(anyLong(), any(), anyLong(),
+                any(), any(), any(), eq(false));
+    }
+
+    @Test
+    void create_siteConfigServiceAbsent_defaultsToNormal() {
+        // 容器无 SiteConfigService 实现（合并前/IT 形态）→ 默认关闭审核，评论直接 NORMAL
+        when(siteConfigServiceProvider.getIfAvailable()).thenReturn(null);
+        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        doReturn(true).when(commentService).save(any(Comment.class));
+
+        commentService.create(dtoOf(10L, "great article", null), jwtOf(2L));
+
+        ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
+        verify(commentService).save(captor.capture());
+        assertEquals(CommentStatus.NORMAL.name(), captor.getValue().getStatus());
+        verify(notificationService).notify(eq(1L), eq(NotificationType.COMMENT_REPLY),
+                eq(2L), eq(10L), isNull(), eq("great article"), eq(false));
     }
 
     @Test

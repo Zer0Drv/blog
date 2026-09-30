@@ -83,6 +83,12 @@ public class User {
     private Long githubId;
 
     /**
+     * 评论邮件通知开关（P0 §2.3）：0-关；1-开
+     */
+    @TableField(value = "email_notify_enabled")
+    private Short emailNotifyEnabled;
+
+    /**
      * 创建时间
      */
     @TableField(value = "create_time")

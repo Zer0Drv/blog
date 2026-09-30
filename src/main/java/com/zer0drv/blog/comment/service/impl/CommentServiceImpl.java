@@ -23,6 +23,7 @@ import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.interaction.domain.CommentLike;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
+import com.zer0drv.blog.site.service.SiteConfigService;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.user.domain.User;
@@ -30,10 +31,12 @@ import com.zer0drv.blog.user.enums.UserRole;
 import com.zer0drv.blog.user.service.UserService;
 import io.github.linpeilie.Converter;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -72,6 +75,11 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     private final Converter converter;
     private final NotificationService notificationService;
     private final SensitiveWordService sensitiveWordService;
+    /**
+     * 站点配置（P0 §2.1 审核开关）。实现类由 backend-C 提供，
+     * 容器中没有实现类时（如 IT/合并前）走默认关闭兜底，必须 ObjectProvider 注入避免上下文启动失败
+     */
+    private final ObjectProvider<SiteConfigService> siteConfigServiceProvider;
 
     @Override
     public PageResult<CommentVO> pageRootComments(Long articleId, String sort, long page, long size, Jwt jwt) {
@@ -113,17 +121,23 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (Objects.isNull(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
-        if (!ArticleStatus.PUBLISHED.name().equals(article.getStatus())) {
+        // P0 §1.3 可见性谓词：非 PUBLISHED / 无发布时间 / 定时发布未到点，均视为未发布不可评论
+        if (!ArticleStatus.PUBLISHED.name().equals(article.getStatus())
+                || Objects.isNull(article.getPublishTime())
+                || article.getPublishTime().isAfter(LocalDateTime.now())) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_PUBLISHED);
         }
         // M5 敏感词过滤：命中则以 FOLDED 落库、不触发通知，响应 message 由 controller 覆盖提示
         boolean sensitiveHit = sensitiveWordService.containsSensitiveWord(content);
+        // P0 §2.1 审核开关：开启时正常评论以 PENDING 落库、不触发通知，响应 message 由 controller 覆盖提示
+        boolean reviewRequired = !sensitiveHit && isCommentReviewRequired();
         Comment comment = new Comment();
         comment.setArticleId(dto.getArticleId());
         comment.setUserId(JwtSubjects.userIdOf(jwt));
         comment.setContent(content);
         comment.setLikeCount(0);
-        comment.setStatus(sensitiveHit ? CommentStatus.FOLDED.name() : CommentStatus.NORMAL.name());
+        comment.setStatus(sensitiveHit ? CommentStatus.FOLDED.name()
+                : (reviewRequired ? CommentStatus.PENDING.name() : CommentStatus.NORMAL.name()));
         if (Objects.isNull(dto.getParentId()) || dto.getParentId() == 0L) {
             // 主评论
             comment.setParentId(0L);
@@ -140,10 +154,20 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         save(comment);
         // M4 通知触发：主评论通知文章作者；回复按 COMMENT_REPLY + MENTION 组合规则（内部自己给自己不发、异常不回滚主业务）
         // M5：命中敏感词的评论（FOLDED）不产生通知
-        if (!sensitiveHit) {
+        // P0 §2.1：待审核评论（PENDING）不产生通知，审核通过（approve）时补发
+        if (!sensitiveHit && !reviewRequired) {
             notifyCommentCreated(comment, article);
         }
         return comment.getId();
+    }
+
+    /**
+     * P0 §2.1 评论审核开关：SiteConfigService 实现缺失时默认关闭（兼容 IT 与合并前环境）
+     */
+    private boolean isCommentReviewRequired() {
+        SiteConfigService siteConfigService = siteConfigServiceProvider.getIfAvailable();
+        return Objects.nonNull(siteConfigService)
+                && siteConfigService.getBool("comment.review_required", false);
     }
 
     @Override
@@ -170,8 +194,10 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
      * 回复：replyToUserId 为空 → root 评论作者收 COMMENT_REPLY；
      * replyToUserId 非空 → root 作者收 COMMENT_REPLY + 被 @ 人收 MENTION（两者同人只发 MENTION）。
      * 自己给自己不发由 NotificationService.notify 兜底。
+     * P0：提为接口 public 方法，供后台审核通过（approve）补发通知复用。
      */
-    private void notifyCommentCreated(Comment comment, Article article) {
+    @Override
+    public void notifyCommentCreated(Comment comment, Article article) {
         Long commenterId = comment.getUserId();
         String summary = comment.getContent().length() <= NOTIFY_SUMMARY_MAX_LENGTH
                 ? comment.getContent() : comment.getContent().substring(0, NOTIFY_SUMMARY_MAX_LENGTH);
@@ -306,7 +332,19 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
                 .groupBy("parent_id"));
         Map<Long, Long> countMap = new HashMap<>();
         for (Map<String, Object> row : rows) {
-            countMap.put(((Number) row.get("parentId")).longValue(), ((Number) row.get("cnt")).longValue());
+            // H2（IT 库）未加引号的列别名一律大写（PARENTID/CNT），MySQL 保留原样，按大小写不敏感取值兼容两者
+            Long parentId = null;
+            Long cnt = null;
+            for (Map.Entry<String, Object> entry : row.entrySet()) {
+                if ("parentId".equalsIgnoreCase(entry.getKey())) {
+                    parentId = ((Number) entry.getValue()).longValue();
+                } else if ("cnt".equalsIgnoreCase(entry.getKey())) {
+                    cnt = ((Number) entry.getValue()).longValue();
+                }
+            }
+            if (Objects.nonNull(parentId) && Objects.nonNull(cnt)) {
+                countMap.put(parentId, cnt);
+            }
         }
         return countMap;
     }

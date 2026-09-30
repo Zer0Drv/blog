@@ -29,11 +29,21 @@ public class AdminArticleServiceImpl implements AdminArticleService {
     private static final short FLAG_OFF = 0;
     private static final short FLAG_ON = 1;
 
+    /**
+     * 回收站伪状态（P0，非 ArticleStatus 枚举值，先拦截走自定义 SQL）
+     */
+    private static final String PSEUDO_STATUS_TRASH = "TRASH";
+
     private final ArticleMapper articleMapper;
     private final ArticleService articleService;
 
     @Override
     public PageResult<ArticleListVO> pageArticles(long page, long size, String status, String keyword, Long authorId) {
+        // P0 全用户回收站：MP 逻辑删除会自动拼 deleted=0，必须手写 SQL 绕过；keyword/authorId 过滤保留
+        if (PSEUDO_STATUS_TRASH.equals(status)) {
+            Page<Article> trash = articleMapper.selectAdminTrashPage(new Page<>(page, size), keyword, authorId);
+            return PageResult.of(articleService.assemble(trash.getRecords()), trash.getTotal(), page, size);
+        }
         if (Objects.nonNull(status) && !status.isBlank() && !ArticleStatus.isValid(status)) {
             throw new BusinessException(StatusCode.ARTICLE_STATUS_INVALID);
         }

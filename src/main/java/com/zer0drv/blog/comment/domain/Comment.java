@@ -3,6 +3,7 @@ package com.zer0drv.blog.comment.domain;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.zer0drv.blog.comment.vo.CommentVO;
 import io.github.linpeilie.annotations.AutoMapper;
@@ -82,7 +83,10 @@ public class Comment {
 
     /**
      * 逻辑删除：0-未删除；1-删除
+     * （显式 @TableLogic：IT 的 application.yaml 整体遮蔽主配置、不含全局 logic-delete-field，
+     * 注解保证两环境行为一致；P0 评论回收站依赖逻辑删除）
      */
+    @TableLogic
     @TableField(value = "deleted")
     private Short deleted;
 }

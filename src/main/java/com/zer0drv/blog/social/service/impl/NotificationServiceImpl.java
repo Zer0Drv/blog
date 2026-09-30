@@ -11,6 +11,7 @@ import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.social.domain.Notification;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.mapper.NotificationMapper;
+import com.zer0drv.blog.social.service.NotificationMailService;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.social.service.RealtimePushService;
 import com.zer0drv.blog.social.vo.NotificationVO;
@@ -44,6 +45,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
 
     private final UserService userService;
     private final RealtimePushService realtimePushService;
+    private final NotificationMailService notificationMailService;
 
     @Override
     public PageResult<NotificationVO> pageMine(long page, long size, String type, Jwt jwt) {
@@ -134,6 +136,15 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             // 实时推送通知帧给接收者（在 notify 的 try/catch 兜底内，失败不影响主业务）
             realtimePushService.pushToUser(userId, "notification",
                     assemble(List.of(notification)).getFirst());
+            // P0 §2.2 评论邮件通知：仅评论回复/@ 两类触发（@Async 异步发送，全部失败自兜底）
+            if (type == NotificationType.COMMENT_REPLY || type == NotificationType.MENTION) {
+                String actorNickname = null;
+                if (Objects.nonNull(actorId)) {
+                    User actor = userService.getById(actorId);
+                    actorNickname = Objects.nonNull(actor) ? actor.getNickname() : null;
+                }
+                notificationMailService.sendCommentMailAsync(userId, type, actorNickname, articleId, summary);
+            }
         } catch (Exception e) {
             // 通知创建失败不回滚主业务
             log.warn("通知创建失败：type={}, userId={}, actorId={}, articleId={}, reason={}",

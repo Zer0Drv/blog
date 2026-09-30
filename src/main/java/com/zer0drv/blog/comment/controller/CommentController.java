@@ -8,8 +8,10 @@ import com.zer0drv.blog.common.captcha.CaptchaService;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.Result;
 import com.zer0drv.blog.common.util.JwtSubjects;
+import com.zer0drv.blog.site.service.SiteConfigService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -22,6 +24,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Objects;
+
 /**
  * @author Yoruhaki
  */
@@ -33,6 +37,11 @@ public class CommentController {
     private final CommentService commentService;
     private final SensitiveWordService sensitiveWordService;
     private final CaptchaService captchaService;
+    /**
+     * 站点配置（P0 §2.1 审核开关 message 覆盖）。实现类由 backend-C 提供，
+     * 容器中没有实现类时默认关闭兜底，必须 ObjectProvider 注入避免上下文启动失败
+     */
+    private final ObjectProvider<SiteConfigService> siteConfigServiceProvider;
 
     /**
      * 主评论分页（公开）。sort：time_desc(默认) / time_asc / hot；
@@ -72,8 +81,20 @@ public class CommentController {
         // M5：命中敏感词的评论以 FOLDED 落库进入审核，接口正常返回但 message 覆盖提示（前端按 message 提示）
         if (sensitiveWordService.containsSensitiveWord(dto.getContent())) {
             result.setMessage("包含敏感内容，已进入审核");
+        } else if (isCommentReviewRequired()) {
+            // P0 §2.1：审核开关开启时评论以 PENDING 落库，公开列表不可见，message 覆盖提示
+            result.setMessage("评论已提交，审核通过后展示");
         }
         return result;
+    }
+
+    /**
+     * P0 §2.1 评论审核开关：SiteConfigService 实现缺失时默认关闭（兼容 IT 与合并前环境）
+     */
+    private boolean isCommentReviewRequired() {
+        SiteConfigService siteConfigService = siteConfigServiceProvider.getIfAvailable();
+        return Objects.nonNull(siteConfigService)
+                && siteConfigService.getBool("comment.review_required", false);
     }
 
     /**

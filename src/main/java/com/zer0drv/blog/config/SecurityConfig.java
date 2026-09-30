@@ -57,6 +57,9 @@ public class SecurityConfig {
                                 "/users/**").permitAll()
                         // 上传图片的静态访问（上传本身需登录）
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/uploads/**").permitAll()
+                        // P0：公开站点配置（白名单键）与 SEO 三件套（RSS/Atom/sitemap/robots）
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/site/config", "/rss.xml", "/atom.xml", "/sitemap.xml", "/robots.txt").permitAll()
                         .requestMatchers("/admin/**").hasRole(UserRole.ADMIN.name())
                         .anyRequest().authenticated())
                 // GitHub OAuth2 登录：成功后由 successHandler 签发本站 JWT 并 302 回前端

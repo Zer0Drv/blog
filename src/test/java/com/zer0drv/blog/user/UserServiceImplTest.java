@@ -17,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -127,6 +128,69 @@ class UserServiceImplTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> userService.updateProfile(404L, dto("新昵称", "", "")));
         assertEquals(StatusCode.USER_NOT_EXIST.getCode(), ex.getCode());
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    void getPreferences_nullColumn_defaultsTrue() {
+        // P0 §2.3：存量行/异常行为 null 时视为开启
+        User existing = user(7L);
+        existing.setEmailNotifyEnabled(null);
+        when(userMapper.selectById(7L)).thenReturn(existing);
+
+        Map<String, Boolean> preferences = userService.getPreferences(7L);
+
+        assertEquals(Boolean.TRUE, preferences.get("emailNotifyEnabled"));
+    }
+
+    @Test
+    void getPreferences_disabled_returnsFalse() {
+        User existing = user(7L);
+        existing.setEmailNotifyEnabled((short) 0);
+        when(userMapper.selectById(7L)).thenReturn(existing);
+
+        Map<String, Boolean> preferences = userService.getPreferences(7L);
+
+        assertEquals(Boolean.FALSE, preferences.get("emailNotifyEnabled"));
+    }
+
+    @Test
+    void updatePreferences_boolean_updatesAndReturnsLatest() {
+        User existing = user(7L);
+        existing.setEmailNotifyEnabled((short) 1);
+        when(userMapper.selectById(7L)).thenReturn(existing);
+        when(userMapper.updateById(any(User.class))).thenReturn(1);
+
+        Map<String, Boolean> result = userService.updatePreferences(7L, Map.of("emailNotifyEnabled", false));
+
+        assertEquals(Boolean.FALSE, result.get("emailNotifyEnabled"));
+        ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).updateById(captor.capture());
+        assertEquals((short) 0, captor.getValue().getEmailNotifyEnabled());
+    }
+
+    @Test
+    void updatePreferences_nonBoolean_rejected() {
+        // 非布尔（字符串）→ PARAM_INVALID
+        User existing = user(7L);
+        when(userMapper.selectById(7L)).thenReturn(existing);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> userService.updatePreferences(7L, Map.of("emailNotifyEnabled", "yes")));
+        assertEquals(StatusCode.PARAM_INVALID.getCode(), ex.getCode());
+        verify(userMapper, never()).updateById(any(User.class));
+    }
+
+    @Test
+    void updatePreferences_missingKey_rejected() {
+        // 必传：缺 key 或 body 为 null 均 PARAM_INVALID
+        User existing = user(7L);
+        when(userMapper.selectById(7L)).thenReturn(existing);
+
+        assertThrows(BusinessException.class,
+                () -> userService.updatePreferences(7L, Map.of()));
+        assertThrows(BusinessException.class,
+                () -> userService.updatePreferences(7L, null));
         verify(userMapper, never()).updateById(any(User.class));
     }
 }

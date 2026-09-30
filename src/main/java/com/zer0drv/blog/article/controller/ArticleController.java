@@ -2,9 +2,13 @@ package com.zer0drv.blog.article.controller;
 
 import com.zer0drv.blog.article.dto.ArticleSaveDTO;
 import com.zer0drv.blog.article.dto.ArticleStatusDTO;
+import com.zer0drv.blog.article.dto.AutosaveDTO;
 import com.zer0drv.blog.article.service.ArticleService;
+import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
+import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
+import com.zer0drv.blog.article.vo.ArticleVersionVO;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.Result;
 import jakarta.validation.Valid;
@@ -21,6 +25,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.Map;
 
 /**
  * @author Yoruhaki
@@ -54,6 +61,24 @@ public class ArticleController {
                                                       @RequestParam(required = false) String status,
                                                       @AuthenticationPrincipal Jwt jwt) {
         return Result.ok(articleService.pageMine(page, size, status, jwt));
+    }
+
+    /**
+     * 全文搜索（公开；P0）。字面量路径优先于 /{id}，无需改 SecurityConfig
+     */
+    @GetMapping("/search")
+    public Result<PageResult<ArticleListVO>> search(@RequestParam(required = false) String keyword,
+                                                    @RequestParam(defaultValue = "1") long page,
+                                                    @RequestParam(defaultValue = "10") long size) {
+        return Result.ok(articleService.search(keyword, page, size));
+    }
+
+    /**
+     * 归档（公开；P0）：可见文章按月分组
+     */
+    @GetMapping("/archives")
+    public Result<List<ArchiveMonthVO>> archives() {
+        return Result.ok(articleService.archives());
     }
 
     /**
@@ -102,6 +127,75 @@ public class ArticleController {
     public Result<Void> updateStatus(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
                                      @RequestBody @Valid ArticleStatusDTO dto) {
         articleService.updateStatus(id, dto, jwt);
+        return Result.ok();
+    }
+
+    /**
+     * 版本列表（P0，仅本人或 ADMIN；version 倒序，不含正文）
+     */
+    @GetMapping("/{id}/versions")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<List<ArticleVersionVO>> listVersions(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        return Result.ok(articleService.listVersions(id, jwt));
+    }
+
+    /**
+     * 版本详情（P0，仅本人或 ADMIN）
+     */
+    @GetMapping("/{id}/versions/{version}")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<ArticleVersionDetailVO> getVersion(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                                                     @PathVariable Integer version) {
+        return Result.ok(articleService.getVersion(id, version, jwt));
+    }
+
+    /**
+     * 恢复到指定版本（P0，仅本人或 ADMIN；恢复前对当前行留快照）
+     */
+    @PostMapping("/{id}/restore/{version}")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<Void> restoreVersion(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                                       @PathVariable Integer version) {
+        articleService.restoreVersion(id, version, jwt);
+        return Result.ok();
+    }
+
+    /**
+     * 自动保存草稿（P0，仅本人或 ADMIN，仅编辑已有文章）
+     */
+    @PutMapping("/{id}/autosave")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<Map<String, Object>> saveAutosave(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                                                    @RequestBody @Valid AutosaveDTO dto) {
+        return Result.ok(articleService.saveAutosave(id, dto, jwt));
+    }
+
+    /**
+     * 读取自动保存草稿（P0，仅本人或 ADMIN）
+     */
+    @GetMapping("/{id}/autosave")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<Map<String, Object>> getAutosave(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        return Result.ok(articleService.getAutosave(id, jwt));
+    }
+
+    /**
+     * 从回收站恢复（P0，仅本人或 ADMIN；回到草稿态）
+     */
+    @PostMapping("/{id}/restore")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<Void> restore(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        articleService.restore(id, jwt);
+        return Result.ok();
+    }
+
+    /**
+     * 彻底删除（P0，仅本人或 ADMIN；物理删除并级联清理，不可恢复）
+     */
+    @DeleteMapping("/{id}/force")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<Void> forceDelete(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        articleService.forceDelete(id, jwt);
         return Result.ok();
     }
 }

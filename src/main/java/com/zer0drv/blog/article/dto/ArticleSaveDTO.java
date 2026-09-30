@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -58,4 +59,10 @@ public class ArticleSaveDTO {
      * 状态：DRAFT / PUBLISHED（缺省 DRAFT）
      */
     private String status;
+
+    /**
+     * 定时发布时间（P0，可空）：仅 status=PUBLISHED 时生效，须晚于当前时间至少 60 秒；
+     * 文章已上线（publish_time ≤ now）时该字段忽略，不可改档期
+     */
+    private LocalDateTime publishTime;
 }

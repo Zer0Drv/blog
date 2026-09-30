@@ -4,7 +4,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 评论状态：NORMAL=正常；FOLDED=折叠（M5 审核用，本阶段只写 NORMAL）。
+ * 评论状态：NORMAL=正常；FOLDED=折叠（敏感词命中/审核拒绝）；PENDING=待审核（P0 审核队列，公开列表不可见）。
  *
  * @author Yoruhaki
  */
@@ -12,7 +12,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum CommentStatus {
     NORMAL("正常"),
-    FOLDED("折叠");
+    FOLDED("折叠"),
+    PENDING("待审核");
 
     private final String desc;
 

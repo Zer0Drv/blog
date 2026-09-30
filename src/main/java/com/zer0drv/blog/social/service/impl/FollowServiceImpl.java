@@ -25,6 +25,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -133,6 +134,8 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         Page<Article> result = articleService.page(new Page<>(page, size),
                 Wrappers.lambdaQuery(Article.class)
                         .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
+                        // P0 定时发布可见性谓词：publish_time 非空且已到
+                        .le(Article::getPublishTime, LocalDateTime.now())
                         .in(Article::getAuthorId, followeeIds)
                         .orderByDesc(Article::getPublishTime));
         return PageResult.of(articleService.assemble(result.getRecords()), result.getTotal(), page, size);

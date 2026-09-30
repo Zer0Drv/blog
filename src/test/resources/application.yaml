@@ -42,6 +42,9 @@ spring:
 blog:
   minio:
     enabled: false
+  search:
+    # P0 全文搜索：H2 不支持 MATCH...AGAINST，测试环境走 LIKE 兜底路径
+    fulltext-enabled: false
 
 jwt:
   secret: test-only-jwt-secret-key-32bytes-minimum
