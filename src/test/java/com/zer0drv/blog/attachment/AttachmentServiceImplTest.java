@@ -41,6 +41,20 @@ class AttachmentServiceImplTest {
     @InjectMocks
     private AttachmentServiceImpl attachmentService;
 
+    /**
+     * MP lambda 缓存初始化：纯 Mockito 单测无 MP 上下文，
+     * 否则 LambdaQueryWrapper/LambdaUpdateWrapper(实体::字段) 找不到 lambda 列缓存
+     * （参照 SensitiveWordServiceImplTest / ArticleServiceImplTest；本地偶绿是测试序副作用，CI 必现）
+     */
+    @org.junit.jupiter.api.BeforeAll
+    static void initLambdaCache() {
+        org.apache.ibatis.builder.MapperBuilderAssistant assistant =
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), "");
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(assistant, Attachment.class);
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(assistant, AttachmentGroup.class);
+    }
+
     private static Attachment attachment(long id, long userId) {
         Attachment attachment = new Attachment();
         attachment.setId(id);
