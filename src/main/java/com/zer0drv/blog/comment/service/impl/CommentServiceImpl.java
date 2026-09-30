@@ -147,9 +147,24 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             if (Objects.isNull(parent) || !parent.getArticleId().equals(dto.getArticleId())) {
                 throw new BusinessException(StatusCode.COMMENT_NOT_EXIST);
             }
-            // 严格两层：parentId 指向二级评论时归一化到其 root；replyToUserId 保留传入值
-            comment.setParentId(parent.getParentId() == 0L ? parent.getId() : parent.getParentId());
-            comment.setReplyToUserId(dto.getReplyToUserId());
+            // 严格两层：parentId 指向二级评论时归一化到其 root
+            Long rootId = parent.getParentId() == 0L ? parent.getId() : parent.getParentId();
+            comment.setParentId(rootId);
+            // replyToUserId 非空时必须是本楼层合法参与者（root 作者或楼层内已有 NORMAL 回复的作者），
+            // 否则显式拒绝，防止填写任意用户 ID 刷 MENTION 通知/邮件
+            Long replyToUserId = dto.getReplyToUserId();
+            if (Objects.nonNull(replyToUserId)) {
+                Comment root = parent.getParentId() == 0L ? parent : getById(rootId);
+                boolean participant = (Objects.nonNull(root) && replyToUserId.equals(root.getUserId()))
+                        || count(Wrappers.lambdaQuery(Comment.class)
+                                .eq(Comment::getParentId, rootId)
+                                .eq(Comment::getStatus, CommentStatus.NORMAL.name())
+                                .eq(Comment::getUserId, replyToUserId)) > 0;
+                if (!participant) {
+                    throw new BusinessException(StatusCode.PARAM_INVALID);
+                }
+                comment.setReplyToUserId(replyToUserId);
+            }
         }
         save(comment);
         // M4 通知触发：主评论通知文章作者；回复按 COMMENT_REPLY + MENTION 组合规则（内部自己给自己不发、异常不回滚主业务）

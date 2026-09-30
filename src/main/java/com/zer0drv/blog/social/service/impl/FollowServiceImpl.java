@@ -114,9 +114,11 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         vo.setBio(user.getBio());
         vo.setFollowerCount(count(Wrappers.lambdaQuery(Follow.class).eq(Follow::getFolloweeId, userId)));
         vo.setFollowingCount(count(Wrappers.lambdaQuery(Follow.class).eq(Follow::getFollowerId, userId)));
+        // 定时发布可见性谓词：publish_time 已到才计入对外文章数（与 pageUserArticles/pageFeed 一致）
         vo.setArticleCount(articleService.count(Wrappers.lambdaQuery(Article.class)
                 .eq(Article::getAuthorId, userId)
-                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())));
+                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
+                .le(Article::getPublishTime, LocalDateTime.now())));
         vo.setFollowed(Objects.nonNull(jwt) && isFollowed(JwtSubjects.userIdOf(jwt), userId));
         return vo;
     }
@@ -147,6 +149,8 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
                 Wrappers.lambdaQuery(Article.class)
                         .eq(Article::getAuthorId, userId)
                         .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
+                        // 定时发布可见性谓词：publish_time 非空且已到，未上线文章不对外泄露
+                        .le(Article::getPublishTime, LocalDateTime.now())
                         .orderByDesc(Article::getPublishTime));
         return PageResult.of(articleService.assemble(result.getRecords()), result.getTotal(), page, size);
     }

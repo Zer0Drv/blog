@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -160,6 +161,8 @@ class CommentServiceImplTest {
         root.setParentId(0L);
         root.setUserId(8L);
         doReturn(root).when(commentService).getById(2L);
+        // 用户 9 在楼层 2 内已有 NORMAL 回复 → 是合法参与者
+        doReturn(1L).when(commentService).count(any());
 
         CommentCreateDTO dto = dtoOf(10L, "reply to a reply", 5L);
         dto.setReplyToUserId(9L);
@@ -171,6 +174,83 @@ class CommentServiceImplTest {
         // 严格两层：parentId 归一化到 root=2，replyToUserId 保留传入值
         assertEquals(2L, saved.getParentId());
         assertEquals(9L, saved.getReplyToUserId());
+    }
+
+    @Test
+    void create_replyToRootAuthor_allowed() {
+        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        doReturn(true).when(commentService).save(any(Comment.class));
+        // parent=5 是主评论（root），作者为 8
+        Comment root = new Comment();
+        root.setId(5L);
+        root.setParentId(0L);
+        root.setArticleId(10L);
+        root.setUserId(8L);
+        doReturn(root).when(commentService).getById(5L);
+
+        CommentCreateDTO dto = dtoOf(10L, "reply to root author", 5L);
+        dto.setReplyToUserId(8L);
+        commentService.create(dto, jwtOf(2L));
+
+        ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
+        verify(commentService).save(captor.capture());
+        Comment saved = captor.getValue();
+        assertEquals(5L, saved.getParentId());
+        assertEquals(8L, saved.getReplyToUserId());
+        // root 作者即被 @ 人：只发 MENTION，不重复发 COMMENT_REPLY
+        verify(notificationService).notify(eq(8L), eq(NotificationType.MENTION),
+                eq(2L), eq(10L), isNull(), eq("reply to root author"), eq(false));
+        verify(notificationService, never()).notify(anyLong(), eq(NotificationType.COMMENT_REPLY),
+                anyLong(), any(), any(), any(), eq(false));
+    }
+
+    @Test
+    void create_replyToNonParticipant_rejected() {
+        // replyToUserId 不是 root 作者、也未在楼层内回复过 → 参数无效，防 MENTION 轰炸
+        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        Comment root = new Comment();
+        root.setId(5L);
+        root.setParentId(0L);
+        root.setArticleId(10L);
+        root.setUserId(8L);
+        doReturn(root).when(commentService).getById(5L);
+        doReturn(0L).when(commentService).count(any());
+
+        CommentCreateDTO dto = dtoOf(10L, "ping stranger", 5L);
+        dto.setReplyToUserId(99L);
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> commentService.create(dto, jwtOf(2L)));
+        assertEquals(StatusCode.PARAM_INVALID.getCode(), ex.getCode());
+        verify(commentService, never()).save(any());
+        verify(notificationService, never()).notify(anyLong(), any(), anyLong(),
+                any(), any(), any(), eq(false));
+    }
+
+    @Test
+    void create_replyWithoutReplyToUser_notifiesRootAuthor() {
+        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        doReturn(true).when(commentService).save(any(Comment.class));
+        Comment root = new Comment();
+        root.setId(5L);
+        root.setParentId(0L);
+        root.setArticleId(10L);
+        root.setUserId(8L);
+        doReturn(root).when(commentService).getById(5L);
+
+        commentService.create(dtoOf(10L, "plain reply", 5L), jwtOf(2L));
+
+        ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
+        verify(commentService).save(captor.capture());
+        assertEquals(5L, captor.getValue().getParentId());
+        assertEquals(null, captor.getValue().getReplyToUserId());
+        // replyToUserId 为空 → root 作者收 COMMENT_REPLY，无 MENTION
+        verify(notificationService).notify(eq(8L), eq(NotificationType.COMMENT_REPLY),
+                eq(2L), eq(10L), isNull(), eq("plain reply"), eq(false));
+        verify(notificationService, never()).notify(anyLong(), eq(NotificationType.MENTION),
+                anyLong(), any(), any(), any(), eq(false));
     }
 
     @Test

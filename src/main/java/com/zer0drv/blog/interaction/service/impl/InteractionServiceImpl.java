@@ -8,6 +8,7 @@ import com.zer0drv.blog.article.enums.ArticleStatus;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.comment.domain.Comment;
+import com.zer0drv.blog.comment.enums.CommentStatus;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
@@ -28,6 +29,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,10 +52,7 @@ public class InteractionServiceImpl implements InteractionService {
 
     @Override
     public void likeArticle(Long articleId, Jwt jwt) {
-        Article article = articleService.getById(articleId);
-        if (Objects.isNull(article) || !ArticleStatus.PUBLISHED.name().equals(article.getStatus())) {
-            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
-        }
+        Article article = requireVisibleArticle(articleId);
         Long userId = JwtSubjects.userIdOf(jwt);
         if (isLiked(articleId, userId)) {
             // 幂等：已赞则静默成功
@@ -86,7 +85,7 @@ public class InteractionServiceImpl implements InteractionService {
 
     @Override
     public void favoriteArticle(Long articleId, Jwt jwt) {
-        requireArticle(articleId);
+        requireVisibleArticle(articleId);
         Long userId = JwtSubjects.userIdOf(jwt);
         Long count = articleFavoriteMapper.selectCount(Wrappers.lambdaQuery(ArticleFavorite.class)
                 .eq(ArticleFavorite::getArticleId, articleId)
@@ -116,7 +115,8 @@ public class InteractionServiceImpl implements InteractionService {
     @Transactional(rollbackFor = Exception.class)
     public void likeComment(Long commentId, Jwt jwt) {
         Comment comment = commentMapper.selectById(commentId);
-        if (Objects.isNull(comment)) {
+        // 仅 NORMAL 评论可点赞：FOLDED/PENDING 评论对外不可见，视为「不存在」
+        if (Objects.isNull(comment) || !CommentStatus.NORMAL.name().equals(comment.getStatus())) {
             throw new BusinessException(StatusCode.COMMENT_NOT_EXIST);
         }
         Long userId = JwtSubjects.userIdOf(jwt);
@@ -192,15 +192,19 @@ public class InteractionServiceImpl implements InteractionService {
         return wrapper;
     }
 
-    private void requireArticle(Long articleId) {
+    /**
+     * 互动可见性断言：与评论创建逻辑一致，status=PUBLISHED 且 publish_time 非空且已到点；
+     * 草稿/下架/未到期定时文章对外一律表现为「不存在」，不可点赞收藏，也避免泄露未发布内容
+     */
+    private Article requireVisibleArticle(Long articleId) {
         Article article = articleService.getById(articleId);
-        if (Objects.isNull(article) || !ArticleStatus.PUBLISHED.name().equals(article.getStatus())) {
+        if (Objects.isNull(article)
+                || !ArticleStatus.PUBLISHED.name().equals(article.getStatus())
+                || Objects.isNull(article.getPublishTime())
+                || article.getPublishTime().isAfter(LocalDateTime.now())) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
-        // 互动操作仅对已发布文章开放（草稿/下架不可点赞收藏，也避免泄露未发布内容）
-        if (!ArticleStatus.PUBLISHED.name().equals(article.getStatus())) {
-            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
-        }
+        return article;
     }
 
     private boolean isLiked(Long articleId, Long userId) {

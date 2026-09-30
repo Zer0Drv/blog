@@ -4,6 +4,7 @@ import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.enums.ArticleStatus;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.comment.domain.Comment;
+import com.zer0drv.blog.comment.enums.CommentStatus;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
@@ -24,6 +25,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -74,7 +76,18 @@ class InteractionServiceImplTest {
         article.setAuthorId(authorId);
         article.setTitle("hello");
         article.setStatus(ArticleStatus.PUBLISHED.name());
+        // 可见性谓词要求 publish_time 非空且不晚于 now
+        article.setPublishTime(LocalDateTime.now().minusMinutes(1));
         return article;
+    }
+
+    private static Comment normalComment(long id, long userId, long articleId) {
+        Comment comment = new Comment();
+        comment.setId(id);
+        comment.setUserId(userId);
+        comment.setArticleId(articleId);
+        comment.setStatus(CommentStatus.NORMAL.name());
+        return comment;
     }
 
     // ---------- 文章点赞 ----------
@@ -139,10 +152,7 @@ class InteractionServiceImplTest {
 
     @Test
     void likeComment_firstTime_incrementsCountAndNotifies() {
-        Comment comment = new Comment();
-        comment.setId(100L);
-        comment.setUserId(1L);
-        comment.setArticleId(10L);
+        Comment comment = normalComment(100L, 1L, 10L);
         comment.setContent("nice");
         when(commentMapper.selectById(100L)).thenReturn(comment);
         when(commentLikeMapper.selectCount(any())).thenReturn(0L);
@@ -158,10 +168,7 @@ class InteractionServiceImplTest {
 
     @Test
     void likeComment_repeat_isSilentWithoutCountChange() {
-        Comment comment = new Comment();
-        comment.setId(100L);
-        comment.setUserId(1L);
-        comment.setArticleId(10L);
+        Comment comment = normalComment(100L, 1L, 10L);
         when(commentMapper.selectById(100L)).thenReturn(comment);
         when(commentLikeMapper.selectCount(any())).thenReturn(1L);
 
@@ -179,6 +186,32 @@ class InteractionServiceImplTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> interactionService.likeComment(100L, jwtOf(2L)));
         assertEquals(StatusCode.COMMENT_NOT_EXIST.getCode(), ex.getCode());
+    }
+
+    @Test
+    void likeComment_foldedComment_rejected() {
+        // 仅 NORMAL 评论可点赞：FOLDED 评论对外不可见
+        Comment folded = normalComment(100L, 1L, 10L);
+        folded.setStatus(CommentStatus.FOLDED.name());
+        when(commentMapper.selectById(100L)).thenReturn(folded);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> interactionService.likeComment(100L, jwtOf(2L)));
+        assertEquals(StatusCode.COMMENT_NOT_EXIST.getCode(), ex.getCode());
+        verify(commentLikeMapper, never()).insert(any(CommentLike.class));
+    }
+
+    @Test
+    void likeComment_pendingComment_rejected() {
+        // 仅 NORMAL 评论可点赞：PENDING（待审核）评论对外不可见
+        Comment pending = normalComment(100L, 1L, 10L);
+        pending.setStatus(CommentStatus.PENDING.name());
+        when(commentMapper.selectById(100L)).thenReturn(pending);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> interactionService.likeComment(100L, jwtOf(2L)));
+        assertEquals(StatusCode.COMMENT_NOT_EXIST.getCode(), ex.getCode());
+        verify(commentLikeMapper, never()).insert(any(CommentLike.class));
     }
 
     // ---------- 取消点赞 ----------
