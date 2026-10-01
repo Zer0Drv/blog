@@ -45,6 +45,13 @@ blog:
   search:
     # P0 全文搜索：H2 不支持 MATCH...AGAINST，测试环境走 LIKE 兜底路径
     fulltext-enabled: false
+  security:
+    # 存量接口测试的 mutating 请求不带 X-Requested-With，默认关闭 CSRF 头检查；
+    # 该过滤器的行为由 CsrfHeaderIntegrationTests 单独开启验证
+    csrf-header-check-enabled: false
+  admin:
+    # 测试不跑初始管理员引导（用户一律 SQL 预置，用户名唯一）
+    bootstrap-enabled: false
 
 jwt:
   secret: test-only-jwt-secret-key-32bytes-minimum
