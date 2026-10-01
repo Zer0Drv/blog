@@ -72,7 +72,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(AuthenticationException.class)
     public Result<Void> authenticationException(AuthenticationException e) {
-        return Result.fail("40100", "认证失败：" + e.getMessage());
+        // #6-3：不再透传 e.getMessage()（防信息泄露），统一模糊文案，细节仅落日志
+        log.warn("认证异常：{} - {}", e.getClass().getSimpleName(), e.getMessage());
+        return Result.fail("40100", "认证失败，请重新登录");
     }
 
     @ExceptionHandler(Exception.class)

@@ -248,12 +248,12 @@ class AuthServiceImplTest {
     // ---------- 找回密码 ----------
 
     @Test
-    void sendPasswordResetCode_unregisteredEmail_throws() {
+    void sendPasswordResetCode_unregisteredEmail_returnsSilently() {
+        // #9 防注册状态枚举：未注册邮箱不再抛 EMAIL_NOT_REGISTERED，静默返回且不发码
         when(userService.count(any())).thenReturn(0L);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> authService.sendPasswordResetCode("ghost@example.com"));
-        assertEquals(StatusCode.EMAIL_NOT_REGISTERED.getCode(), ex.getCode());
+        authService.sendPasswordResetCode("ghost@example.com");
+
         verify(emailCodeService, never()).sendCode(anyString(), anyString());
     }
 
@@ -280,7 +280,7 @@ class AuthServiceImplTest {
     }
 
     @Test
-    void resetPassword_success_encodesAndUpdates() {
+    void resetPassword_success_encodesUpdatesAndRevokesTokens() {
         PasswordResetDTO dto = new PasswordResetDTO();
         dto.setEmail("bob@example.com");
         dto.setCode("123456");
@@ -297,6 +297,8 @@ class AuthServiceImplTest {
 
         assertEquals("ENCODED2", user.getPassword());
         verify(userService).updateById(user);
+        // #9：重置后吊销全部历史 token
+        verify(tokenService).blackUserTokens(5L);
     }
 
     @Test

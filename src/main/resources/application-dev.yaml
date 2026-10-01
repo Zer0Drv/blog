@@ -8,7 +8,8 @@ spring:
     # 本地默认连 3307（docker 容器 blog-mysql）；可用环境变量覆盖
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:blog_dev}?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8&allowPublicKeyRetrieval=true
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:blog123}
+    # 无默认口令（#2）：由 DB_PASSWORD 注入（本地开发见 .env.example，docker compose 共用同一变量）
+    password: ${DB_PASSWORD:}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -21,7 +22,8 @@ spring:
   docker:
     compose:
       enabled: false
-  # 邮箱验证码 SMTP：配置后验证码走真实邮件；未配置时走 dev 日志兜底（见 EmailCodeServiceImpl）
+  # 邮箱验证码 SMTP：配置后验证码走真实邮件；未配置时走 dev 兜底（验证码写入 Redis，
+  # 日志不再打印明文，见 EmailCodeServiceImpl；用 redis-cli GET blog:email-code:<scene>:<email> 读取）
   # mail:
   #   host: smtp.example.com
   #   port: 465
@@ -54,5 +56,7 @@ server:
   port: 8082
 
 jwt:
-  secret: my-very-long-and-secure-secret-key-32bytes-minimum
+  # 无默认值（#2）：必须由 JWT_SECRET 环境变量注入强随机密钥（≥32 字节），
+  # 未配置或强度不足时 JwtConfig 直接启动失败（fail-fast）并给出明确提示
+  secret: ${JWT_SECRET:}
   expiration-ms: 3600000

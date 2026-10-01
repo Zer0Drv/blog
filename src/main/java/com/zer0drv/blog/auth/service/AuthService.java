@@ -31,7 +31,7 @@ public interface AuthService {
     Map<String, String> register(RegisterDTO dto);
 
     /**
-     * 登出（拉黑当前 token）
+     * 登出（拉黑当前 token；Cookie 清除由控制器负责）
      */
     String userLogout(Jwt jwt);
 
@@ -41,20 +41,20 @@ public interface AuthService {
     User getProfile(Jwt jwt);
 
     /**
-     * 修改密码（旧 token 作废，需重新登录）
+     * 修改密码（该用户全部历史 token 吊销，需重新登录）
      */
     void changePassword(Jwt jwt, ChangePasswordDTO dto);
 
     /**
-     * 找回密码：发送验证码（邮箱未注册时报 EMAIL_NOT_REGISTERED，不向未注册邮箱发码）
+     * 找回密码：发送验证码（#9：防注册状态枚举——无论邮箱是否注册都返回相同成功文案，
+     * 仅已注册邮箱实际发码，未注册邮箱静默返回）
      *
      * @param email 注册邮箱
      */
     void sendPasswordResetCode(String email);
 
     /**
-     * 找回密码：验证码校验通过后以 BCrypt 重置密码。
-     * 注：历史已签发 token 不作废（README 已声明的 JWT 取舍：黑名单仅覆盖登出/改密场景），到期自然失效。
+     * 找回密码：验证码校验通过后以 BCrypt 重置密码，并吊销该用户全部历史 token（#9）。
      * OAuth 占位账号（password=''）通过本流程设置密码后即开通密码登录——预期行为。
      *
      * @param dto email + code + newPassword

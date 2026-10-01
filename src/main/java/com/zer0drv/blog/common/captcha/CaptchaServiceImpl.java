@@ -79,6 +79,11 @@ public class CaptchaServiceImpl implements CaptchaService {
         if (!isRequired(scene, sourceKey)) {
             return;
         }
+        verifyForced(scene, captchaId, captchaCode);
+    }
+
+    @Override
+    public void verifyForced(String scene, String captchaId, String captchaCode) {
         if (captchaId == null || captchaId.isBlank() || captchaCode == null || captchaCode.isBlank()) {
             throw new BusinessException(StatusCode.CAPTCHA_REQUIRED);
         }

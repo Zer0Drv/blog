@@ -11,7 +11,7 @@ import java.util.Map;
 public interface CaptchaService {
 
     /**
-     * 场景：账号密码登录（计数键：客户端 IP，失败 +1，成功清零）
+     * 场景：账号密码登录（计数键：客户端 IP + 用户名双维度，失败 +1，成功清零）
      */
     String SCENE_LOGIN = "login";
 
@@ -26,7 +26,7 @@ public interface CaptchaService {
     String SCENE_EMAIL_CODE = "email-code";
 
     /**
-     * 场景：找回密码重置（计数键：客户端 IP，尝试 +1）
+     * 场景：找回密码（计数键：客户端 IP，发码与重置共用，尝试 +1）
      */
     String SCENE_PASSWORD_RESET = "password-reset";
 
@@ -62,4 +62,10 @@ public interface CaptchaService {
      * 验证码错误或已过期抛同码值异常（message 为「验证码错误或已过期，请重试」）
      */
     void verify(String scene, String sourceKey, String captchaId, String captchaCode);
+
+    /**
+     * 强制校验验证码（#4）：调用方已自行判定必须过验证码（如登录的用户名维度兜底），
+     * 不再查计数阈值；缺参抛 CAPTCHA_REQUIRED，错误或已过期抛同码值异常
+     */
+    void verifyForced(String scene, String captchaId, String captchaCode);
 }

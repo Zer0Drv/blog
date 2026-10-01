@@ -16,6 +16,7 @@ import com.zer0drv.blog.user.domain.User;
 import com.zer0drv.blog.user.enums.UserRole;
 import com.zer0drv.blog.user.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -35,6 +36,7 @@ import java.util.Objects;
 /**
  * @author Yoruhaki
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
@@ -135,15 +137,18 @@ public class AuthServiceImpl implements AuthService {
         if (!updated) {
             throw new BusinessException(StatusCode.USER_UPDATE_FAILED);
         }
+        // #9：吊销该用户全部活跃 token（含其他设备的历史 token），改密后所有会话强制重新登录
+        tokenService.blackUserTokens(userId);
     }
 
     @Override
     public void sendPasswordResetCode(String email) {
-        // 不向未注册邮箱发码（也避免借发码接口探测/骚扰任意邮箱）
+        // #9 防注册状态枚举：无论邮箱是否注册，接口返回完全一致；仅已注册邮箱实际发码
         long emailCount = userService.count(Wrappers.lambdaQuery(User.class)
                 .eq(User::getEmail, email));
         if (emailCount == 0) {
-            throw new BusinessException(StatusCode.EMAIL_NOT_REGISTERED);
+            log.debug("找回密码发码：邮箱未注册，按统一文案静默返回（不实际发码）");
+            return;
         }
         emailCodeService.sendCode(EmailCodeService.SCENE_RESET, email);
     }
@@ -164,7 +169,8 @@ public class AuthServiceImpl implements AuthService {
         if (!updated) {
             throw new BusinessException(StatusCode.USER_UPDATE_FAILED);
         }
-        // 注：历史已签发 token 不作废（README 已声明的 JWT 取舍），到期自然失效
+        // #9：重置密码后吊销全部历史 token，旧 token 立即 401
+        tokenService.blackUserTokens(user.getId());
     }
 
     @Override

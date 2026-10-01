@@ -18,7 +18,9 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * GitHub OAuth 登录成功处理器：换发本站 JWT 后 302 回前端回调页（query 携带 token）。
+ * GitHub OAuth 登录成功处理器（blog-ui#13 契约第 2 条）：换发本站 JWT 后不再 302 回跳携带 token，
+ * 改为生成一次性 code（Redis oauth:code:<code> → token，TTL 60 秒，消费即删），
+ * 302 回前端回调页 /oauth/callback?code=<code>；前端再调 POST /auth/oauth/exchange 换 HttpOnly Cookie。
  *
  * @author Yoruhaki
  */
@@ -28,9 +30,10 @@ import java.util.Objects;
 public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 
     private final AuthService authService;
+    private final OAuthCodeStore oAuthCodeStore;
 
     /**
-     * 前端 OAuth 回调地址（token 以 query 传递，前端存 localStorage 后走既有 Bearer 流程）
+     * 前端 OAuth 回调地址（一次性 code 以 query 传递，前端即刻调 /auth/oauth/exchange 消费）
      */
     @Value("${blog.oauth.success-redirect:http://localhost:5173/oauth/callback}")
     private String successRedirect;
@@ -56,8 +59,10 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
                     strAttr(attributes.get("name")),
                     strAttr(attributes.get("avatar_url")),
                     strAttr(attributes.get("email")));
-            String target = successRedirect + "?token="
-                    + URLEncoder.encode(token.get("access_token"), StandardCharsets.UTF_8);
+            // 一次性换码：token 不再经 URL 传递
+            String code = oAuthCodeStore.store(token.get("access_token"));
+            String target = successRedirect + "?code="
+                    + URLEncoder.encode(code, StandardCharsets.UTF_8);
             response.sendRedirect(target);
         } catch (Exception e) {
             // 封禁/撞键等业务异常：不能走 @RestControllerAdvice（此处不在 MVC 流程），回跳前端提示

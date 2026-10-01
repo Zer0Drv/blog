@@ -56,9 +56,12 @@ public enum StatusCode {
     // 40050 已被 FOLLOW_SELF_INVALID 占用，取下一个空闲码
     CAPTCHA_REQUIRED("40066", "操作过于频繁，请完成图形验证"),
     ARTICLE_VERSION_NOT_EXIST("40067", "文章版本不存在"),
+    // OAuth 一次性换码无效/已过期/已消费（blog-ui#13 契约）
+    OAUTH_CODE_INVALID("40068", "登录凭据无效或已过期，请重新登录"),
     ATTACHMENT_NOT_EXIST("40069", "附件不存在"),
     ATTACHMENT_GROUP_NOT_EXIST("40070", "附件分组不存在"),
     ATTACHMENT_GROUP_HAS_ITEMS("40071", "分组内仍有附件，无法删除"),
+    UPLOAD_DAILY_LIMIT_EXCEEDED("40072", "今日上传次数已达上限，请明日再试"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 
