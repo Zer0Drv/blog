@@ -38,11 +38,14 @@ public class WebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         // dev 默认走 vite 代理无需 CORS；此配置为直连后端场景（如生产反代/独立前端域名）兜底，
-        // 允许的来源可用 CORS_ALLOWED_ORIGINS 环境变量覆盖（逗号分隔）
+        // 允许的来源可用 CORS_ALLOWED_ORIGINS 环境变量覆盖（逗号分隔）。
+        // blog-ui#13：Cookie 认证后必须允许凭据（allowedOriginPatterns 与 allowCredentials 兼容，
+        // 响应回显具体 Origin 而非 *）；SameSite=Strict 下跨站请求本就不带 Cookie，双保险。
         registry.addMapping("/**")
                 .allowedOriginPatterns(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
+                .allowCredentials(true)
                 .maxAge(3600);
     }
 }
