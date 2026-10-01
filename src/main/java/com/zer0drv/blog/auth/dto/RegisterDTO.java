@@ -12,12 +12,23 @@ import lombok.Data;
 @Data
 public class RegisterDTO {
 
+    /**
+     * 密码复杂度（#6-2）：8~64 位，须同时包含字母和数字；注册/改密/重置三处统一
+     */
+    public static final String PASSWORD_PATTERN = "^(?=.*[A-Za-z])(?=.*\\d)\\S{8,64}$";
+
+    /**
+     * 密码复杂度提示文案（三处统一）
+     */
+    public static final String PASSWORD_MESSAGE = "密码须为 8~64 位，且同时包含字母和数字";
+
     @NotBlank(message = "用户名不能为空")
     @Pattern(regexp = "^[a-zA-Z0-9_]{3,32}$", message = "用户名须为 3~32 位字母/数字/下划线")
     private String username;
 
     @NotBlank(message = "密码不能为空")
-    @Size(min = 6, max = 64, message = "密码长度须在 6~64 之间")
+    @Size(min = 8, max = 64, message = "密码长度须在 8~64 之间")
+    @Pattern(regexp = PASSWORD_PATTERN, message = PASSWORD_MESSAGE)
     private String password;
 
     @NotBlank(message = "邮箱不能为空")
