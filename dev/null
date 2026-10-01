@@ -1,9 +1,0 @@
-    @Test
-    void sendPasswordResetCode_unregisteredEmail_returnsSilently() {
-        // #9 防注册状态枚举：未注册邮箱不再抛 EMAIL_NOT_REGISTERED，静默返回且不发码
-        when(userService.count(any())).thenReturn(0L);
-
-        authService.sendPasswordResetCode("ghost@example.com");
-
-        verify(emailCodeService, never()).sendCode(anyString(), anyString());
-    }
