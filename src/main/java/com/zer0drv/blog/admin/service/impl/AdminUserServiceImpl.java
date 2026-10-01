@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.admin.dto.RoleUpdateDTO;
 import com.zer0drv.blog.admin.service.AdminUserService;
+import com.zer0drv.blog.auth.service.TokenService;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
@@ -33,6 +34,7 @@ public class AdminUserServiceImpl implements AdminUserService {
 
     private final UserService userService;
     private final Converter converter;
+    private final TokenService tokenService;
 
     @Override
     public PageResult<UserVO> pageUsers(long page, long size, String keyword, String role, String status) {
@@ -59,13 +61,19 @@ public class AdminUserServiceImpl implements AdminUserService {
         assertOperable(target, jwt);
         target.setStatus(STATUS_BANNED);
         userService.updateById(target);
+        // #9：封禁立即吊销该用户全部活跃 token，历史 token 即刻 401
+        tokenService.blackUserTokens(id);
     }
 
     @Override
     public void unban(Long id, Jwt jwt) {
         User target = requireUser(id);
+        // #6-6：与 ban/updateRole 同一边界校验——不能对 ADMIN 与自己执行 unban
+        assertOperable(target, jwt);
         target.setStatus(STATUS_NORMAL);
         userService.updateById(target);
+        // #9：解封同样吊销历史 token（封禁前签发的旧 token 不得随解封复活）
+        tokenService.blackUserTokens(id);
     }
 
     @Override
@@ -82,6 +90,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         assertOperable(target, jwt);
         target.setRole(role);
         userService.updateById(target);
+        // #9：角色变更吊销历史 token（旧 token 内 roles 声明已过期）
+        tokenService.blackUserTokens(id);
     }
 
     /**
