@@ -2,6 +2,7 @@ package com.zer0drv.blog.admin;
 
 import com.zer0drv.blog.admin.dto.RoleUpdateDTO;
 import com.zer0drv.blog.admin.service.impl.AdminUserServiceImpl;
+import com.zer0drv.blog.auth.service.TokenService;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.user.domain.User;
@@ -27,7 +28,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 管理员用户操作边界纯单测：ban 管理员/自己拒绝、非法角色拒绝。
+ * 管理员用户操作边界纯单测：ban/unban 管理员/自己拒绝、非法角色拒绝、操作后吊销 token。
  *
  * @author Yoruhaki
  */
@@ -38,6 +39,8 @@ class AdminUserServiceImplTest {
     private UserService userService;
     @Mock
     private Converter converter;
+    @Mock
+    private TokenService tokenService;
 
     @InjectMocks
     private AdminUserServiceImpl adminUserService;
@@ -78,7 +81,7 @@ class AdminUserServiceImplTest {
     }
 
     @Test
-    void ban_normalUser_setsBannedStatus() {
+    void ban_normalUser_setsBannedStatusAndRevokesTokens() {
         User target = user(6L, UserRole.USER.name());
         when(userService.getById(6L)).thenReturn(target);
         when(userService.updateById(any(User.class))).thenReturn(true);
@@ -87,6 +90,8 @@ class AdminUserServiceImplTest {
 
         assertEquals((short) 1, target.getStatus());
         verify(userService).updateById(target);
+        // #9：封禁立即吊销全部活跃 token
+        verify(tokenService).blackUserTokens(6L);
     }
 
     @Test
@@ -96,6 +101,42 @@ class AdminUserServiceImplTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> adminUserService.ban(404L, adminJwt(1L)));
         assertEquals(StatusCode.USER_NOT_EXIST.getCode(), ex.getCode());
+    }
+
+    @Test
+    void unban_adminTarget_rejected() {
+        // #6-6：unban 与 ban 同一边界校验，不能对 ADMIN 执行
+        when(userService.getById(1L)).thenReturn(user(1L, UserRole.ADMIN.name()));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> adminUserService.unban(1L, adminJwt(99L)));
+        assertEquals(StatusCode.CANNOT_OPERATE_ADMIN.getCode(), ex.getCode());
+        verify(userService, never()).updateById(any());
+    }
+
+    @Test
+    void unban_self_rejected() {
+        when(userService.getById(5L)).thenReturn(user(5L, UserRole.USER.name()));
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> adminUserService.unban(5L, adminJwt(5L)));
+        assertEquals(StatusCode.CANNOT_OPERATE_SELF.getCode(), ex.getCode());
+        verify(userService, never()).updateById(any());
+    }
+
+    @Test
+    void unban_normalUser_restoresStatusAndRevokesTokens() {
+        User target = user(6L, UserRole.USER.name());
+        target.setStatus((short) 1);
+        when(userService.getById(6L)).thenReturn(target);
+        when(userService.updateById(any(User.class))).thenReturn(true);
+
+        adminUserService.unban(6L, adminJwt(1L));
+
+        assertEquals((short) 0, target.getStatus());
+        verify(userService).updateById(target);
+        // #9：解封同样吊销封禁前签发的历史 token
+        verify(tokenService).blackUserTokens(6L);
     }
 
     @Test
@@ -133,7 +174,7 @@ class AdminUserServiceImplTest {
     }
 
     @Test
-    void updateRole_validChange_updatesRole() {
+    void updateRole_validChange_updatesRoleAndRevokesTokens() {
         RoleUpdateDTO dto = new RoleUpdateDTO();
         dto.setRole(UserRole.AUTHOR.name());
         User target = user(6L, UserRole.USER.name());
@@ -144,5 +185,7 @@ class AdminUserServiceImplTest {
 
         assertEquals(UserRole.AUTHOR.name(), target.getRole());
         verify(userService).updateById(target);
+        // #9：角色变更吊销全部历史 token（旧 token 内 roles 声明已过期）
+        verify(tokenService).blackUserTokens(6L);
     }
 }
