@@ -45,6 +45,8 @@ import com.zer0drv.blog.user.enums.UserRole;
 import com.zer0drv.blog.user.service.UserService;
 import io.github.linpeilie.Converter;
 import lombok.RequiredArgsConstructor;
+import org.jsoup.Jsoup;
+import org.jsoup.safety.Safelist;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -176,13 +178,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         validateSaveDTO(dto);
         Article article = new Article();
         article.setTitle(dto.getTitle());
-        article.setContent(dto.getContent());
+        // 存储型 XSS 防线（blog-ui#9 后端部分）：RICHTEXT 内容入库前白名单清洗
+        String content = sanitizeContent(dto.getContent(), dto.getEditorType());
+        article.setContent(content);
         article.setEditorType(dto.getEditorType());
         article.setSummary(resolveSummary(dto));
         article.setCover(Objects.isNull(dto.getCover()) ? "" : dto.getCover());
         article.setCategoryId(dto.getCategoryId());
         article.setAuthorId(JwtSubjects.userIdOf(jwt));
-        article.setContentText(toPlainText(dto.getContent()));
+        article.setContentText(toPlainText(content));
         String status = resolveSaveStatus(dto.getStatus());
         article.setStatus(status);
         // 新建直接发布：写首次发布时间（可定时；status=DRAFT 时忽略 publishTime）
@@ -203,8 +207,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // P0 版本历史：先把更新前的整行快照为新版本（同事务；create/updateStatus 不产快照）
         snapshotVersion(article);
         article.setTitle(dto.getTitle());
-        article.setContent(dto.getContent());
-        article.setContentText(toPlainText(dto.getContent()));
+        // 存储型 XSS 防线（blog-ui#9 后端部分）：RICHTEXT 内容入库前白名单清洗
+        String content = sanitizeContent(dto.getContent(), dto.getEditorType());
+        article.setContent(content);
+        article.setContentText(toPlainText(content));
         article.setEditorType(dto.getEditorType());
         article.setSummary(resolveSummary(dto));
         article.setCover(Objects.isNull(dto.getCover()) ? "" : dto.getCover());
@@ -351,8 +357,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         snapshotVersion(article);
         article.setTitle(snapshot.getTitle());
         article.setSummary(snapshot.getSummary());
-        article.setContent(snapshot.getContent());
-        article.setContentText(toPlainText(snapshot.getContent()));
+        // 存量快照可能产自 XSS 清洗上线前，恢复时同样过白名单（幂等，已清洗内容不受影响）
+        String content = sanitizeContent(snapshot.getContent(), snapshot.getEditorType());
+        article.setContent(content);
+        article.setContentText(toPlainText(content));
         article.setEditorType(snapshot.getEditorType());
         article.setCover(snapshot.getCover());
         article.setCategoryId(snapshot.getCategoryId());
@@ -492,6 +500,22 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "定时发布时间必须晚于当前时间");
         }
         return publishTime;
+    }
+
+    /**
+     * 富文本 XSS 清洗（blog-ui#9 后端部分）：RICHTEXT 内容入库前用 jsoup Safelist.relaxed()
+     * 白名单清洗（允许常见排版标签与 img 的 http/https src，剥离 script/on* 事件/危险协议）；
+     * MARKDOWN 内容按原文存储——Markdown 源码不是 HTML，清洗会破坏合法语法，
+     * 渲染侧由前端 DOMPurify 兜底（与本清洗构成纵深防御）。
+     */
+    private String sanitizeContent(String content, String editorType) {
+        if (Objects.isNull(content) || content.isBlank()) {
+            return content;
+        }
+        if (EditorType.RICHTEXT.name().equals(editorType)) {
+            return Jsoup.clean(content, Safelist.relaxed());
+        }
+        return content;
     }
 
     /**
