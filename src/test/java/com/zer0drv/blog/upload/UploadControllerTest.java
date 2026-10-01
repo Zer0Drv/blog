@@ -10,12 +10,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -35,6 +39,9 @@ class UploadControllerTest {
     @Mock
     private AttachmentService attachmentService;
 
+    @Mock
+    private StringRedisTemplate stringRedisTemplate;
+
     @InjectMocks
     private UploadController uploadController;
 
@@ -43,6 +50,13 @@ class UploadControllerTest {
         MultipartFile file = mock(MultipartFile.class);
         Jwt jwt = mock(Jwt.class);
         when(jwt.getSubject()).thenReturn("7");
+        // 每日配额（#6-4）：@Value 字段在纯 Mockito 单测中不注入，手动设置为默认值 100
+        ReflectionTestUtils.setField(uploadController, "dailyLimit", 100L);
+        // mock Redis 计数器，返回首次上传
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> ops = mock(ValueOperations.class);
+        when(stringRedisTemplate.opsForValue()).thenReturn(ops);
+        when(ops.increment(anyString())).thenReturn(1L);
         when(uploadService.uploadImage(file)).thenReturn("/uploads/202501/uuid.png");
         Attachment saved = new Attachment();
         saved.setId(42L);
