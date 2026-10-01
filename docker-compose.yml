@@ -1,17 +1,21 @@
 # 本地开发基础设施：MySQL 8.4（宿主 3307）+ Redis（6379）+ MinIO（9000/9001）
 # bucket 创建与匿名下载策略由后端启动自检（MinioConfig#minioBucketCheck）完成，
 # 不再依赖一次性 minio-init 容器（minio/mc 镜像已随上游 EOL 下架，无可靠来源）。
-# 用法：docker compose up -d   （停止：docker compose down；清空数据：down -v）
+# 用法：cp .env.example .env 并填写口令后  docker compose up -d
+#       （停止：docker compose down；清空数据：down -v）
 # 说明：pom.xml 已带 spring-boot-docker-compose，但 application-dev.yaml 里
 #       spring.docker.compose.enabled=false（默认关闭，避免启动时隐式拉起容器）。
 #       如需 Boot 自动接管 compose，把该开关打开即可。
+# 安全（#2）：所有口令/密钥一律从 .env 注入（compose 自动读取），仓库与 compose 文件
+#       不再内置任何默认口令；未配置时 compose 直接报错拒绝启动。
 services:
   mysql:
     image: mysql:8.4
     container_name: blog-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-blog123}
+      # 无默认口令（#2）：必须在 .env 配置（参考 .env.example）
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD 未设置：请复制 .env.example 为 .env 并填写强口令}
       MYSQL_DATABASE: ${DB_NAME:-blog_dev}
       TZ: Asia/Shanghai
     ports:
@@ -42,7 +46,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # MinIO 对象存储：API 9000 / 控制台 9001（minioadmin / minioadmin123）
+  # MinIO 对象存储：API 9000 / 控制台 9001（账号口令由 .env 注入，无默认值）
   # 上游官方镜像 minio/minio 已 EOL 并从 Docker Hub 整体下架，改用社区构建的
   # alpine/minio 并 pin 到实测可拉取的版本（不要用 latest）。
   # 注意：该镜像以非 root 用户 uid:gid=100:101 运行，若数据卷是从旧官方镜像迁移来的，
@@ -52,8 +56,9 @@ services:
     container_name: blog-minio
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin123}
+      # 无默认凭据（#2）：必须在 .env 配置（参考 .env.example）
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY 未设置：请复制 .env.example 为 .env 并填写}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY 未设置：请复制 .env.example 为 .env 并填写强口令}
     ports:
       - "9000:9000"
       - "9001:9001"

@@ -13,6 +13,8 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * MinIO 对象存储客户端。仅 blog.minio.enabled=true 时装配；关闭时上传走本地磁盘 fallback。
+ * 凭据无默认值（#2）：由 MINIO_ACCESS_KEY / MINIO_SECRET_KEY 环境变量注入，
+ * 未配置时客户端为空凭据，bucket 自检失败只告警不阻断启动（上传时报 FILE_UPLOAD_FAILED）。
  *
  * @author Yoruhaki
  */
@@ -23,8 +25,8 @@ public class MinioConfig {
 
     @Bean
     public MinioClient minioClient(@Value("${blog.minio.endpoint:http://localhost:9000}") String endpoint,
-                                   @Value("${blog.minio.access-key:minioadmin}") String accessKey,
-                                   @Value("${blog.minio.secret-key:minioadmin123}") String secretKey) {
+                                   @Value("${blog.minio.access-key:}") String accessKey,
+                                   @Value("${blog.minio.secret-key:}") String secretKey) {
         return MinioClient.builder()
                 .endpoint(endpoint)
                 .credentials(accessKey, secretKey)

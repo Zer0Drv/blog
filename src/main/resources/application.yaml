@@ -24,13 +24,16 @@ mybatis-plus:
 # 图片上传根目录（相对路径基于启动目录），可用环境变量 BLOG_UPLOAD_DIR 覆盖
 blog:
   upload-dir: ${BLOG_UPLOAD_DIR:./uploads}
+  # 每用户每日上传次数上限（Redis 计数，#6-4）；超过即拒绝当日后续上传
+  upload-daily-limit: ${UPLOAD_DAILY_LIMIT:100}
   # MinIO 对象存储（docker-compose 提供 minio 服务；bucket 创建与匿名下载策略由后端启动自检保证）；
-  # MINIO_ENABLED=false 时上传回退本地磁盘（/uploads/** 由 WebMvcConfig 映射）
+  # MINIO_ENABLED=false 时上传回退本地磁盘（/uploads/** 由 WebMvcConfig 映射）。
+  # 凭据无默认值（#2）：必须由 MINIO_ACCESS_KEY / MINIO_SECRET_KEY 注入
   minio:
     enabled: ${MINIO_ENABLED:true}
     endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
-    access-key: ${MINIO_ACCESS_KEY:minioadmin}
-    secret-key: ${MINIO_SECRET_KEY:minioadmin123}
+    access-key: ${MINIO_ACCESS_KEY:}
+    secret-key: ${MINIO_SECRET_KEY:}
     bucket: ${MINIO_BUCKET:blog-images}
     # 拼返回 URL 用的浏览器可达地址，默认同 endpoint
     public-url: ${MINIO_PUBLIC_URL:http://localhost:9000}
@@ -38,12 +41,35 @@ blog:
   oauth:
     success-redirect: ${OAUTH_SUCCESS_REDIRECT:http://localhost:5173/oauth/callback}
     failure-redirect: ${OAUTH_FAILURE_REDIRECT:http://localhost:5173/login?error=oauth_failed}
+  # 认证 Cookie（blog-ui#13 契约）：token 经 HttpOnly Cookie 下发，不再依赖 URL/localStorage
+  auth:
+    cookie:
+      name: ${AUTH_COOKIE_NAME:AUTH_TOKEN}
+      # SameSite=Strict 适用于同站点部署（含 localhost 跨端口，site 不含端口）；
+      # 前后端跨站点部署须置 None 且必须 HTTPS（Secure）并配置 CORS 允许凭据
+      same-site: ${AUTH_COOKIE_SAME_SITE:Strict}
+      # 生产 HTTPS 必须为 true；localhost 开发浏览器视为可信上下文可正常收发 Secure Cookie
+      secure: ${AUTH_COOKIE_SECURE:true}
+  # 安全开关
+  security:
+    # 是否信任代理头（#4）：默认 false，客户端 IP 一律取 remoteAddr，伪造 XFF 无法绕过验证码/限流；
+    # 部署在可信反向代理后才可置 true，并建议同时配置 server.forward-headers-strategy: framework
+    trust-proxy-headers: ${TRUST_PROXY_HEADERS:false}
+    # CSRF 纵深防御（Cookie 认证后）：mutating 请求（POST/PUT/DELETE/PATCH，认证入口除外）
+    # 必须携带 X-Requested-With: XMLHttpRequest 自定义头，缺失一律 403
+    csrf-header-check-enabled: ${CSRF_HEADER_CHECK_ENABLED:true}
+  # 初始管理员引导（#2）：库内无 ADMIN 或 admin 仍为已泄露的 V2 种子口令时，
+  # 启动期重建/轮换为 ADMIN_INITIAL_PASSWORD 或随机密码（打印一次到启动日志，首登后请立即修改）
+  admin:
+    bootstrap-enabled: ${ADMIN_BOOTSTRAP_ENABLED:true}
+    username: ${ADMIN_USERNAME:admin}
+    initial-password: ${ADMIN_INITIAL_PASSWORD:}
   # 自适应图形验证码：按 scene+来源计数，窗口内达到阈值后该来源必须过验证码（正常使用零打扰）
   captcha:
     # 验证码文本 Redis TTL（秒），一次性，校验一次即删
     code-ttl-seconds: 300
     scenes:
-      # 登录失败 +1、登录成功清零（计数键：客户端 IP）
+      # 登录失败 +1、登录成功清零（计数键：客户端 IP + 用户名双维度，见 AuthController）
       login:
         threshold: 5
         window-seconds: 600
@@ -55,7 +81,7 @@ blog:
       email-code:
         threshold: 5
         window-seconds: 600
-      # 密码重置尝试 +1（计数键：客户端 IP）
+      # 密码重置尝试 +1（计数键：客户端 IP，发码与重置共用）
       password-reset:
         threshold: 3
         window-seconds: 600
