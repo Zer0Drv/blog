@@ -62,7 +62,9 @@ class ArticleFlowIntegrationTests extends IntegrationTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.records[0].id").value(articleId))
-                .andExpect(jsonPath("$.data.records[0].title").value(title));
+                .andExpect(jsonPath("$.data.records[0].title").value(title))
+                // 列表 VO 携带 editorType（前端行内导出按它决定 md/html）
+                .andExpect(jsonPath("$.data.records[0].editorType").value("MARKDOWN"));
 
         // 作者本人文章列表同样可见
         mockMvc.perform(get("/articles/mine")
