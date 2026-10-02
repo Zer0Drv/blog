@@ -100,6 +100,16 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     }
 
     @Override
+    public void markReadByTypeAndActor(Long userId, NotificationType type, Long actorId) {
+        update(Wrappers.lambdaUpdate(Notification.class)
+                .set(Notification::getReadFlag, READ)
+                .eq(Notification::getUserId, userId)
+                .eq(Notification::getType, type.name())
+                .eq(Notification::getActorId, actorId)
+                .eq(Notification::getReadFlag, UNREAD));
+    }
+
+    @Override
     public void notify(Long userId, NotificationType type, Long actorId,
                        Long articleId, Long commentId, String summary, boolean dedupe) {
         try {
