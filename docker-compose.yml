@@ -49,8 +49,11 @@ services:
   # MinIO 对象存储：API 9000 / 控制台 9001（账号口令由 .env 注入，无默认值）
   # 上游官方镜像 minio/minio 已 EOL 并从 Docker Hub 整体下架，改用社区构建的
   # alpine/minio 并 pin 到实测可拉取的版本（不要用 latest）。
-  # 注意：该镜像以非 root 用户 uid:gid=100:101 运行，若数据卷是从旧官方镜像迁移来的，
-  # 需先 docker compose down -v 重建（否则报 file access denied）。
+  # 注意：该镜像以非 root 用户 uid:gid=100:101 运行，而 Docker 新建命名卷的属主是 root:root，
+  # 因此**首次创建卷时也会**报 `unable to create (/data/.minio.sys/tmp) file access denied`
+  # （2026-10-02 实测：down -v 全新卷同样复现；从旧官方镜像迁移的卷同理）。修法（一次性）：
+  #   docker run --rm -v blog_blog-minio-data:/data alpine:3.20 sh -c 'chown -R 100:101 /data'
+  #   然后 docker restart blog-minio
   minio:
     image: alpine/minio:RELEASE.2025-10-15T17-29-55Z
     container_name: blog-minio

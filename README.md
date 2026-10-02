@@ -93,6 +93,11 @@ mvn spring-boot:run         # 或 java -jar target/blog-0.0.1-SNAPSHOT.jar
 - **初始管理员**：库内无 ADMIN（或 `admin` 仍为历史公开种子口令）时，启动期自动重建/轮换：密码取 `ADMIN_INITIAL_PASSWORD`，未注入则随机生成并**仅打印一次到启动日志**，请首登后立即通过「修改密码」更换
 - **邮件 fallback**：未配置 SMTP 时验证码与通知邮件不发送；验证码仅写入 Redis（日志不再打印明文），本地联调用 `redis-cli GET blog:email-code:<scene>:<email>` 读取；接真实邮件取消 `application-dev.yaml` 中 `spring.mail.*` 注释并配置 `MAIL_USERNAME` / `MAIL_PASSWORD` 即可
 - **本地上传目录** `./uploads`（`BLOG_UPLOAD_DIR` 可覆盖，`MINIO_ENABLED=false` 时的磁盘 fallback）为运行时目录，已 gitignore 不入库
+- **MinIO 首次起容器必做一步**：`alpine/minio` 以 `100:101` 运行，而 Docker 新建命名卷属主是 `root:root` → 容器反复重启并报 `unable to create (/data/.minio.sys/tmp) file access denied`。修法（一次性，2026-10-02 实测新卷同样复现）：
+  ```bash
+  docker run --rm -v blog_blog-minio-data:/data alpine:3.20 sh -c 'chown -R 100:101 /data'
+  docker restart blog-minio
+  ```
 
 ### GitHub OAuth 接入
 
@@ -334,6 +339,10 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 - **MP 全局 `logic-delete-field` 配置实测不生效**，上述五个实体改用实体级 `@TableLogic`。
 - **`publish_time` 写入统一截断到秒**：DATETIME 秒精度会四舍五入，带纳秒的 `now()` 可能进位到未来，导致定时发布可见性谓词竞态。
 - **Spring Boot 4.1.4 不存在**：需求文档指定 4.1.4，但 Maven Central / 阿里云 4.1.x 仅到 4.1.1；Flyway 的 MySQL 模块名是 `flyway-mysql`（`flyway-database-mysql` 双仓 404）。
+- **`.env` 里 `GITHUB_CLIENT_ID=` 留空会炸启动**：空值会覆盖 `application-dev.yaml` 的 `replace-me` 占位，`clientRegistrationRepository` 装配时抛 `Client id of registration 'github' must not be empty`（2026-10-02 实测）。不接 OAuth 就保持注释，别留空赋值（`.env.example` 已改）。
+- **MinIO 起不来先查卷属主**：见「快速开始」的 `chown -R 100:101` 一步；`file access denied` 不是镜像坏了。
+- **`spring.docker.compose.enabled=false`**：Boot 不会隐式拉起容器，基础设施一律靠显式 `docker compose up -d`；
+  容器名/端口与手工 `docker run` 起的旧容器冲突时，先 `docker rm -f blog-mysql` 再 compose（否则容器名占用报错）。
 
 ## 路线图
 
