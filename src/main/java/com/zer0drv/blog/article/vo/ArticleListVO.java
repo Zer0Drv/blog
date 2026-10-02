@@ -33,6 +33,11 @@ public class ArticleListVO {
     private String status;
 
     /**
+     * 编辑器类型：MARKDOWN / RICHTEXT（前端列表行内导出按它决定 md/html）
+     */
+    private String editorType;
+
+    /**
      * 置顶：0-否；1-是（M5，前端首页「置顶」标）
      */
     private Short isTop;

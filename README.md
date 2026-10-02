@@ -15,6 +15,7 @@
 - **全文搜索**：`content_text` 纯文本冗余 + ngram FULLTEXT；`blog.search.fulltext-enabled=false` 时降级三路 LIKE
 - **归档**：按月分组的文章归档；标签 / 树形分类完整管理
 - **存储型 XSS 防线**：富文本（RICHTEXT）内容入库前经 jsoup `Safelist.relaxed()` 白名单清洗；Markdown 源码不清洗（渲染侧由前端 DOMPurify 兜底），配合 CSP 响应头构成纵深防御
+- **文章导入导出**：单篇文章导出为 `.md` / `.html` 文件（含 YAML front matter）；从 `.md/.markdown/.txt/.html` 文件导入为草稿（见「文章导入导出」一节）
 
 ### 互动
 - 评论两层楼中楼：时间正/倒序 + 热度排序、@ 提及、主评论内嵌前 3 条回复
@@ -43,6 +44,23 @@
 - 自适应图形验证码：按场景 + 来源频率计数，超阈值才要求验证码；登录按 IP + 用户名双维度计数（伪造 XFF 不可绕过，XFF 仅在显式开启 `blog.security.trust-proxy-headers` 时才被信任）；邮箱验证码连续失败 5 次作废
 - MinIO 对象存储（默认）/ 本地磁盘上传（fallback），bucket 创建由后端启动自检保证
 - Flyway 迁移、全局逻辑删除约定、统一响应体与分页结构
+
+## 文章导入导出
+
+### 导出：`GET /articles/{id}/export?format=md|html`
+
+- **可见性与文章详情完全一致**：已发布文章匿名可导出；草稿 / 下架仅作者本人或 ADMIN，其余调用方与「文章不存在」同错误码（`40030`）
+- `format` 省略时按文章 `editorType` 默认（MARKDOWN→`md`，RICHTEXT→`html`）；显式跨格式请求不渲染转换，直接给正文源文本
+- 响应为文件下载：`Content-Type: text/markdown; charset=UTF-8` 或 `text/html; charset=UTF-8`，`Content-Disposition: attachment; filename*=UTF-8''<URL编码标题>.<ext>`（标题为空时用 `article-<id>`）
+- 文件开头带 YAML front matter：`---\ntitle: <标题>\ndate: <创建时间 ISO>\n---\n\n`
+
+### 导入：`POST /articles/import`（`multipart/form-data`，字段名 `file`）
+
+- **权限**：仅 ADMIN / AUTHOR（其余角色 `40300`，匿名 `401`）；作为 mutating 请求需携带 `X-Requested-With: XMLHttpRequest`
+- **白名单**：`.md` / `.markdown` / `.txt` → 建 MARKDOWN 草稿；`.html` / `.htm` → 建 RICHTEXT 草稿（入库前走与正文保存相同的 jsoup `Safelist.relaxed()` 清洗）；其他扩展名 → `40023`「仅支持 .md/.markdown/.txt/.html 文件」
+- **限制**：非空、≤2MB（超过 → `40023`「文件过大，最大 2MB」），UTF-8 解码
+- **标题**：Markdown 取正文首个一级标题（`# 标题`，该行从正文移除）；否则用文件名去扩展名；超长截断至 200 字符
+- 一律创建为 **DRAFT 草稿**（作者 = 当前用户），响应结构与创建文章一致（`Result<ArticleDetailVO>`）；属文章操作，**不计入附件上传日配额**
 
 ## 技术栈
 
@@ -212,6 +230,8 @@ src/main/java/com/zer0drv/blog/
 | PUT/GET | `/articles/{id}/autosave` | 自动保存草稿写入 / 读取（Redis，TTL 2h） | 本人/ADMIN |
 | POST | `/articles/{id}/restore` | 回收站恢复（回草稿） | 本人/ADMIN |
 | DELETE | `/articles/{id}/force` | 物理删除（级联） | 本人/ADMIN |
+| GET | `/articles/{id}/export?format=md\|html` | 导出为文件（front matter + 正文原文；可见性同详情） | 同详情 |
+| POST | `/articles/import` | 导入 .md/.markdown/.txt/.html 为 DRAFT 草稿（≤2MB，详见「文章导入导出」） | ADMIN/AUTHOR |
 | GET/POST/PUT/DELETE | `/tags` `/tags/{id}` | 标签管理（name 唯一） | 读公开 / 写 ADMIN·AUTHOR |
 | GET/POST/PUT/DELETE | `/categories` `/categories/{id}` | 分类树管理 | 读公开 / 写仅 ADMIN |
 | POST | `/upload/image` | 上传图片（jpg/png/gif/webp ≤5MB，返回 `{url, id}` 并落附件库；每用户每日限 100 次） | 登录 |
@@ -319,4 +339,4 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 
 已完成：用户体系与鉴权、内容模块、互动模块、社交模块（含 WebSocket 实时推送）、管理后台、自适应验证码，以及对标 WordPress/Halo 的 P0 补缺（版本历史、自动保存、定时发布、回收站、全文搜索、归档、评论审核 + 邮件通知、SEO 三件套、站点设置中心、附件库）。
 
-后续候选（P1）：文章 slug 固定链接、密码保护/私密文章、Markdown 导入导出、友情链接、自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、附件对象物理清理、首登强制改密标记（需前后端字段契约）。
+后续候选（P1）：文章 slug 固定链接、密码保护/私密文章、友情链接、自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、附件对象物理清理、首登强制改密标记（需前后端字段契约）。

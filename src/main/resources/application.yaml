@@ -3,6 +3,12 @@ spring:
     name: blog
   profiles:
     active: dev
+  servlet:
+    multipart:
+      # 容器级上限须高于业务校验线（文章导入 2MB / 图片上传 5MB 均在 service 层校验），
+      # 否则超限请求被 multipart 解析器先拒，拿不到业务错误码
+      max-file-size: 5MB
+      max-request-size: 5MB
   security:
     oauth2:
       resourceserver:

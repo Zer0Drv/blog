@@ -19,6 +19,7 @@ import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleAuthorVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
+import com.zer0drv.blog.article.vo.ArticleExportVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
 import com.zer0drv.blog.article.vo.ArticleVersionVO;
@@ -52,19 +53,25 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -99,6 +106,31 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
      * 回收站伪状态（非 ArticleStatus 枚举值，service 层先行拦截）
      */
     private static final String PSEUDO_STATUS_TRASH = "TRASH";
+
+    /**
+     * 导入文件大小上限：2MB
+     */
+    private static final long IMPORT_MAX_SIZE = 2L * 1024 * 1024;
+
+    /**
+     * 导入标题上限：与 article.title / ArticleSaveDTO 的字段约束一致
+     */
+    private static final int IMPORT_TITLE_MAX_LENGTH = 200;
+
+    /**
+     * 导入文件扩展名 → 编辑器类型：.md/.markdown/.txt → MARKDOWN；.html/.htm → RICHTEXT
+     */
+    private static final Map<String, String> IMPORT_EDITOR_TYPES = Map.of(
+            "md", EditorType.MARKDOWN.name(),
+            "markdown", EditorType.MARKDOWN.name(),
+            "txt", EditorType.MARKDOWN.name(),
+            "html", EditorType.RICHTEXT.name(),
+            "htm", EditorType.RICHTEXT.name());
+
+    /**
+     * Markdown 一级标题行（# 标题，排除 ## 及以上），导入时取作文章标题
+     */
+    private static final Pattern H1_PATTERN = Pattern.compile("^#\\s+(\\S.*)$");
 
     private final ArticleTagMapper articleTagMapper;
     private final TagMapper tagMapper;
@@ -152,10 +184,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (Objects.isNull(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
-        boolean published = ArticleStatus.PUBLISHED.name().equals(article.getStatus());
-        // P0 定时发布：PUBLISHED 但 publish_time 未到的文章对公众仍不可见
-        boolean visible = published && Objects.nonNull(article.getPublishTime())
-                && !article.getPublishTime().isAfter(LocalDateTime.now());
+        boolean visible = isPubliclyVisible(article);
         // 非可见状态仅作者本人 / ADMIN 可见；对匿名与非作者不暴露文章存在性，统一报不存在
         if (!visible && !isAuthorOrAdmin(article, jwt)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
@@ -453,6 +482,142 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             vo.setArticles(entry.getValue());
             return vo;
         }).toList();
+    }
+
+    @Override
+    public ArticleExportVO exportArticle(Long id, String format, Jwt jwt) {
+        Article article = getById(id);
+        if (Objects.isNull(article)) {
+            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+        }
+        // 可见性与详情完全一致：不暴露存在性，统一报不存在
+        if (!isPubliclyVisible(article) && !isAuthorOrAdmin(article, jwt)) {
+            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+        }
+        String extension = resolveExportExtension(article, format);
+        String title = Objects.isNull(article.getTitle()) ? "" : article.getTitle();
+        String fileName = title.isBlank() ? "article-" + article.getId() : title;
+        // YAML front matter + 正文原文（不做 Markdown 渲染转换，跨格式请求直接给源文本）
+        LocalDateTime createTime = Objects.nonNull(article.getCreateTime())
+                ? article.getCreateTime() : LocalDateTime.now();
+        String body = "---\ntitle: " + title + "\n"
+                + "date: " + createTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME) + "\n"
+                + "---\n\n"
+                + (Objects.isNull(article.getContent()) ? "" : article.getContent());
+        return new ArticleExportVO(body.getBytes(StandardCharsets.UTF_8), fileName, extension);
+    }
+
+    // 自调用 create() 不经代理，需在本方法上声明事务以保证创建落库的原子性语义一致
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ArticleDetailVO importArticle(MultipartFile file, Jwt jwt) {
+        if (Objects.isNull(file) || file.isEmpty()) {
+            throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "导入文件不能为空");
+        }
+        if (file.getSize() > IMPORT_MAX_SIZE) {
+            throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "文件过大，最大 2MB");
+        }
+        String originalFilename = Objects.isNull(file.getOriginalFilename()) ? "" : file.getOriginalFilename();
+        String editorType = IMPORT_EDITOR_TYPES.get(extensionOf(originalFilename));
+        if (Objects.isNull(editorType)) {
+            throw new BusinessException(StatusCode.PARAM_INVALID.getCode(),
+                    "仅支持 .md/.markdown/.txt/.html 文件");
+        }
+        String content;
+        try {
+            content = new String(file.getBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "导入文件读取失败");
+        }
+        // UTF-8 BOM 剥离，避免首行 "# 标题" 因 BOM 失配
+        if (content.startsWith("\uFEFF")) {
+            content = content.substring(1);
+        }
+        String title = null;
+        if (EditorType.MARKDOWN.name().equals(editorType)) {
+            // Markdown：取正文首个一级标题作文章标题，并将该行从正文移除
+            String[] lines = content.split("\n", -1);
+            for (int i = 0; i < lines.length; i++) {
+                var matcher = H1_PATTERN.matcher(stripCr(lines[i]));
+                if (matcher.matches()) {
+                    title = matcher.group(1).trim();
+                    lines[i] = null;
+                    break;
+                }
+            }
+            content = Arrays.stream(lines).filter(Objects::nonNull)
+                    .collect(Collectors.joining("\n"));
+        }
+        if (Objects.isNull(title) || title.isBlank()) {
+            title = baseNameOf(originalFilename);
+        }
+        if (title.isBlank()) {
+            title = "未命名文章";
+        }
+        if (title.length() > IMPORT_TITLE_MAX_LENGTH) {
+            title = title.substring(0, IMPORT_TITLE_MAX_LENGTH);
+        }
+        // 复用创建逻辑（RICHTEXT 随之走 jsoup 白名单清洗），固定落 DRAFT 草稿
+        ArticleSaveDTO dto = new ArticleSaveDTO();
+        dto.setTitle(title);
+        dto.setContent(content);
+        dto.setEditorType(editorType);
+        dto.setStatus(ArticleStatus.DRAFT.name());
+        Long articleId = create(dto, jwt);
+        return getDetail(articleId, jwt);
+    }
+
+    /**
+     * 公众可见性谓词（详情 / 导出共用）：PUBLISHED 且 publish_time 非空且已到
+     * （P0 定时发布：PUBLISHED 但 publish_time 未到的文章对公众仍不可见）
+     */
+    private boolean isPubliclyVisible(Article article) {
+        return ArticleStatus.PUBLISHED.name().equals(article.getStatus())
+                && Objects.nonNull(article.getPublishTime())
+                && !article.getPublishTime().isAfter(LocalDateTime.now());
+    }
+
+    /**
+     * 导出扩展名：format 省略时按 editorType（MARKDOWN→md，RICHTEXT→html）；
+     * 显式指定仅允许 md / html
+     */
+    private String resolveExportExtension(Article article, String format) {
+        if (Objects.isNull(format) || format.isBlank()) {
+            return EditorType.RICHTEXT.name().equals(article.getEditorType()) ? "html" : "md";
+        }
+        String normalized = format.trim().toLowerCase(Locale.ROOT);
+        if (!"md".equals(normalized) && !"html".equals(normalized)) {
+            throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "导出格式仅支持 md / html");
+        }
+        return normalized;
+    }
+
+    /**
+     * 文件名小写扩展名（不含点；无扩展名返回空串）
+     */
+    private static String extensionOf(String filename) {
+        int dot = filename.lastIndexOf('.');
+        if (dot < 0 || dot == filename.length() - 1) {
+            return "";
+        }
+        return filename.substring(dot + 1).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * 文件名去扩展名（取最后一个点之前；含路径分隔符时先取末段）
+     */
+    private static String baseNameOf(String filename) {
+        String name = filename.replace('\\', '/');
+        int slash = name.lastIndexOf('/');
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        int dot = name.lastIndexOf('.');
+        return dot <= 0 ? name : name.substring(0, dot);
+    }
+
+    private static String stripCr(String line) {
+        return line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
     }
 
     /**

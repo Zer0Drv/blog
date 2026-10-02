@@ -1,6 +1,11 @@
 # 测试环境：H2 内存库替代 MySQL、关 Flyway、关 MinIO（走本地磁盘 fallback），
 # 使 @SpringBootTest 上下文测试无需任何外部服务即可在 CI 运行
 spring:
+  servlet:
+    multipart:
+      # 与主配置对齐：容器级上限高于业务校验线（导入 2MB），超限由业务码拒绝
+      max-file-size: 5MB
+      max-request-size: 5MB
   datasource:
     # MODE=MySQL：让 H2 尽量兼容 MySQL DDL（ENGINE/CHARSET/反引号/ON UPDATE 等）；
     # NON_KEYWORDS=USER：H2 中 USER 是保留字，而业务表名即 user 且 SQL 不加引号

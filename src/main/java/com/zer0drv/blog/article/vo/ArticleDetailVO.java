@@ -4,7 +4,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /**
- * 文章详情 = 列表项 + 正文与编辑器类型
+ * 文章详情 = 列表项 + 正文（editorType 自 ArticleListVO 继承）
  *
  * @author Yoruhaki
  */
@@ -13,8 +13,6 @@ import lombok.EqualsAndHashCode;
 public class ArticleDetailVO extends ArticleListVO {
 
     private String content;
-
-    private String editorType;
 
     /**
      * 浏览量（M3）
