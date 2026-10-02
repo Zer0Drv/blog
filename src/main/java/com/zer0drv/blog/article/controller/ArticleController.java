@@ -6,6 +6,7 @@ import com.zer0drv.blog.article.dto.AutosaveDTO;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
+import com.zer0drv.blog.article.vo.ArticleExportVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
 import com.zer0drv.blog.article.vo.ArticleVersionVO;
@@ -13,6 +14,10 @@ import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -25,7 +30,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -96,6 +103,41 @@ public class ArticleController {
     @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
     public Result<Long> create(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid ArticleSaveDTO dto) {
         return Result.ok(articleService.create(dto, jwt));
+    }
+
+    /**
+     * 导出文章为文件（md / html）。可见性与详情完全一致（已发布=公开；
+     * 草稿/下架=本人或 ADMIN，其余报文章不存在）。format 省略时按 editorType 默认；
+     * 内容为正文原文 + YAML front matter，不做 Markdown 渲染转换。
+     */
+    @GetMapping("/{id}/export")
+    public ResponseEntity<byte[]> export(@PathVariable Long id,
+                                         @RequestParam(required = false) String format,
+                                         @AuthenticationPrincipal Jwt jwt) {
+        ArticleExportVO export = articleService.exportArticle(id, format, jwt);
+        MediaType mediaType = "html".equals(export.extension())
+                ? MediaType.parseMediaType("text/html;charset=UTF-8")
+                : MediaType.parseMediaType("text/markdown;charset=UTF-8");
+        // RFC 5987 编码文件名：filename*=UTF-8''<URL编码标题>.<ext>
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(export.fileName() + "." + export.extension(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .body(export.body());
+    }
+
+    /**
+     * 导入文章文件（ADMIN / AUTHOR）：.md/.markdown/.txt → MARKDOWN 草稿，
+     * .html/.htm → RICHTEXT 草稿（入库前 jsoup 白名单清洗）；≤2MB，UTF-8；
+     * Markdown 取首个一级标题作标题。不计入附件上传日配额。
+     */
+    @PostMapping("/import")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<ArticleDetailVO> importArticle(@AuthenticationPrincipal Jwt jwt,
+                                                 @RequestParam("file") MultipartFile file) {
+        return Result.ok(articleService.importArticle(file, jwt));
     }
 
     /**

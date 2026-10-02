@@ -7,11 +7,13 @@ import com.zer0drv.blog.article.dto.ArticleStatusDTO;
 import com.zer0drv.blog.article.dto.AutosaveDTO;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
+import com.zer0drv.blog.article.vo.ArticleExportVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
 import com.zer0drv.blog.article.vo.ArticleVersionVO;
 import com.zer0drv.blog.common.response.PageResult;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -109,4 +111,20 @@ public interface ArticleService extends IService<Article> {
      * 归档（公开）：可见文章按月分组，月份倒序，月内按发布时间倒序
      */
     List<ArchiveMonthVO> archives();
+
+    /**
+     * 导出文章为文件（md / html）。可见性与 {@link #getDetail} 完全一致
+     * （已发布=公开；草稿/下架=本人或 ADMIN，其余一律 ARTICLE_NOT_EXIST）。
+     * format 可空：缺省按文章 editorType（MARKDOWN→md，RICHTEXT→html）；
+     * 内容为正文原文 + YAML front matter，不做 Markdown 渲染转换。
+     */
+    ArticleExportVO exportArticle(Long id, String format, Jwt jwt);
+
+    /**
+     * 导入文章文件并创建为当前用户的 DRAFT 草稿（复用 {@link #create}，
+     * RICHTEXT 内容随之过 jsoup 白名单清洗）。
+     * .md/.markdown/.txt → MARKDOWN；.html/.htm → RICHTEXT；≤2MB；UTF-8 解码；
+     * Markdown 取正文首个一级标题作标题（该行从正文移除），否则用文件名去扩展名。
+     */
+    ArticleDetailVO importArticle(MultipartFile file, Jwt jwt);
 }
