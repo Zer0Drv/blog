@@ -35,6 +35,12 @@ public interface NotificationService extends IService<Notification> {
     void markAllRead(Jwt jwt);
 
     /**
+     * 把某用户的、来自某触发人的、某类型的全部未读通知标记已读
+     * （幂等：无可更新行时静默成功；用于读完私信会话后同步 PRIVATE_MESSAGE 通知已读）
+     */
+    void markReadByTypeAndActor(Long userId, NotificationType type, Long actorId);
+
+    /**
      * 安全发送通知：内部 try/catch 兜底（失败仅 log.warn，不回滚主业务）；
      * 接收人 == 触发人时不发；dedupe=true 时按 接收人+触发人+类型+文章 防重
      * （已存在同组合的未删通知则跳过，用于 ARTICLE_LIKE / FOLLOW 取消后再操作不重复打扰）。

@@ -171,6 +171,8 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
                 .eq(PrivateMessage::getReceiverId, userId)
                 .eq(PrivateMessage::getSenderId, peerId)
                 .eq(PrivateMessage::getReadFlag, UNREAD));
+        // 同步把来自该会话对方（peer=发信人=通知触发人）的私信通知标记已读，否则铃铛未读数不减少
+        notificationService.markReadByTypeAndActor(userId, NotificationType.PRIVATE_MESSAGE, peerId);
     }
 
     /**
