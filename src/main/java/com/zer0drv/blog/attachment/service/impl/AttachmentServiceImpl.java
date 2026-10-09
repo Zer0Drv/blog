@@ -13,6 +13,7 @@ import com.zer0drv.blog.attachment.vo.AttachmentVO;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
+import com.zer0drv.blog.upload.service.UploadService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -22,7 +23,7 @@ import java.util.Objects;
 
 /**
  * 附件库实现。越权语义：他人数据一律按「不存在」处理（不暴露存在性）。
- * 删除附件只逻辑删记录、不删存储对象（MinIO/本地磁盘的对象清理由 P1 统一做）。
+ * 删除附件 = 逻辑删记录 + 物理删存储对象（best-effort，失败只告警不回滚）。
  *
  * @author Yoruhaki
  */
@@ -32,6 +33,7 @@ public class AttachmentServiceImpl implements AttachmentService {
 
     private final AttachmentMapper attachmentMapper;
     private final AttachmentGroupMapper attachmentGroupMapper;
+    private final UploadService uploadService;
 
     @Override
     public Attachment recordUpload(Long userId, MultipartFile file, String url) {
@@ -136,7 +138,7 @@ public class AttachmentServiceImpl implements AttachmentService {
     @Override
     public void deleteMine(Long userId, Long attachmentId) {
         Attachment attachment = getOwnAttachment(userId, attachmentId);
-        doLogicDelete(attachment.getId());
+        doDelete(attachment);
     }
 
     @Override
@@ -161,15 +163,19 @@ public class AttachmentServiceImpl implements AttachmentService {
         if (Objects.isNull(attachment)) {
             throw new BusinessException(StatusCode.ATTACHMENT_NOT_EXIST);
         }
-        doLogicDelete(attachment.getId());
+        doDelete(attachment);
     }
 
     /**
-     * 逻辑删除附件记录。注意：只删记录，不删 MinIO/本地磁盘上的存储对象
-     * （对象物理清理由 P1 的统一清理任务处理，避免误删被历史文章引用的图）。
+     * 删除附件：先逻辑删记录，再物理删存储对象。
+     * 物理删除 best-effort（UploadService.deleteObject 失败只告警不抛异常），
+     * 存储清理不阻塞用户可见的删除，失败遗留的对象最多退回为「逻辑删」的旧行为。
+     * 对象名为每次上传随机生成的 yyyyMM/uuid.ext，当前数据模型不存在多附件共享
+     * 同一对象的情形，无需引用计数。
      */
-    private void doLogicDelete(Long attachmentId) {
-        attachmentMapper.deleteById(attachmentId);
+    private void doDelete(Attachment attachment) {
+        attachmentMapper.deleteById(attachment.getId());
+        uploadService.deleteObject(attachment.getObjectKey());
     }
 
     /**

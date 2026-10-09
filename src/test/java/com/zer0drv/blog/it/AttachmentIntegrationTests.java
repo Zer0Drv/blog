@@ -6,6 +6,10 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -155,6 +159,56 @@ class AttachmentIntegrationTests extends IntegrationTestSupport {
     }
 
     @Test
+    void deleteAttachmentPhysicallyRemovesLocalFile() throws Exception {
+        String username = unique("it_att_del_");
+        long userId = seedUser(username, "删除者", "AUTHOR");
+        String bearer = bearerOf(username);
+
+        // 真实上传（测试环境走本地磁盘 fallback，uploadDir=./uploads）
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "it-待删.png", "image/png", new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47});
+        MvcResult result = mockMvc.perform(multipart("/upload/image")
+                        .file(file)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andReturn();
+        String url = objectMapper.readTree(result.getResponse().getContentAsString())
+                .path("data").path("url").asString();
+        long attachmentId = objectMapper.readTree(result.getResponse().getContentAsString())
+                .path("data").path("id").asLong();
+        Path stored = Paths.get("uploads").toAbsolutePath().normalize()
+                .resolve(url.substring("/uploads/".length()));
+        assertTrue(Files.exists(stored), "上传后本地文件应存在");
+
+        // 用户侧删除：记录逻辑删 + 本地文件物理删
+        mockMvc.perform(delete("/attachments/{id}", attachmentId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("200"));
+
+        assertTrue(Files.notExists(stored), "删除附件后本地文件应被物理删除");
+        var row = jdbcTemplate.queryForMap("SELECT deleted FROM attachment WHERE id = ?", attachmentId);
+        assertEquals(1, ((Number) row.get("deleted")).intValue());
+    }
+
+    @Test
+    void deleteAttachmentWithMissingLocalFileStillSucceeds() throws Exception {
+        String username = unique("it_att_missing_");
+        long userId = seedUser(username, "缺文件", "AUTHOR");
+        String bearer = bearerOf(username);
+        // 只落库不落盘：物理删除应容忍文件缺失（告警跳过），接口照常成功
+        long attachmentId = seedAttachment(userId, null, unique("缺文件.png"));
+
+        mockMvc.perform(delete("/attachments/{id}", attachmentId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("200"));
+
+        var row = jdbcTemplate.queryForMap("SELECT deleted FROM attachment WHERE id = ?", attachmentId);
+        assertEquals(1, ((Number) row.get("deleted")).intValue());
+    }
+
+    @Test
     void crossUserAccessTreatedAsNotExist() throws Exception {
         String owner = unique("it_att_owner_");
         long ownerId = seedUser(owner, "属主", "USER");
@@ -213,7 +267,7 @@ class AttachmentIntegrationTests extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.data.records[0].id").value(attachmentId))
                 .andExpect(jsonPath("$.data.records[0].userId").value(ownerId));
 
-        // 管理端逻辑删（不删存储对象）→ 属主列表清空
+        // 管理端删除（逻辑删记录；种子文件未落盘，物理删 best-effort 告警跳过）→ 属主列表清空
         mockMvc.perform(delete("/admin/attachments/{id}", attachmentId)
                         .header(HttpHeaders.AUTHORIZATION, adminBearer))
                 .andExpect(status().isOk())

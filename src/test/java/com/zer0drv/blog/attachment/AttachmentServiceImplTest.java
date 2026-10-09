@@ -7,6 +7,7 @@ import com.zer0drv.blog.attachment.mapper.AttachmentMapper;
 import com.zer0drv.blog.attachment.service.impl.AttachmentServiceImpl;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
+import com.zer0drv.blog.upload.service.UploadService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -37,6 +38,9 @@ class AttachmentServiceImplTest {
 
     @Mock
     private AttachmentGroupMapper attachmentGroupMapper;
+
+    @Mock
+    private UploadService uploadService;
 
     @InjectMocks
     private AttachmentServiceImpl attachmentService;
@@ -107,6 +111,43 @@ class AttachmentServiceImplTest {
         assertEquals("202501/uuid.png", captor.getValue().getObjectKey());
     }
 
+    // ---------- 附件删除（逻辑删 + 物理删存储对象） ----------
+
+    @Test
+    void deleteMineRemovesStorageObject() {
+        Attachment attachment = attachment(1L, 7L);
+        attachment.setObjectKey("202501/uuid.png");
+        when(attachmentMapper.selectById(1L)).thenReturn(attachment);
+
+        attachmentService.deleteMine(7L, 1L);
+
+        verify(attachmentMapper).deleteById(1L);
+        // 逻辑删后物理删存储对象（失败容忍由 UploadService.deleteObject 保证）
+        verify(uploadService).deleteObject("202501/uuid.png");
+    }
+
+    @Test
+    void deleteByAdminRemovesStorageObject() {
+        Attachment attachment = attachment(1L, 99L);
+        attachment.setObjectKey("202502/uuid2.png");
+        when(attachmentMapper.selectById(1L)).thenReturn(attachment);
+
+        attachmentService.deleteByAdmin(1L);
+
+        verify(attachmentMapper).deleteById(1L);
+        verify(uploadService).deleteObject("202502/uuid2.png");
+    }
+
+    @Test
+    void deleteNonExistentSkipsStorageCleanup() {
+        when(attachmentMapper.selectById(1L)).thenReturn(null);
+
+        assertCode(StatusCode.ATTACHMENT_NOT_EXIST, assertThrows(BusinessException.class,
+                () -> attachmentService.deleteByAdmin(1L)));
+        verify(attachmentMapper, never()).deleteById(any(Long.class));
+        verify(uploadService, never()).deleteObject(any());
+    }
+
     // ---------- 分组删除保护 ----------
 
     @Test
@@ -140,6 +181,8 @@ class AttachmentServiceImplTest {
         assertCode(StatusCode.ATTACHMENT_NOT_EXIST, assertThrows(BusinessException.class,
                 () -> attachmentService.moveToGroup(7L, 1L, null)));
         verify(attachmentMapper, never()).deleteById(any(Long.class));
+        // 越权拒绝时不得触碰存储对象
+        verify(uploadService, never()).deleteObject(any());
     }
 
     @Test

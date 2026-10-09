@@ -5,6 +5,7 @@ import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.upload.service.UploadService;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
+import io.minio.RemoveObjectArgs;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -82,11 +83,73 @@ public class UploadServiceImpl implements UploadService {
         }
         String extension = resolveExtension(file.getOriginalFilename());
         String objectName = buildObjectName(extension);
-        MinioClient minioClient = minioEnabled ? minioClientProvider.getIfAvailable() : null;
+        MinioClient minioClient = minioClientOrNull();
         if (Objects.nonNull(minioClient)) {
             return uploadToMinio(minioClient, file, objectName, contentType);
         }
         return uploadToLocal(file, objectName);
+    }
+
+    /**
+     * MinIO 客户端解析：enabled=false 或 Bean 不存在（未装配/装配失败）时为 null，走本地磁盘 fallback
+     */
+    private MinioClient minioClientOrNull() {
+        return minioEnabled ? minioClientProvider.getIfAvailable() : null;
+    }
+
+    @Override
+    public void deleteObject(String objectKey) {
+        if (Objects.isNull(objectKey) || objectKey.isBlank()) {
+            log.warn("附件存储对象名为空，跳过物理删除");
+            return;
+        }
+        try {
+            MinioClient minioClient = minioClientOrNull();
+            if (Objects.nonNull(minioClient)) {
+                deleteFromMinio(minioClient, objectKey);
+            } else {
+                deleteFromLocal(objectKey);
+            }
+        } catch (Exception e) {
+            // best-effort：物理删除失败只告警，不影响已完成的记录删除
+            log.warn("存储对象物理删除失败（{}）：{}", objectKey, e.getMessage());
+        }
+    }
+
+    /**
+     * MinIO 物理删除：removeObject 对不存在的对象幂等（S3 DELETE 语义），无需先 stat
+     */
+    private void deleteFromMinio(MinioClient minioClient, String objectKey) throws Exception {
+        minioClient.removeObject(RemoveObjectArgs.builder()
+                .bucket(minioBucket)
+                .object(objectKey)
+                .build());
+        log.info("MinIO 对象已删除：{}/{}", minioBucket, objectKey);
+    }
+
+    /**
+     * 本地磁盘物理删除：路径解析与 uploadToLocal 一致（{uploadDir}/{yyyyMM}/{filename}）。
+     * objectKey 来自 DB，须防路径穿越：必须是「目录/文件名」两段、不含 . / .. 段，
+     * 且规范化后的最终路径仍落在上传根目录内，否则拒绝删除。
+     */
+    private void deleteFromLocal(String objectKey) throws IOException {
+        int slash = objectKey.indexOf('/');
+        String dirName = slash > 0 ? objectKey.substring(0, slash) : "";
+        String filename = slash > 0 ? objectKey.substring(slash + 1) : "";
+        Path root = Paths.get(uploadDir).toAbsolutePath().normalize();
+        Path target = root.resolve(dirName).resolve(filename).normalize();
+        if (filename.isEmpty() || filename.contains("/")
+                || ".".equals(dirName) || "..".equals(dirName)
+                || ".".equals(filename) || "..".equals(filename)
+                || !target.startsWith(root)) {
+            log.warn("附件存储对象名非法，跳过本地物理删除：{}", objectKey);
+            return;
+        }
+        if (Files.deleteIfExists(target)) {
+            log.info("本地附件文件已删除：{}", target);
+        } else {
+            log.warn("本地附件文件不存在，跳过物理删除：{}", target);
+        }
     }
 
     /**

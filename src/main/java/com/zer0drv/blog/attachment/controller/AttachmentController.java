@@ -97,7 +97,7 @@ public class AttachmentController {
     }
 
     /**
-     * 删除附件（只逻辑删记录，不删存储对象）
+     * 删除附件（逻辑删记录 + 物理删存储对象，物理删失败只告警）
      */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
