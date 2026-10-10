@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
+import com.zer0drv.blog.article.api.ArticleCascade;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
@@ -35,10 +36,8 @@ import com.zer0drv.blog.comment.enums.CommentStatus;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
 import com.zer0drv.blog.interaction.domain.ArticleFavorite;
 import com.zer0drv.blog.interaction.domain.ArticleLike;
-import com.zer0drv.blog.interaction.domain.CommentLike;
 import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
 import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
-import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.tag.domain.Tag;
 import com.zer0drv.blog.tag.mapper.TagMapper;
 import com.zer0drv.blog.tag.vo.TagVO;
@@ -46,7 +45,9 @@ import com.zer0drv.blog.user.domain.User;
 import com.zer0drv.blog.user.enums.UserRole;
 import com.zer0drv.blog.user.service.UserService;
 import io.github.linpeilie.Converter;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.safety.Safelist;
 import org.springframework.beans.factory.annotation.Value;
@@ -80,6 +81,7 @@ import java.util.stream.Collectors;
 /**
  * @author Yoruhaki
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> implements ArticleService {
@@ -141,18 +143,34 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private final UserService userService;
     private final Converter converter;
     private final CommentMapper commentMapper;
-    private final CommentLikeMapper commentLikeMapper;
     private final ArticleLikeMapper articleLikeMapper;
     private final ArticleFavoriteMapper articleFavoriteMapper;
     private final ArticleVersionMapper articleVersionMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final List<ArticleCascade> articleCascades;
 
     /**
      * 全文搜索开关（P0）：true 走 ngram FULLTEXT（仅 MySQL）；false 走 LIKE 兜底（H2 测试环境）
      */
     @Value("${blog.search.fulltext-enabled:true}")
     private boolean fulltextEnabled;
+
+    /**
+     * 级联清场端口兜底（issue #24 第三步）：comment / interaction 两个模块必须各自
+     * 注册 ArticleCascade 实现，缺失说明有模块忘了接级联——启动即快速失败，
+     * 避免 forceDelete 静默漏删外模块数据。
+     */
+    @PostConstruct
+    void assertArticleCascadesPresent() {
+        if (articleCascades.size() < 2) {
+            throw new IllegalStateException(
+                    "ArticleCascade 实现不足 2 个（当前 " + articleCascades.size() + " 个），"
+                            + "comment / interaction 模块必须各自实现文章级联清场");
+        }
+        log.info("ArticleCascade 级联清场实现已装配：{}", articleCascades.stream()
+                .map(cascade -> cascade.getClass().getSimpleName()).toList());
+    }
 
     @Override
     public PageResult<ArticleListVO> pagePublished(long page, long size, String keyword, Long tagId, Long categoryId) {
@@ -298,23 +316,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
         assertAuthorOrAdmin(article, jwt);
-        // 物理删除本行 + 级联物理删关联
+        // 物理删除本行 + article 自有级联（article_tag 无逻辑删除字段，物理删除；版本快照同理）
         baseMapper.physicalDeleteById(id);
-        // article_tag 无逻辑删除字段，物理删除
         articleTagMapper.delete(Wrappers.lambdaQuery(ArticleTag.class).eq(ArticleTag::getArticleId, id));
-        // 评论点赞关联物理删除（含已逻辑删除评论的点赞，手写 SQL 取全量评论 id）
-        List<Long> commentIds = baseMapper.selectAllCommentIdsByArticleId(id);
-        if (!commentIds.isEmpty()) {
-            commentLikeMapper.delete(Wrappers.lambdaQuery(CommentLike.class)
-                    .in(CommentLike::getCommentId, commentIds));
-        }
-        // 该文章的评论（含已逻辑删除）物理删除
-        baseMapper.physicalDeleteCommentsByArticleId(id);
-        // 文章点赞 / 收藏关联物理删除
-        articleLikeMapper.delete(Wrappers.lambdaQuery(ArticleLike.class).eq(ArticleLike::getArticleId, id));
-        articleFavoriteMapper.delete(Wrappers.lambdaQuery(ArticleFavorite.class).eq(ArticleFavorite::getArticleId, id));
-        // 全部版本快照物理删除
         articleVersionMapper.physicalDeleteByArticleId(id);
+        // 外模块级联清场：由各模块的 ArticleCascade 实现删自己拥有的表
+        // （comment + comment_like、article_like + article_favorite），同步同事务，任一失败整体回滚
+        articleCascades.forEach(cascade -> cascade.purgeByArticleId(id));
         // 清作者与操作者的自动保存草稿
         deleteAutosave(id, article.getAuthorId());
         Long operatorId = JwtSubjects.userIdOf(jwt);

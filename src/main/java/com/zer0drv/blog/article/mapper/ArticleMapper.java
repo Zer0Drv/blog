@@ -10,8 +10,6 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-import java.util.List;
-
 /**
  * @author Yoruhaki
  */
@@ -63,19 +61,6 @@ public interface ArticleMapper extends BaseMapper<Article> {
      */
     @Delete("DELETE FROM article WHERE id = #{id}")
     int physicalDeleteById(@Param("id") Long id);
-
-    /**
-     * 查文章的全部评论 id（含已逻辑删除；彻底删除时级联清评论点赞用，
-     * 写在这里以避免跨模块改 comment 包 Mapper）
-     */
-    @Select("SELECT id FROM comment WHERE article_id = #{articleId}")
-    List<Long> selectAllCommentIdsByArticleId(@Param("articleId") Long articleId);
-
-    /**
-     * 物理删除文章的全部评论（含已逻辑删除；同上，避免跨模块改 comment 包 Mapper）
-     */
-    @Delete("DELETE FROM comment WHERE article_id = #{articleId}")
-    int physicalDeleteCommentsByArticleId(@Param("articleId") Long articleId);
 
     /**
      * 全文搜索（P0，仅 MySQL 跑；H2 不支持 MATCH...AGAINST，测试走 LIKE 兜底）

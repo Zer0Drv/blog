@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.zer0drv.blog.article.api.ArticleCascade;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
@@ -22,10 +23,8 @@ import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.interaction.domain.ArticleFavorite;
 import com.zer0drv.blog.interaction.domain.ArticleLike;
-import com.zer0drv.blog.interaction.domain.CommentLike;
 import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
 import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
-import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.tag.mapper.TagMapper;
 import com.zer0drv.blog.user.enums.UserRole;
 import com.zer0drv.blog.user.service.UserService;
@@ -96,8 +95,6 @@ class ArticleServiceImplTest {
     @Mock
     private CommentMapper commentMapper;
     @Mock
-    private CommentLikeMapper commentLikeMapper;
-    @Mock
     private ArticleLikeMapper articleLikeMapper;
     @Mock
     private ArticleFavoriteMapper articleFavoriteMapper;
@@ -105,6 +102,10 @@ class ArticleServiceImplTest {
     private ArticleVersionMapper articleVersionMapper;
     @Mock
     private StringRedisTemplate stringRedisTemplate;
+    @Mock
+    private ArticleCascade commentCascade;
+    @Mock
+    private ArticleCascade interactionCascade;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -119,7 +120,6 @@ class ArticleServiceImplTest {
         TableInfoHelper.initTableInfo(assistant, ArticleTag.class);
         TableInfoHelper.initTableInfo(assistant, ArticleVersion.class);
         TableInfoHelper.initTableInfo(assistant, Comment.class);
-        TableInfoHelper.initTableInfo(assistant, CommentLike.class);
         TableInfoHelper.initTableInfo(assistant, ArticleLike.class);
         TableInfoHelper.initTableInfo(assistant, ArticleFavorite.class);
     }
@@ -127,10 +127,12 @@ class ArticleServiceImplTest {
     @BeforeEach
     void setUp() {
         // 注意构造参数顺序与 @RequiredArgsConstructor 字段声明一致（baseMapper 由 MP 注入，此处反射补）
+        // 跨模块级联清场以 ArticleCascade SPI mock 顶替（issue #24 第三步，外模块 Mapper 已退出编排）
         articleService = spy(new ArticleServiceImpl(
                 articleTagMapper, tagMapper, categoryMapper, userService, converter,
-                commentMapper, commentLikeMapper, articleLikeMapper, articleFavoriteMapper,
-                articleVersionMapper, stringRedisTemplate, objectMapper));
+                commentMapper, articleLikeMapper, articleFavoriteMapper,
+                articleVersionMapper, stringRedisTemplate, objectMapper,
+                List.of(commentCascade, interactionCascade)));
         ReflectionTestUtils.setField(articleService, "baseMapper", articleMapper);
         ReflectionTestUtils.setField(articleService, "fulltextEnabled", false);
     }
@@ -442,14 +444,31 @@ class ArticleServiceImplTest {
     void forceDelete_cascadesPhysicalDeletesAndClearsAutosave() {
         Article trashed = draftArticle(10L, 1L);
         when(articleMapper.selectAnyById(10L)).thenReturn(trashed);
-        when(articleMapper.selectAllCommentIdsByArticleId(10L)).thenReturn(List.of(100L, 101L));
 
         articleService.forceDelete(10L, jwtOf(1L));
 
+        // article 自有：本行 + article_tag + 版本快照
         verify(articleMapper).physicalDeleteById(10L);
-        verify(articleMapper).physicalDeleteCommentsByArticleId(10L);
+        verify(articleTagMapper).delete(any());
         verify(articleVersionMapper).physicalDeleteByArticleId(10L);
+        // 跨模块级联归还各模块的 ArticleCascade 实现，文章域只编排遍历
+        verify(commentCascade).purgeByArticleId(10L);
+        verify(interactionCascade).purgeByArticleId(10L);
         verify(stringRedisTemplate).delete("blog:autosave:10:1");
+    }
+
+    @Test
+    void forceDelete_adminOperatorClearsAuthorAndOperatorAutosave() {
+        Article trashed = draftArticle(10L, 1L);
+        when(articleMapper.selectAnyById(10L)).thenReturn(trashed);
+
+        // ADMIN 代删他人文章：作者与操作者的自动保存草稿双键都要清
+        articleService.forceDelete(10L, jwtOf(2L, "ROLE_" + UserRole.ADMIN.name()));
+
+        verify(stringRedisTemplate).delete("blog:autosave:10:1");
+        verify(stringRedisTemplate).delete("blog:autosave:10:2");
+        verify(commentCascade).purgeByArticleId(10L);
+        verify(interactionCascade).purgeByArticleId(10L);
     }
 
     @Test

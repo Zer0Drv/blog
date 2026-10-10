@@ -71,4 +71,18 @@ public interface CommentMapper extends BaseMapper<Comment> {
      */
     @Delete("DELETE FROM `comment` WHERE parent_id = #{rootId}")
     int physicalDeleteRepliesByRootId(@Param("rootId") Long rootId);
+
+    /**
+     * 查文章的全部评论 id（含已逻辑删除；文章彻底删除时级联清评论点赞用，
+     * 自 ArticleMapper 迁回——comment 表归本模块所有）
+     */
+    @Select("SELECT id FROM `comment` WHERE article_id = #{articleId}")
+    List<Long> selectAllCommentIdsByArticleId(@Param("articleId") Long articleId);
+
+    /**
+     * 物理删除文章的全部评论（含已逻辑删除；文章彻底删除时级联，
+     * 自 ArticleMapper 迁回——comment 表归本模块所有）
+     */
+    @Delete("DELETE FROM `comment` WHERE article_id = #{articleId}")
+    int physicalDeleteCommentsByArticleId(@Param("articleId") Long articleId);
 }
