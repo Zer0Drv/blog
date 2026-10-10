@@ -15,9 +15,6 @@ concurrency:
   group: cd-backend
   cancel-in-progress: false
 
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/blog-backend
-
 jobs:
   # ---- 阶段 1：GitHub 托管 runner 构建并推送镜像 ----
   image:
@@ -27,12 +24,17 @@ jobs:
       packages: write          # GITHUB_TOKEN 推 GHCR
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
+      image: ${{ steps.meta.outputs.image }}
     steps:
       - uses: actions/checkout@v7
 
-      - name: 计算镜像标签
+      - name: 计算镜像坐标
+        # GHCR 要求仓库名全小写，owner 含大写（Zer0Drv）时 docker 会拒绝 tag
         id: meta
-        run: echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-8)" >> "$GITHUB_OUTPUT"
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/$owner/blog-backend" >> "$GITHUB_OUTPUT"
+          echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-8)" >> "$GITHUB_OUTPUT"
 
       - name: 登录 GHCR
         uses: docker/login-action@v3
@@ -44,11 +46,11 @@ jobs:
       - name: 构建并推送
         run: |
           docker build \
-            -t "$IMAGE:${{ steps.meta.outputs.tag }}" \
-            -t "$IMAGE:latest" \
+            -t "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
+            -t "${{ steps.meta.outputs.image }}:latest" \
             .
-          docker push "$IMAGE:${{ steps.meta.outputs.tag }}"
-          docker push "$IMAGE:latest"
+          docker push "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
+          docker push "${{ steps.meta.outputs.image }}:latest"
 
   # ---- 阶段 2：自托管 runner（部署机）拉镜像并更新容器 ----
   # 部署机为 Windows：脚本统一 bash（Git for Windows 提供）；
