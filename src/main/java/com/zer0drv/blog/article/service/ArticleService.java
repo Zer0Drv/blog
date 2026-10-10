@@ -103,7 +103,7 @@ public interface ArticleService extends IService<Article> {
 
     /**
      * 全文搜索（公开；blog.search.fulltext-enabled=true 走 ngram FULLTEXT，否则 LIKE 兜底）。
-     * 可见性过滤同已发布列表（PUBLISHED 且 publish_time 已到）
+     * 仅出对外可见文章（谓词见 ArticleVisibility）
      */
     PageResult<ArticleListVO> search(String keyword, long page, long size);
 

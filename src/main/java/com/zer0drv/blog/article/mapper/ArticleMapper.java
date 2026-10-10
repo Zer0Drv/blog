@@ -3,6 +3,7 @@ package com.zer0drv.blog.article.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.domain.Article;
+import com.zer0drv.blog.article.domain.ArticleVisibility;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -77,15 +78,11 @@ public interface ArticleMapper extends BaseMapper<Article> {
     int physicalDeleteCommentsByArticleId(@Param("articleId") Long articleId);
 
     /**
-     * 全文搜索（P0，仅 MySQL 跑；H2 不支持 MATCH...AGAINST，测试走 LIKE 兜底）。
-     * 可见性谓词：status=PUBLISHED AND publish_time 非空且不大于当前时间
+     * 全文搜索（P0，仅 MySQL 跑；H2 不支持 MATCH...AGAINST，测试走 LIKE 兜底）
      */
-    @Select("""
-            SELECT * FROM article
-            WHERE MATCH(title, content_text) AGAINST(#{keyword} IN NATURAL LANGUAGE MODE)
-              AND status = 'PUBLISHED' AND publish_time IS NOT NULL AND publish_time <= NOW()
-              AND deleted = 0
-            ORDER BY publish_time DESC
-            """)
+    @Select("SELECT * FROM article " +
+            "WHERE MATCH(title, content_text) AGAINST(#{keyword} IN NATURAL LANGUAGE MODE) " +
+            "AND " + ArticleVisibility.SQL + " " +
+            "ORDER BY publish_time DESC")
     Page<Article> searchByFulltext(Page<Article> page, @Param("keyword") String keyword);
 }

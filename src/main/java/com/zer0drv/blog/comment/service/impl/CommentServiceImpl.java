@@ -7,7 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.enums.ArticleStatus;
+import com.zer0drv.blog.article.domain.ArticleVisibility;
 import com.zer0drv.blog.article.mapper.ArticleMapper;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.dto.CommentCreateDTO;
@@ -38,7 +38,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -123,10 +122,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (Objects.isNull(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
-        // P0 §1.3 可见性谓词：非 PUBLISHED / 无发布时间 / 定时发布未到点，均视为未发布不可评论
-        if (!ArticleStatus.PUBLISHED.name().equals(article.getStatus())
-                || Objects.isNull(article.getPublishTime())
-                || article.getPublishTime().isAfter(LocalDateTime.now())) {
+        if (!ArticleVisibility.isVisible(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_PUBLISHED);
         }
         // M5 敏感词过滤：命中则以 FOLDED 落库、不触发通知，响应 message 由 controller 覆盖提示
