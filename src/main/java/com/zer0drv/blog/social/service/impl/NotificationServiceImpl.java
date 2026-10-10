@@ -11,6 +11,7 @@ import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.social.domain.Notification;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.mapper.NotificationMapper;
+import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationMailService;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.social.service.RealtimePushService;
@@ -110,56 +111,66 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     }
 
     @Override
-    public void notify(Long userId, NotificationType type, Long actorId,
-                       Long articleId, Long commentId, String summary, boolean dedupe) {
+    public void notify(NotificationIntent intent) {
+        // 自己给自己不发
+        if (Objects.nonNull(intent.actorId()) && intent.recipientId().equals(intent.actorId())) {
+            return;
+        }
+        Notification notification = new Notification();
+        notification.setUserId(intent.recipientId());
+        notification.setType(intent.type().name());
+        notification.setActorId(intent.actorId());
+        notification.setArticleId(intent.articleId());
+        notification.setCommentId(intent.commentId());
+        notification.setSummary(intent.summary());
+        notification.setReadFlag(UNREAD);
+        // 落库通道（含 dedupe 查重）：失败仅记日志，不回滚主业务；无落库实体则不再推送/邮件
         try {
-            if (Objects.isNull(userId)) {
+            if (intent.dedupe() && alreadyNotified(intent)) {
+                // 已存在同 actor/article/type 的未删通知：取消再操作不重复发
                 return;
             }
-            // 自己给自己不发
-            if (Objects.nonNull(actorId) && userId.equals(actorId)) {
-                return;
-            }
-            if (dedupe) {
-                LambdaQueryWrapper<Notification> exists = Wrappers.lambdaQuery(Notification.class)
-                        .eq(Notification::getUserId, userId)
-                        .eq(Notification::getActorId, actorId)
-                        .eq(Notification::getType, type.name())
-                        .eq(Objects.nonNull(articleId), Notification::getArticleId, articleId)
-                        .isNull(Objects.isNull(articleId), Notification::getArticleId)
-                        .eq(Objects.nonNull(commentId), Notification::getCommentId, commentId)
-                        .isNull(Objects.isNull(commentId), Notification::getCommentId);
-                if (count(exists) > 0) {
-                    // 已存在同 actor/article/type 的未删通知：取消再操作不重复发
-                    return;
-                }
-            }
-            Notification notification = new Notification();
-            notification.setUserId(userId);
-            notification.setType(type.name());
-            notification.setActorId(actorId);
-            notification.setArticleId(articleId);
-            notification.setCommentId(commentId);
-            notification.setSummary(Objects.isNull(summary) ? "" : summary);
-            notification.setReadFlag(UNREAD);
             save(notification);
-            // 实时推送通知帧给接收者（在 notify 的 try/catch 兜底内，失败不影响主业务）
-            realtimePushService.pushToUser(userId, "notification",
+        } catch (Exception e) {
+            log.error("通知投递失败：intent={}", intent, e);
+            return;
+        }
+        // WS 推送通道：实时推送通知帧给接收者（独立兜底，失败不连坐邮件）
+        try {
+            realtimePushService.pushToUser(intent.recipientId(), "notification",
                     assemble(List.of(notification)).getFirst());
-            // P0 §2.2 评论邮件通知：仅评论回复/@ 两类触发（@Async 异步发送，全部失败自兜底）
-            if (type == NotificationType.COMMENT_REPLY || type == NotificationType.MENTION) {
+        } catch (Exception e) {
+            log.error("通知投递失败：intent={}", intent, e);
+        }
+        // 邮件通道：P0 §2.2 评论邮件通知，仅评论回复/@ 两类触发（@Async 异步发送，全部失败自兜底）
+        if (intent.type() == NotificationType.COMMENT_REPLY || intent.type() == NotificationType.MENTION) {
+            try {
                 String actorNickname = null;
-                if (Objects.nonNull(actorId)) {
-                    User actor = userService.getById(actorId);
+                if (Objects.nonNull(intent.actorId())) {
+                    User actor = userService.getById(intent.actorId());
                     actorNickname = Objects.nonNull(actor) ? actor.getNickname() : null;
                 }
-                notificationMailService.sendCommentMailAsync(userId, type, actorNickname, articleId, summary);
+                notificationMailService.sendCommentMailAsync(intent.recipientId(), intent.type(),
+                        actorNickname, intent.articleId(), intent.summary());
+            } catch (Exception e) {
+                log.error("通知投递失败：intent={}", intent, e);
             }
-        } catch (Exception e) {
-            // 通知创建失败不回滚主业务
-            log.warn("通知创建失败：type={}, userId={}, actorId={}, articleId={}, reason={}",
-                    type, userId, actorId, articleId, e.getMessage());
         }
+    }
+
+    /**
+     * dedupe 查重：是否已存在同 接收人+触发人+类型+文章+评论 组合的未删通知
+     */
+    private boolean alreadyNotified(NotificationIntent intent) {
+        LambdaQueryWrapper<Notification> exists = Wrappers.lambdaQuery(Notification.class)
+                .eq(Notification::getUserId, intent.recipientId())
+                .eq(Notification::getActorId, intent.actorId())
+                .eq(Notification::getType, intent.type().name())
+                .eq(Objects.nonNull(intent.articleId()), Notification::getArticleId, intent.articleId())
+                .isNull(Objects.isNull(intent.articleId()), Notification::getArticleId)
+                .eq(Objects.nonNull(intent.commentId()), Notification::getCommentId, intent.commentId())
+                .isNull(Objects.isNull(intent.commentId()), Notification::getCommentId);
+        return count(exists) > 0;
     }
 
     /**

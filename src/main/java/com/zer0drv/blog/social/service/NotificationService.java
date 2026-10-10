@@ -41,10 +41,9 @@ public interface NotificationService extends IService<Notification> {
     void markReadByTypeAndActor(Long userId, NotificationType type, Long actorId);
 
     /**
-     * 安全发送通知：内部 try/catch 兜底（失败仅 log.warn，不回滚主业务）；
-     * 接收人 == 触发人时不发；dedupe=true 时按 接收人+触发人+类型+文章 防重
-     * （已存在同组合的未删通知则跳过，用于 ARTICLE_LIKE / FOLLOW 取消后再操作不重复打扰）。
+     * 投递一条通知意图：接收人 == 触发人时不发；intent.dedupe() 时按 接收人+触发人+类型+文章+评论 防重
+     * （已存在同组合的未删通知则跳过，用于 ARTICLE_LIKE / COMMENT_LIKE / FOLLOW 取消后再操作不重复打扰）。
+     * 落库、WS 推送、邮件三通道各自隔离兜底：任一通道失败仅 log.error 记录，不回滚主业务、不连坐其他通道。
      */
-    void notify(Long userId, NotificationType type, Long actorId,
-                Long articleId, Long commentId, String summary, boolean dedupe);
+    void notify(NotificationIntent intent);
 }

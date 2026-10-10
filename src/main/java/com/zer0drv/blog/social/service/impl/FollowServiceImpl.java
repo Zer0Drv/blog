@@ -10,9 +10,9 @@ import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.social.domain.Follow;
-import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.mapper.FollowMapper;
 import com.zer0drv.blog.social.service.FollowService;
+import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.social.vo.FollowUserVO;
 import com.zer0drv.blog.social.vo.UserProfileVO;
@@ -63,7 +63,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         }
         if (inserted) {
             // 通知被关注者（防重：已存在同 actor/type 的未删 FOLLOW 通知则跳过；失败不影响主业务）
-            notificationService.notify(id, NotificationType.FOLLOW, userId, null, null, "", true);
+            notificationService.notify(NotificationIntent.follow(id, userId));
         }
     }
 

@@ -24,7 +24,7 @@ import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.interaction.domain.CommentLike;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.site.service.SiteConfigService;
-import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.user.domain.User;
 import com.zer0drv.blog.user.enums.UserRole;
@@ -215,27 +215,32 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         String summary = comment.getContent().length() <= NOTIFY_SUMMARY_MAX_LENGTH
                 ? comment.getContent() : comment.getContent().substring(0, NOTIFY_SUMMARY_MAX_LENGTH);
         if (comment.getParentId() == 0L) {
-            notificationService.notify(article.authorId(), NotificationType.COMMENT_REPLY,
-                    commenterId, article.id(), comment.getId(), summary, false);
+            notificationService.notify(NotificationIntent.commentReply(
+                    article.authorId(), commenterId, article.id(), comment.getId(), summary));
             return;
         }
         Comment root = getById(comment.getParentId());
         Long rootAuthorId = Objects.nonNull(root) ? root.getUserId() : null;
         Long replyToUserId = comment.getReplyToUserId();
         if (Objects.isNull(replyToUserId)) {
-            notificationService.notify(rootAuthorId, NotificationType.COMMENT_REPLY,
-                    commenterId, article.id(), comment.getId(), summary, false);
+            // root 评论已删时 rootAuthorId 为 null：无接收人，跳过（Intent 要求接收人非 null）
+            if (Objects.nonNull(rootAuthorId)) {
+                notificationService.notify(NotificationIntent.commentReply(
+                        rootAuthorId, commenterId, article.id(), comment.getId(), summary));
+            }
             return;
         }
         if (Objects.equals(rootAuthorId, replyToUserId)) {
-            notificationService.notify(replyToUserId, NotificationType.MENTION,
-                    commenterId, article.id(), comment.getId(), summary, false);
+            notificationService.notify(NotificationIntent.mention(
+                    replyToUserId, commenterId, article.id(), comment.getId(), summary));
             return;
         }
-        notificationService.notify(rootAuthorId, NotificationType.COMMENT_REPLY,
-                commenterId, article.id(), comment.getId(), summary, false);
-        notificationService.notify(replyToUserId, NotificationType.MENTION,
-                commenterId, article.id(), comment.getId(), summary, false);
+        if (Objects.nonNull(rootAuthorId)) {
+            notificationService.notify(NotificationIntent.commentReply(
+                    rootAuthorId, commenterId, article.id(), comment.getId(), summary));
+        }
+        notificationService.notify(NotificationIntent.mention(
+                replyToUserId, commenterId, article.id(), comment.getId(), summary));
     }
 
     /**

@@ -3,16 +3,17 @@ package com.zer0drv.blog.social.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
-import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
+import com.zer0drv.blog.common.sensitive.SensitiveWordChecker;
 import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.social.domain.PrivateMessage;
 import com.zer0drv.blog.social.dto.MessageSendDTO;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.mapper.PrivateMessageMapper;
 import com.zer0drv.blog.social.service.MessageService;
+import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.social.service.RealtimePushService;
 import com.zer0drv.blog.social.vo.ConversationVO;
@@ -57,7 +58,7 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
 
     private final UserService userService;
     private final NotificationService notificationService;
-    private final SensitiveWordService sensitiveWordService;
+    private final SensitiveWordChecker sensitiveWordChecker;
     private final RealtimePushService realtimePushService;
 
     @Override
@@ -135,7 +136,7 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
             throw new BusinessException(StatusCode.MESSAGE_CONTENT_INVALID);
         }
         // M5 敏感词过滤：命中直接拒绝（40060）
-        if (sensitiveWordService.containsSensitiveWord(content)) {
+        if (sensitiveWordChecker.containsSensitiveWord(content)) {
             throw new BusinessException(StatusCode.MESSAGE_SENSITIVE_HIT);
         }
         if (Objects.isNull(userService.getById(receiverId))) {
@@ -150,8 +151,7 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
         // 通知接收者（summary = 内容前 50 字；失败不影响主业务）
         String summary = content.length() <= SUMMARY_MAX_LENGTH
                 ? content : content.substring(0, SUMMARY_MAX_LENGTH);
-        notificationService.notify(receiverId, NotificationType.PRIVATE_MESSAGE, userId,
-                null, null, summary, false);
+        notificationService.notify(NotificationIntent.privateMessage(receiverId, userId, summary));
         // 实时推送私信帧给接收者（推送内部已全量 catch，失败不影响主流程）
         MessageVO vo = toMessageVO(message);
         if (Objects.isNull(vo.getCreateTime())) {

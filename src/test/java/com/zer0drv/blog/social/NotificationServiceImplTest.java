@@ -2,6 +2,7 @@ package com.zer0drv.blog.social;
 
 import com.zer0drv.blog.social.domain.Notification;
 import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationMailService;
 import com.zer0drv.blog.social.service.RealtimePushService;
 import com.zer0drv.blog.social.service.impl.NotificationServiceImpl;
@@ -26,7 +27,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
- * 通知落库规则纯单测：自发不发 / dedupe / commentId 维度 / 异常不回滚主业务。
+ * 通知落库规则纯单测：自发不发 / dedupe / commentId 维度 / 通道隔离（落库、WS 推送、邮件
+ * 各自独立兜底，单通道失败不回滚主业务、不连坐其他通道）。
  *
  * @author Yoruhaki
  */
@@ -51,24 +53,17 @@ class NotificationServiceImplTest {
 
     @Test
     void notify_selfAction_isSkipped() {
-        notificationService.notify(1L, NotificationType.ARTICLE_LIKE, 1L, 10L, null, "t", true);
+        notificationService.notify(NotificationIntent.articleLike(1L, 1L, 10L, "t"));
 
         verify(notificationService, never()).save(any());
         verify(notificationService, never()).count(any());
     }
 
     @Test
-    void notify_nullRecipient_isSkipped() {
-        notificationService.notify(null, NotificationType.COMMENT_REPLY, 2L, 10L, null, "t", false);
-
-        verify(notificationService, never()).save(any());
-    }
-
-    @Test
     void notify_dedupeHit_isSkipped() {
         doReturn(1L).when(notificationService).count(any());
 
-        notificationService.notify(1L, NotificationType.ARTICLE_LIKE, 2L, 10L, null, "t", true);
+        notificationService.notify(NotificationIntent.articleLike(1L, 2L, 10L, "t"));
 
         verify(notificationService, never()).save(any());
     }
@@ -79,8 +74,8 @@ class NotificationServiceImplTest {
         doReturn(0L).when(notificationService).count(any());
         doReturn(true).when(notificationService).save(any(Notification.class));
 
-        notificationService.notify(1L, NotificationType.ARTICLE_LIKE, 2L, 10L, null, "a", true);
-        notificationService.notify(1L, NotificationType.COMMENT_LIKE, 2L, 10L, 100L, "c", true);
+        notificationService.notify(NotificationIntent.articleLike(1L, 2L, 10L, "a"));
+        notificationService.notify(NotificationIntent.commentLike(1L, 2L, 10L, 100L, "c"));
 
         verify(notificationService, times(2)).save(any(Notification.class));
     }
@@ -90,7 +85,7 @@ class NotificationServiceImplTest {
         doReturn(0L).when(notificationService).count(any());
         doReturn(true).when(notificationService).save(any(Notification.class));
 
-        notificationService.notify(1L, NotificationType.ARTICLE_LIKE, 2L, 10L, null, "title", true);
+        notificationService.notify(NotificationIntent.articleLike(1L, 2L, 10L, "title"));
 
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(notificationService).save(captor.capture());
@@ -106,12 +101,11 @@ class NotificationServiceImplTest {
     void notify_withoutDedupe_savesDirectly() {
         doReturn(true).when(notificationService).save(any(Notification.class));
 
-        notificationService.notify(1L, NotificationType.COMMENT_REPLY, 2L, 10L, 100L, "hi", false);
+        notificationService.notify(NotificationIntent.commentReply(1L, 2L, 10L, 100L, "hi"));
 
         verify(notificationService, never()).count(any());
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(notificationService).save(captor.capture());
-        // summary 为 null 时落库为空串而非 null
         assertEquals("hi", captor.getValue().getSummary());
     }
 
@@ -119,7 +113,7 @@ class NotificationServiceImplTest {
     void notify_saved_pushesRealtimeToRecipient() {
         doReturn(true).when(notificationService).save(any(Notification.class));
 
-        notificationService.notify(1L, NotificationType.COMMENT_REPLY, 2L, 10L, 100L, "hi", false);
+        notificationService.notify(NotificationIntent.commentReply(1L, 2L, 10L, 100L, "hi"));
 
         // 落库成功后向接收者推送 {"type":"notification","data":<NotificationVO>}
         ArgumentCaptor<NotificationVO> captor = ArgumentCaptor.forClass(NotificationVO.class);
@@ -132,19 +126,49 @@ class NotificationServiceImplTest {
 
     @Test
     void notify_selfAction_noRealtimePush() {
-        notificationService.notify(1L, NotificationType.ARTICLE_LIKE, 1L, 10L, null, "t", true);
+        notificationService.notify(NotificationIntent.articleLike(1L, 1L, 10L, "t"));
 
         verify(realtimePushService, never()).pushToUser(any(), any(), any());
     }
 
     @Test
-    void notify_persistenceFailure_isSwallowed() {
+    void notify_persistenceFailure_isSwallowedAndSkipsDelivery() {
         doReturn(0L).when(notificationService).count(any());
         doThrow(new RuntimeException("db down")).when(notificationService).save(any(Notification.class));
 
-        // 通知失败不回滚主业务：异常被吞掉
+        // 落库失败不回滚主业务：异常被吞掉；无落库实体则不再推送/邮件
+        assertDoesNotThrow(() -> notificationService.notify(NotificationIntent.articleLike(1L, 2L, 10L, "t")));
+
+        verify(realtimePushService, never()).pushToUser(any(), any(), any());
+        verify(notificationMailService, never()).sendCommentMailAsync(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void notify_pushFailure_mailStillDelivered() {
+        // 通道隔离：WS 推送失败不连坐邮件（原同一 try 内会被连坐跳过）
+        doReturn(true).when(notificationService).save(any(Notification.class));
+        doThrow(new RuntimeException("ws down")).when(realtimePushService)
+                .pushToUser(any(), any(), any());
+
         assertDoesNotThrow(() -> notificationService.notify(
-                1L, NotificationType.ARTICLE_LIKE, 2L, 10L, null, "t", true));
+                NotificationIntent.commentReply(1L, 2L, 10L, 100L, "hi")));
+
+        verify(notificationMailService).sendCommentMailAsync(eq(1L), eq(NotificationType.COMMENT_REPLY),
+                any(), eq(10L), eq("hi"));
+    }
+
+    @Test
+    void notify_mailFailure_saveAndPushNotRolledBack() {
+        // 通道隔离：邮件通道失败不影响已落库通知与已推送帧，异常不外抛
+        doReturn(true).when(notificationService).save(any(Notification.class));
+        doThrow(new RuntimeException("mail down")).when(notificationMailService)
+                .sendCommentMailAsync(any(), any(), any(), any(), any());
+
+        assertDoesNotThrow(() -> notificationService.notify(
+                NotificationIntent.commentReply(1L, 2L, 10L, 100L, "hi")));
+
+        verify(notificationService).save(any(Notification.class));
+        verify(realtimePushService).pushToUser(eq(1L), eq("notification"), any());
     }
 
     @Test
@@ -152,7 +176,7 @@ class NotificationServiceImplTest {
         // P0 §2.2：COMMENT_REPLY 落库+推送成功后触发评论邮件（异步，由 mail service 自兜底）
         doReturn(true).when(notificationService).save(any(Notification.class));
 
-        notificationService.notify(1L, NotificationType.COMMENT_REPLY, 2L, 10L, 100L, "hi", false);
+        notificationService.notify(NotificationIntent.commentReply(1L, 2L, 10L, 100L, "hi"));
 
         verify(notificationMailService).sendCommentMailAsync(eq(1L), eq(NotificationType.COMMENT_REPLY),
                 any(), eq(10L), eq("hi"));
@@ -164,7 +188,7 @@ class NotificationServiceImplTest {
         doReturn(0L).when(notificationService).count(any());
         doReturn(true).when(notificationService).save(any(Notification.class));
 
-        notificationService.notify(1L, NotificationType.ARTICLE_LIKE, 2L, 10L, null, "t", true);
+        notificationService.notify(NotificationIntent.articleLike(1L, 2L, 10L, "t"));
 
         verify(notificationMailService, never()).sendCommentMailAsync(any(), any(), any(), any(), any());
     }

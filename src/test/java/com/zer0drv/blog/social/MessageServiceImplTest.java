@@ -3,8 +3,8 @@ package com.zer0drv.blog.social;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.common.exception.BusinessException;
+import com.zer0drv.blog.common.sensitive.SensitiveWordChecker;
 import com.zer0drv.blog.social.domain.PrivateMessage;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.service.NotificationService;
@@ -48,7 +48,7 @@ class MessageServiceImplTest {
     private NotificationService notificationService;
 
     @Mock
-    private SensitiveWordService sensitiveWordService;
+    private SensitiveWordChecker sensitiveWordChecker;
 
     @Mock
     private RealtimePushService realtimePushService;
@@ -65,7 +65,7 @@ class MessageServiceImplTest {
     @BeforeEach
     void setUp() {
         messageService = spy(new MessageServiceImpl(
-                userService, notificationService, sensitiveWordService, realtimePushService));
+                userService, notificationService, sensitiveWordChecker, realtimePushService));
     }
 
     private static Jwt jwtOf(long userId) {
