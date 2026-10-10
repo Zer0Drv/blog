@@ -1,0 +1,14 @@
+# 构建上下文瘦身：加快构建、避免机密/数据进镜像
+.git
+.github
+.env
+.env.*
+!.env.example
+target
+uploads
+docs
+deploy
+*.md
+docker-compose*.yml
+Dockerfile
+.dockerignore

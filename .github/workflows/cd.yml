@@ -1,0 +1,76 @@
+name: CD
+
+# 后端 CD：构建镜像 → 推 GHCR → 自托管 runner 拉取并更新本机容器
+# 前置（一次性，由仓库管理员完成）：
+#   1) 仓库 Settings → Actions → Runners → New self-hosted runner，注册本机（label: self-hosted）
+#   2) GHCR 首推后，Packages 里把 ghcr.io/zer0drv/blog-backend 可见性设为 private（默认可推）
+# 触发：main 分支 push（ci.yml 的测试通过后才会走到这里；也可手动 workflow_dispatch）
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cd-backend
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/blog-backend
+
+jobs:
+  # ---- 阶段 1：GitHub 托管 runner 构建并推送镜像 ----
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write          # GITHUB_TOKEN 推 GHCR
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 计算镜像标签
+        id: meta
+        run: echo "tag=sha-$(echo ${{ github.sha }} | cut -c1-8)" >> "$GITHUB_OUTPUT"
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 构建并推送
+        run: |
+          docker build \
+            -t "$IMAGE:${{ steps.meta.outputs.tag }}" \
+            -t "$IMAGE:latest" \
+            .
+          docker push "$IMAGE:${{ steps.meta.outputs.tag }}"
+          docker push "$IMAGE:latest"
+
+  # ---- 阶段 2：自托管 runner（部署机）拉镜像并更新容器 ----
+  deploy:
+    needs: image
+    runs-on: self-hosted
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 拉取新镜像并更新后端容器
+        env:
+          BACKEND_TAG: ${{ needs.image.outputs.tag }}
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
+
+      - name: 等待健康检查
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8082/actuator/health | grep -q '"status":"UP"'; then
+              echo "backend is UP"; exit 0
+            fi
+            sleep 2
+          done
+          echo "backend health check timeout"; exit 1

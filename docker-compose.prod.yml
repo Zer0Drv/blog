@@ -1,0 +1,27 @@
+# 生产部署叠加文件：只追加后端服务，复用 docker-compose.yml 的 mysql/redis/minio/gateway（同一 project，网络互通）。
+# 用法（本机）：docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
+# 镜像来源：GHCR（cd.yml 推送）；本地调试可 BACKEND_TAG=latest 先 docker build。
+# 注意与开发模式的区别：开发期后端跑在宿主 8082（热重载），切勿两者同时占用 8082。
+services:
+  backend:
+    image: ghcr.io/zer0drv/blog-backend:${BACKEND_TAG:-latest}
+    container_name: blog-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 容器网络内直连各基础设施服务名（覆盖 .env 里面向宿主的地址）
+      DB_HOST: mysql
+      DB_PORT: 3306
+      REDIS_HOST: redis
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+      TZ: Asia/Shanghai
+    ports:
+      - "8082:8082"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
