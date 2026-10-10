@@ -5,8 +5,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.admin.service.AdminCommentService;
 import com.zer0drv.blog.admin.vo.AdminCommentVO;
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.mapper.ArticleMapper;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.enums.CommentStatus;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -43,7 +44,7 @@ public class AdminCommentServiceImpl implements AdminCommentService {
     private static final String STATUS_TRASH = "TRASH";
 
     private final CommentMapper commentMapper;
-    private final ArticleMapper articleMapper;
+    private final ArticleCatalog articleCatalog;
     private final UserService userService;
     private final CommentService commentService;
     private final CommentLikeMapper commentLikeMapper;
@@ -103,10 +104,10 @@ public class AdminCommentServiceImpl implements AdminCommentService {
                 .eq(Comment::getId, id));
         // P0 §2.1：PENDING 期间未发通知，审核通过补发（走 create 同一 notify 路径，自然带邮件；
         // notify 内部自兜底，失败不影响审核结果）。文章已被删（查不到）时跳过通知
-        Article article = articleMapper.selectById(comment.getArticleId());
-        if (Objects.nonNull(article)) {
+        Optional<ArticleRef> article = articleCatalog.findRef(comment.getArticleId());
+        if (article.isPresent()) {
             comment.setStatus(CommentStatus.NORMAL.name());
-            commentService.notifyCommentCreated(comment, article);
+            commentService.notifyCommentCreated(comment, article.get());
         }
     }
 
@@ -182,8 +183,9 @@ public class AdminCommentServiceImpl implements AdminCommentService {
         Map<Long, User> userMap = userService.listByIds(userIds).stream()
                 .collect(Collectors.toMap(User::getId, Function.identity()));
         Set<Long> articleIds = comments.stream().map(Comment::getArticleId).collect(Collectors.toSet());
-        Map<Long, String> articleTitleMap = articleMapper.selectByIds(articleIds).stream()
-                .collect(Collectors.toMap(Article::getId, Article::getTitle));
+        // 管理端评论列表标题联查：任意状态、未删除（findRef 语义的批量形态），不按可见性过滤
+        Map<Long, String> articleTitleMap = articleCatalog.listRefsByIds(articleIds).stream()
+                .collect(Collectors.toMap(ArticleRef::id, ArticleRef::title));
         return comments.stream().map(comment -> {
             AdminCommentVO vo = new AdminCommentVO();
             vo.setId(comment.getId());

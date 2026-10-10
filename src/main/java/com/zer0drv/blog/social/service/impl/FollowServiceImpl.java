@@ -3,9 +3,7 @@ package com.zer0drv.blog.social.service.impl;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.domain.ArticleVisibility;
-import com.zer0drv.blog.article.service.ArticleService;
+import com.zer0drv.blog.article.api.ArticleCatalog;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
@@ -40,7 +38,7 @@ import java.util.stream.Collectors;
 public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> implements FollowService {
 
     private final UserService userService;
-    private final ArticleService articleService;
+    private final ArticleCatalog articleCatalog;
     private final NotificationService notificationService;
 
     @Override
@@ -113,8 +111,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         vo.setBio(user.getBio());
         vo.setFollowerCount(count(Wrappers.lambdaQuery(Follow.class).eq(Follow::getFolloweeId, userId)));
         vo.setFollowingCount(count(Wrappers.lambdaQuery(Follow.class).eq(Follow::getFollowerId, userId)));
-        vo.setArticleCount(articleService.count(ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class)
-                .eq(Article::getAuthorId, userId))));
+        vo.setArticleCount(articleCatalog.countVisibleByAuthor(userId));
         vo.setFollowed(Objects.nonNull(jwt) && isFollowed(JwtSubjects.userIdOf(jwt), userId));
         return vo;
     }
@@ -129,20 +126,12 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
             // 未关注任何人返回空页
             return PageResult.of(List.of(), 0, page, size);
         }
-        Page<Article> result = articleService.page(new Page<>(page, size),
-                ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class))
-                        .in(Article::getAuthorId, followeeIds)
-                        .orderByDesc(Article::getPublishTime));
-        return PageResult.of(articleService.assemble(result.getRecords()), result.getTotal(), page, size);
+        return articleCatalog.pageVisibleByAuthors(followeeIds, page, size);
     }
 
     @Override
     public PageResult<ArticleListVO> pageUserArticles(Long userId, long page, long size) {
-        Page<Article> result = articleService.page(new Page<>(page, size),
-                ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class)
-                                .eq(Article::getAuthorId, userId))
-                        .orderByDesc(Article::getPublishTime));
-        return PageResult.of(articleService.assemble(result.getRecords()), result.getTotal(), page, size);
+        return articleCatalog.pageVisibleByAuthors(List.of(userId), page, size);
     }
 
     /**

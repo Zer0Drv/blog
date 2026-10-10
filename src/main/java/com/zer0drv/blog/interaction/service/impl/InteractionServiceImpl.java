@@ -3,9 +3,8 @@ package com.zer0drv.blog.interaction.service.impl;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.domain.ArticleVisibility;
-import com.zer0drv.blog.article.service.ArticleService;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.enums.CommentStatus;
@@ -30,10 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * @author Yoruhaki
@@ -46,12 +42,13 @@ public class InteractionServiceImpl implements InteractionService {
     private final ArticleFavoriteMapper articleFavoriteMapper;
     private final CommentLikeMapper commentLikeMapper;
     private final CommentMapper commentMapper;
-    private final ArticleService articleService;
+    private final ArticleCatalog articleCatalog;
     private final NotificationService notificationService;
 
     @Override
     public void likeArticle(Long articleId, Jwt jwt) {
-        Article article = requireVisibleArticle(articleId);
+        // 互动可见性断言：不可见文章对外一律表现为「不存在」，不可点赞，也避免泄露未发布内容
+        ArticleRef article = articleCatalog.requireVisible(articleId);
         Long userId = JwtSubjects.userIdOf(jwt);
         if (isLiked(articleId, userId)) {
             // 幂等：已赞则静默成功
@@ -69,8 +66,8 @@ public class InteractionServiceImpl implements InteractionService {
         }
         if (inserted) {
             // M4 通知触发：首次点赞通知作者（防重：取消再赞不重复发；失败不影响主业务）
-            notificationService.notify(article.getAuthorId(), NotificationType.ARTICLE_LIKE,
-                    userId, articleId, null, article.getTitle(), true);
+            notificationService.notify(article.authorId(), NotificationType.ARTICLE_LIKE,
+                    userId, articleId, null, article.title(), true);
         }
     }
 
@@ -84,7 +81,7 @@ public class InteractionServiceImpl implements InteractionService {
 
     @Override
     public void favoriteArticle(Long articleId, Jwt jwt) {
-        requireVisibleArticle(articleId);
+        articleCatalog.requireVisible(articleId);
         Long userId = JwtSubjects.userIdOf(jwt);
         Long count = articleFavoriteMapper.selectCount(Wrappers.lambdaQuery(ArticleFavorite.class)
                 .eq(ArticleFavorite::getArticleId, articleId)
@@ -164,17 +161,8 @@ public class InteractionServiceImpl implements InteractionService {
                         .eq(ArticleFavorite::getUserId, userId)
                         .orderByDesc(ArticleFavorite::getId));
         List<Long> articleIds = result.getRecords().stream().map(ArticleFavorite::getArticleId).toList();
-        if (articleIds.isEmpty()) {
-            return PageResult.of(List.of(), result.getTotal(), page, size);
-        }
-        // 文章可能已被删除：内存过滤并保持收藏顺序
-        Map<Long, Article> articleMap = articleService.listByIds(articleIds).stream()
-                .collect(Collectors.toMap(Article::getId, Function.identity()));
-        List<Article> articles = articleIds.stream()
-                .map(articleMap::get)
-                .filter(Objects::nonNull)
-                .toList();
-        return PageResult.of(articleService.assemble(articles), result.getTotal(), page, size);
+        // 收藏夹语义：已删除的文章被过滤，已下架 / 回草稿的仍保留；保持收藏顺序
+        return PageResult.of(articleCatalog.listByIdsPreserveOrder(articleIds), result.getTotal(), page, size);
     }
 
     /**
@@ -189,17 +177,6 @@ public class InteractionServiceImpl implements InteractionService {
             wrapper.setSql("like_count = like_count - 1").gt(Comment::getLikeCount, 0);
         }
         return wrapper;
-    }
-
-    /**
-     * 互动可见性断言：不可见文章对外一律表现为「不存在」，不可点赞收藏，也避免泄露未发布内容
-     */
-    private Article requireVisibleArticle(Long articleId) {
-        Article article = articleService.getById(articleId);
-        if (Objects.isNull(article) || !ArticleVisibility.isVisible(article)) {
-            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
-        }
-        return article;
     }
 
     private boolean isLiked(Long articleId, Long userId) {

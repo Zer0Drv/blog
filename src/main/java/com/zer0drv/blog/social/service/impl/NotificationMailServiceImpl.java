@@ -1,7 +1,7 @@
 package com.zer0drv.blog.social.service.impl;
 
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.mapper.ArticleMapper;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.site.service.SiteConfigService;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.service.NotificationMailService;
@@ -33,7 +33,7 @@ public class NotificationMailServiceImpl implements NotificationMailService {
     private static final String OAUTH_PLACEHOLDER_SUFFIX = "@oauth.local";
 
     private final UserService userService;
-    private final ArticleMapper articleMapper;
+    private final ArticleCatalog articleCatalog;
     private final ObjectProvider<JavaMailSender> mailSenderProvider;
     /**
      * 站点配置（site.name / site.base_url）。实现类由 backend-C 提供，
@@ -70,8 +70,8 @@ public class NotificationMailServiceImpl implements NotificationMailService {
                         type, targetUserId, articleId);
                 return;
             }
-            Article article = Objects.nonNull(articleId) ? articleMapper.selectById(articleId) : null;
-            String articleTitle = Objects.nonNull(article) ? article.getTitle() : "";
+            String articleTitle = Objects.nonNull(articleId)
+                    ? articleCatalog.findRef(articleId).map(ArticleRef::title).orElse("") : "";
             String siteName = siteConfigValue("site.name", "Blog");
             String baseUrl = siteConfigValue("site.base_url", "http://localhost:5173");
             String actor = Objects.isNull(actorNickname) || actorNickname.isBlank() ? "有用户" : actorNickname;

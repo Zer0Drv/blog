@@ -3,8 +3,8 @@ package com.zer0drv.blog.admin;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zer0drv.blog.admin.service.impl.AdminCommentServiceImpl;
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.mapper.ArticleMapper;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.enums.CommentStatus;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
@@ -23,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -44,7 +45,7 @@ class AdminCommentServiceImplTest {
     @Mock
     private CommentMapper commentMapper;
     @Mock
-    private ArticleMapper articleMapper;
+    private ArticleCatalog articleCatalog;
     @Mock
     private UserService userService;
     @Mock
@@ -66,7 +67,7 @@ class AdminCommentServiceImplTest {
     @BeforeEach
     void setUp() {
         adminCommentService = new AdminCommentServiceImpl(
-                commentMapper, articleMapper, userService, commentService, commentLikeMapper);
+                commentMapper, articleCatalog, userService, commentService, commentLikeMapper);
     }
 
     private static Comment comment(long id, long parentId, String status) {
@@ -84,10 +85,8 @@ class AdminCommentServiceImplTest {
     void approve_pending_setsNormalAndResendsNotification() {
         Comment pending = comment(20L, 0L, CommentStatus.PENDING.name());
         when(commentMapper.selectById(20L)).thenReturn(pending);
-        Article article = new Article();
-        article.setId(10L);
-        article.setAuthorId(1L);
-        when(articleMapper.selectById(10L)).thenReturn(article);
+        ArticleRef article = new ArticleRef(10L, 1L, "标题");
+        when(articleCatalog.findRef(10L)).thenReturn(Optional.of(article));
 
         adminCommentService.approve(20L);
 
@@ -113,7 +112,7 @@ class AdminCommentServiceImplTest {
         // 文章已被删（查不到）：状态照常流转，仅跳过补发通知
         Comment pending = comment(20L, 0L, CommentStatus.PENDING.name());
         when(commentMapper.selectById(20L)).thenReturn(pending);
-        when(articleMapper.selectById(10L)).thenReturn(null);
+        when(articleCatalog.findRef(10L)).thenReturn(Optional.empty());
 
         adminCommentService.approve(20L);
 

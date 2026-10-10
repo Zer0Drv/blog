@@ -1,9 +1,8 @@
 package com.zer0drv.blog.comment;
 
 import com.zer0drv.blog.admin.service.SensitiveWordService;
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.enums.ArticleStatus;
-import com.zer0drv.blog.article.mapper.ArticleMapper;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.dto.CommentCreateDTO;
 import com.zer0drv.blog.comment.enums.CommentStatus;
@@ -31,13 +30,12 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -53,8 +51,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 评论创建/删除纯单测：敏感词折叠、P0 审核队列（PENDING）、定时发布可见性谓词、二级回复归一化、删除连带回复。
- * MP 继承方法（save/getById/removeById/remove）用 spy + doReturn 桩掉。
+ * 评论创建/删除纯单测：敏感词折叠、P0 审核队列（PENDING）、文章可见性前置校验（双错误码）、
+ * 二级回复归一化、删除连带回复。
+ * 文章侧只 mock article.api.ArticleCatalog（无 MP 类型，无需 TableInfoHelper 样板）；
+ * 「草稿 / 定时中 / publish_time 为空为何不可见」的谓词细节由 ArticleVisibility /
+ * ArticleCatalogImpl 边界测试覆盖，此处不叠加。MP 继承方法（save/getById/removeById/remove）
+ * 用 spy + doReturn 桩掉。
  *
  * @author Yoruhaki
  */
@@ -62,7 +64,7 @@ import static org.mockito.Mockito.when;
 class CommentServiceImplTest {
 
     @Mock
-    private ArticleMapper articleMapper;
+    private ArticleCatalog articleCatalog;
     @Mock
     private CommentLikeMapper commentLikeMapper;
     @Mock
@@ -83,7 +85,7 @@ class CommentServiceImplTest {
     @BeforeEach
     void setUp() {
         commentService = spy(new CommentServiceImpl(
-                articleMapper, commentLikeMapper, userService, converter,
+                articleCatalog, commentLikeMapper, userService, converter,
                 notificationService, sensitiveWordService, siteConfigServiceProvider));
         // 默认：SiteConfigService 可用但审核开关关闭（非 create 路径的测试不触达该桩，lenient 防误报）
         lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(siteConfigService);
@@ -109,14 +111,12 @@ class CommentServiceImplTest {
         return jwt;
     }
 
-    private static Article publishedArticle(long id, long authorId) {
-        Article article = new Article();
-        article.setId(id);
-        article.setAuthorId(authorId);
-        article.setStatus(ArticleStatus.PUBLISHED.name());
-        // P0 §1.3 可见性谓词要求 publish_time 非空且不晚于 now
-        article.setPublishTime(LocalDateTime.now().minusMinutes(1));
-        return article;
+    /**
+     * 存在且可见的文章（通过 create 前置校验）
+     */
+    private void stubVisibleArticle(long id, long authorId) {
+        when(articleCatalog.findRef(id)).thenReturn(Optional.of(new ArticleRef(id, authorId, "标题")));
+        when(articleCatalog.isVisible(id)).thenReturn(true);
     }
 
     private static CommentCreateDTO dtoOf(long articleId, String content, Long parentId) {
@@ -129,7 +129,7 @@ class CommentServiceImplTest {
 
     @Test
     void create_sensitiveHit_savedAsFoldedWithoutNotification() {
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord("bad word here")).thenReturn(true);
         doReturn(true).when(commentService).save(any(Comment.class));
 
@@ -145,7 +145,7 @@ class CommentServiceImplTest {
 
     @Test
     void create_rootComment_savedNormalAndNotifiesAuthor() {
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
 
@@ -164,7 +164,7 @@ class CommentServiceImplTest {
 
     @Test
     void create_replyToSecondLevel_normalizesToRoot() {
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
         // parent=5 是二级评论（其父为 root=2），同属文章 10
@@ -197,7 +197,7 @@ class CommentServiceImplTest {
 
     @Test
     void create_replyToRootAuthor_allowed() {
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
         // parent=5 是主评论（root），作者为 8
@@ -227,7 +227,7 @@ class CommentServiceImplTest {
     @Test
     void create_replyToNonParticipant_rejected() {
         // replyToUserId 不是 root 作者、也未在楼层内回复过 → 参数无效，防 MENTION 轰炸
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
         Comment root = new Comment();
         root.setId(5L);
@@ -249,7 +249,7 @@ class CommentServiceImplTest {
 
     @Test
     void create_replyWithoutReplyToUser_notifiesRootAuthor() {
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
         Comment root = new Comment();
@@ -274,7 +274,7 @@ class CommentServiceImplTest {
 
     @Test
     void create_replyToMissingParent_rejected() {
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
         doReturn(null).when(commentService).getById(99L);
 
@@ -285,36 +285,21 @@ class CommentServiceImplTest {
     }
 
     @Test
-    void create_onUnpublishedArticle_rejected() {
-        Article draft = publishedArticle(10L, 1L);
-        draft.setStatus(ArticleStatus.DRAFT.name());
-        when(articleMapper.selectById(10L)).thenReturn(draft);
+    void create_onMissingArticle_rejectedAsNotExist() {
+        // 文章不存在（含已删除）：findRef 空 → ARTICLE_NOT_EXIST（与未发布是两个独立错误码）
+        when(articleCatalog.findRef(10L)).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> commentService.create(dtoOf(10L, "hi", null), jwtOf(2L)));
-        assertEquals(StatusCode.ARTICLE_NOT_PUBLISHED.getCode(), ex.getCode());
+        assertEquals(StatusCode.ARTICLE_NOT_EXIST.getCode(), ex.getCode());
         verify(commentService, never()).save(any());
     }
 
     @Test
-    void create_onScheduledArticle_rejected() {
-        // P0 §1.3：PUBLISHED 但 publish_time 在未来（定时发布未到点）→ 不可评论
-        Article scheduled = publishedArticle(10L, 1L);
-        scheduled.setPublishTime(LocalDateTime.now().plusHours(1));
-        when(articleMapper.selectById(10L)).thenReturn(scheduled);
-
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> commentService.create(dtoOf(10L, "hi", null), jwtOf(2L)));
-        assertEquals(StatusCode.ARTICLE_NOT_PUBLISHED.getCode(), ex.getCode());
-        verify(commentService, never()).save(any());
-    }
-
-    @Test
-    void create_onPublishedArticleWithoutPublishTime_rejected() {
-        // P0 §1.3：publish_time 为空视为未发布
-        Article noTime = publishedArticle(10L, 1L);
-        noTime.setPublishTime(null);
-        when(articleMapper.selectById(10L)).thenReturn(noTime);
+    void create_onInvisibleArticle_rejectedAsNotPublished() {
+        // 存在但不可见（草稿 / 下架 / 定时中 / publish_time 为空）→ ARTICLE_NOT_PUBLISHED
+        when(articleCatalog.findRef(10L)).thenReturn(Optional.of(new ArticleRef(10L, 1L, "标题")));
+        when(articleCatalog.isVisible(10L)).thenReturn(false);
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> commentService.create(dtoOf(10L, "hi", null), jwtOf(2L)));
@@ -325,7 +310,7 @@ class CommentServiceImplTest {
     @Test
     void create_reviewRequired_savedPendingWithoutNotification() {
         // P0 §2.1：审核开关开启 → PENDING 落库、不触发通知
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
         when(siteConfigService.getBool("comment.review_required", false)).thenReturn(true);
         doReturn(true).when(commentService).save(any(Comment.class));
@@ -342,7 +327,7 @@ class CommentServiceImplTest {
     @Test
     void create_reviewRequiredButSensitiveHit_savedFolded() {
         // 分支顺序：敏感词优先于审核开关（命中 → FOLDED，不进入 PENDING）
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord("bad word here")).thenReturn(true);
         doReturn(true).when(commentService).save(any(Comment.class));
 
@@ -359,7 +344,7 @@ class CommentServiceImplTest {
     void create_siteConfigServiceAbsent_defaultsToNormal() {
         // 容器无 SiteConfigService 实现（合并前/IT 形态）→ 默认关闭审核，评论直接 NORMAL
         when(siteConfigServiceProvider.getIfAvailable()).thenReturn(null);
-        when(articleMapper.selectById(10L)).thenReturn(publishedArticle(10L, 1L));
+        stubVisibleArticle(10L, 1L);
         when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
 

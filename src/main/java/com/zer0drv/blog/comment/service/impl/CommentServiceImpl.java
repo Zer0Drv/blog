@@ -6,9 +6,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.zer0drv.blog.admin.service.SensitiveWordService;
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.domain.ArticleVisibility;
-import com.zer0drv.blog.article.mapper.ArticleMapper;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.dto.CommentCreateDTO;
 import com.zer0drv.blog.comment.enums.CommentSort;
@@ -70,7 +69,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
      */
     private static final int NOTIFY_SUMMARY_MAX_LENGTH = 50;
 
-    private final ArticleMapper articleMapper;
+    private final ArticleCatalog articleCatalog;
     private final CommentLikeMapper commentLikeMapper;
     private final UserService userService;
     private final Converter converter;
@@ -118,11 +117,10 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (Objects.isNull(content) || content.isBlank() || content.length() > CONTENT_MAX_LENGTH) {
             throw new BusinessException(StatusCode.COMMENT_CONTENT_INVALID);
         }
-        Article article = articleMapper.selectById(dto.getArticleId());
-        if (Objects.isNull(article)) {
-            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
-        }
-        if (!ArticleVisibility.isVisible(article)) {
+        // 前置校验：文章不存在（含已删除）与「存在但未发布」是两个独立错误码（API 语义）
+        ArticleRef article = articleCatalog.findRef(dto.getArticleId())
+                .orElseThrow(() -> new BusinessException(StatusCode.ARTICLE_NOT_EXIST));
+        if (!articleCatalog.isVisible(article.id())) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_PUBLISHED);
         }
         // M5 敏感词过滤：命中则以 FOLDED 落库、不触发通知，响应 message 由 controller 覆盖提示
@@ -210,13 +208,13 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
      * P0：提为接口 public 方法，供后台审核通过（approve）补发通知复用。
      */
     @Override
-    public void notifyCommentCreated(Comment comment, Article article) {
+    public void notifyCommentCreated(Comment comment, ArticleRef article) {
         Long commenterId = comment.getUserId();
         String summary = comment.getContent().length() <= NOTIFY_SUMMARY_MAX_LENGTH
                 ? comment.getContent() : comment.getContent().substring(0, NOTIFY_SUMMARY_MAX_LENGTH);
         if (comment.getParentId() == 0L) {
-            notificationService.notify(article.getAuthorId(), NotificationType.COMMENT_REPLY,
-                    commenterId, article.getId(), comment.getId(), summary, false);
+            notificationService.notify(article.authorId(), NotificationType.COMMENT_REPLY,
+                    commenterId, article.id(), comment.getId(), summary, false);
             return;
         }
         Comment root = getById(comment.getParentId());
@@ -224,18 +222,18 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         Long replyToUserId = comment.getReplyToUserId();
         if (Objects.isNull(replyToUserId)) {
             notificationService.notify(rootAuthorId, NotificationType.COMMENT_REPLY,
-                    commenterId, article.getId(), comment.getId(), summary, false);
+                    commenterId, article.id(), comment.getId(), summary, false);
             return;
         }
         if (Objects.equals(rootAuthorId, replyToUserId)) {
             notificationService.notify(replyToUserId, NotificationType.MENTION,
-                    commenterId, article.getId(), comment.getId(), summary, false);
+                    commenterId, article.id(), comment.getId(), summary, false);
             return;
         }
         notificationService.notify(rootAuthorId, NotificationType.COMMENT_REPLY,
-                commenterId, article.getId(), comment.getId(), summary, false);
+                commenterId, article.id(), comment.getId(), summary, false);
         notificationService.notify(replyToUserId, NotificationType.MENTION,
-                commenterId, article.getId(), comment.getId(), summary, false);
+                commenterId, article.id(), comment.getId(), summary, false);
     }
 
     /**
