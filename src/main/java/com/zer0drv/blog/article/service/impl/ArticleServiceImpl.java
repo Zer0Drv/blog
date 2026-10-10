@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
+import com.zer0drv.blog.article.domain.ArticleVisibility;
 import com.zer0drv.blog.article.dto.ArticleSaveDTO;
 import com.zer0drv.blog.article.dto.ArticleStatusDTO;
 import com.zer0drv.blog.article.dto.AutosaveDTO;
@@ -155,10 +156,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Override
     public PageResult<ArticleListVO> pagePublished(long page, long size, String keyword, Long tagId, Long categoryId) {
-        LambdaQueryWrapper<Article> wrapper = Wrappers.lambdaQuery(Article.class)
-                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                // P0 定时发布可见性谓词：publish_time 非空且已到（le 天然排除 NULL）
-                .le(Article::getPublishTime, LocalDateTime.now())
+        LambdaQueryWrapper<Article> wrapper = ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class))
                 .eq(Objects.nonNull(categoryId), Article::getCategoryId, categoryId)
                 // M5：置顶优先，其后按发布时间倒序
                 .orderByDesc(Article::getIsTop)
@@ -186,7 +184,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (Objects.isNull(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
-        boolean visible = isPubliclyVisible(article);
+        boolean visible = ArticleVisibility.isVisible(article);
         // 非可见状态仅作者本人 / ADMIN 可见；对匿名与非作者不暴露文章存在性，统一报不存在
         if (!visible && !isAuthorOrAdmin(article, jwt)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
@@ -448,9 +446,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             result = baseMapper.searchByFulltext(new Page<>(page, size), kw);
         } else {
             // 兜底（H2 测试 / 未建全文索引）：title/summary/content_text 三路 LIKE
-            result = page(new Page<>(page, size), Wrappers.lambdaQuery(Article.class)
-                    .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                    .le(Article::getPublishTime, LocalDateTime.now())
+            result = page(new Page<>(page, size), ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class))
                     .and(w -> w.like(Article::getTitle, kw)
                             .or().like(Article::getSummary, kw)
                             .or().like(Article::getContentText, kw))
@@ -461,11 +457,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Override
     public List<ArchiveMonthVO> archives() {
-        // 可见性谓词同 §1.3；只取三列，Java 内存按月分组（个人博客量级，不用 SQL 分组方言）
-        List<Article> articles = list(Wrappers.lambdaQuery(Article.class)
-                .select(Article::getId, Article::getTitle, Article::getPublishTime)
-                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                .le(Article::getPublishTime, LocalDateTime.now())
+        // 只取三列，Java 内存按月分组（个人博客量级，不用 SQL 分组方言）
+        List<Article> articles = list(ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class)
+                        .select(Article::getId, Article::getTitle, Article::getPublishTime))
                 .orderByDesc(Article::getPublishTime));
         // LinkedHashMap 保持首见顺序：publish_time 倒序遍历 → 月份天然倒序，月内文章亦倒序
         Map<String, List<ArchiveMonthVO.Item>> grouped = new LinkedHashMap<>();
@@ -493,7 +487,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
         // 可见性与详情完全一致：不暴露存在性，统一报不存在
-        if (!isPubliclyVisible(article) && !isAuthorOrAdmin(article, jwt)) {
+        if (!ArticleVisibility.isVisible(article) && !isAuthorOrAdmin(article, jwt)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
         String extension = resolveExportExtension(article, format);
@@ -567,16 +561,6 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         dto.setStatus(ArticleStatus.DRAFT.name());
         Long articleId = create(dto, jwt);
         return getDetail(articleId, jwt);
-    }
-
-    /**
-     * 公众可见性谓词（详情 / 导出共用）：PUBLISHED 且 publish_time 非空且已到
-     * （P0 定时发布：PUBLISHED 但 publish_time 未到的文章对公众仍不可见）
-     */
-    private boolean isPubliclyVisible(Article article) {
-        return ArticleStatus.PUBLISHED.name().equals(article.getStatus())
-                && Objects.nonNull(article.getPublishTime())
-                && !article.getPublishTime().isAfter(LocalDateTime.now());
     }
 
     /**

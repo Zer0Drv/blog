@@ -26,7 +26,7 @@ public interface CommentService extends IService<Comment> {
 
     /**
      * 发表评论。parentId 为空 = 主评论；若 parentId 指向二级评论则归一化到其 root。
-     * 文章须满足可见性谓词（PUBLISHED 且 publish_time 已到），返回评论id。
+     * 文章须对外可见（谓词见 ArticleVisibility），返回评论id。
      * 命中敏感词 → FOLDED；审核开关开启 → PENDING（不通知）；否则 NORMAL + 通知。
      */
     Long create(CommentCreateDTO dto, Jwt jwt);

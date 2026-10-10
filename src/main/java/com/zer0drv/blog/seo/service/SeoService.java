@@ -11,7 +11,7 @@ import com.rometools.rome.feed.synd.SyndFeedImpl;
 import com.rometools.rome.io.FeedException;
 import com.rometools.rome.io.SyndFeedOutput;
 import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.enums.ArticleStatus;
+import com.zer0drv.blog.article.domain.ArticleVisibility;
 import com.zer0drv.blog.article.mapper.ArticleMapper;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
@@ -34,9 +34,7 @@ import java.util.stream.Collectors;
 
 /**
  * SEO 三件套：RSS/Atom 订阅源（Rome 生成）+ sitemap.xml（手写 urlset）+ robots.txt。
- * 文章可见性谓词全系统统一（SPEC §1.3）：
- * status=PUBLISHED AND publish_time IS NOT NULL AND publish_time <= now()，
- * 定时中（未来档期）与草稿/下架文章一律不出现在订阅源与 sitemap。
+ * 仅收录对外可见文章（谓词见 {@link ArticleVisibility}），定时中与草稿/下架文章不出现。
  *
  * @author Yoruhaki
  */
@@ -152,11 +150,9 @@ public class SeoService {
      * 可见文章分页查询（publish_time 倒序；MP 逻辑删除自动拼 deleted=0）
      */
     private List<Article> pageVisibleArticles(int limit) {
-        Page<Article> page = articleMapper.selectPage(new Page<>(1, limit), Wrappers.lambdaQuery(Article.class)
-                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                .isNotNull(Article::getPublishTime)
-                .le(Article::getPublishTime, LocalDateTime.now())
-                .orderByDesc(Article::getPublishTime));
+        Page<Article> page = articleMapper.selectPage(new Page<>(1, limit),
+                ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class))
+                        .orderByDesc(Article::getPublishTime));
         return page.getRecords();
     }
 

@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.enums.ArticleStatus;
+import com.zer0drv.blog.article.domain.ArticleVisibility;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.common.exception.BusinessException;
@@ -25,7 +25,6 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -114,11 +113,8 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
         vo.setBio(user.getBio());
         vo.setFollowerCount(count(Wrappers.lambdaQuery(Follow.class).eq(Follow::getFolloweeId, userId)));
         vo.setFollowingCount(count(Wrappers.lambdaQuery(Follow.class).eq(Follow::getFollowerId, userId)));
-        // 定时发布可见性谓词：publish_time 已到才计入对外文章数（与 pageUserArticles/pageFeed 一致）
-        vo.setArticleCount(articleService.count(Wrappers.lambdaQuery(Article.class)
-                .eq(Article::getAuthorId, userId)
-                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                .le(Article::getPublishTime, LocalDateTime.now())));
+        vo.setArticleCount(articleService.count(ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class)
+                .eq(Article::getAuthorId, userId))));
         vo.setFollowed(Objects.nonNull(jwt) && isFollowed(JwtSubjects.userIdOf(jwt), userId));
         return vo;
     }
@@ -134,10 +130,7 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
             return PageResult.of(List.of(), 0, page, size);
         }
         Page<Article> result = articleService.page(new Page<>(page, size),
-                Wrappers.lambdaQuery(Article.class)
-                        .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                        // P0 定时发布可见性谓词：publish_time 非空且已到
-                        .le(Article::getPublishTime, LocalDateTime.now())
+                ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class))
                         .in(Article::getAuthorId, followeeIds)
                         .orderByDesc(Article::getPublishTime));
         return PageResult.of(articleService.assemble(result.getRecords()), result.getTotal(), page, size);
@@ -146,11 +139,8 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
     @Override
     public PageResult<ArticleListVO> pageUserArticles(Long userId, long page, long size) {
         Page<Article> result = articleService.page(new Page<>(page, size),
-                Wrappers.lambdaQuery(Article.class)
-                        .eq(Article::getAuthorId, userId)
-                        .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                        // 定时发布可见性谓词：publish_time 非空且已到，未上线文章不对外泄露
-                        .le(Article::getPublishTime, LocalDateTime.now())
+                ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class)
+                                .eq(Article::getAuthorId, userId))
                         .orderByDesc(Article::getPublishTime));
         return PageResult.of(articleService.assemble(result.getRecords()), result.getTotal(), page, size);
     }

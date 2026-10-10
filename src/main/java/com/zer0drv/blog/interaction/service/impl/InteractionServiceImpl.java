@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.enums.ArticleStatus;
+import com.zer0drv.blog.article.domain.ArticleVisibility;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.comment.domain.Comment;
@@ -29,7 +29,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -193,15 +192,11 @@ public class InteractionServiceImpl implements InteractionService {
     }
 
     /**
-     * 互动可见性断言：与评论创建逻辑一致，status=PUBLISHED 且 publish_time 非空且已到点；
-     * 草稿/下架/未到期定时文章对外一律表现为「不存在」，不可点赞收藏，也避免泄露未发布内容
+     * 互动可见性断言：不可见文章对外一律表现为「不存在」，不可点赞收藏，也避免泄露未发布内容
      */
     private Article requireVisibleArticle(Long articleId) {
         Article article = articleService.getById(articleId);
-        if (Objects.isNull(article)
-                || !ArticleStatus.PUBLISHED.name().equals(article.getStatus())
-                || Objects.isNull(article.getPublishTime())
-                || article.getPublishTime().isAfter(LocalDateTime.now())) {
+        if (Objects.isNull(article) || !ArticleVisibility.isVisible(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
         return article;
