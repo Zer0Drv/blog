@@ -1,17 +1,15 @@
 package com.zer0drv.blog.comment.controller;
 
-import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.comment.dto.CommentCreateDTO;
+import com.zer0drv.blog.comment.service.CommentCreateResult;
 import com.zer0drv.blog.comment.service.CommentService;
 import com.zer0drv.blog.comment.vo.CommentVO;
 import com.zer0drv.blog.common.captcha.CaptchaService;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.Result;
 import com.zer0drv.blog.common.util.JwtSubjects;
-import com.zer0drv.blog.site.service.SiteConfigService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -24,8 +22,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Objects;
-
 /**
  * @author Yoruhaki
  */
@@ -35,13 +31,7 @@ import java.util.Objects;
 public class CommentController {
 
     private final CommentService commentService;
-    private final SensitiveWordService sensitiveWordService;
     private final CaptchaService captchaService;
-    /**
-     * 站点配置（P0 §2.1 审核开关 message 覆盖）。实现类由 backend-C 提供，
-     * 容器中没有实现类时默认关闭兜底，必须 ObjectProvider 注入避免上下文启动失败
-     */
-    private final ObjectProvider<SiteConfigService> siteConfigServiceProvider;
 
     /**
      * 主评论分页（公开）。sort：time_desc(默认) / time_asc / hot；
@@ -69,6 +59,8 @@ public class CommentController {
 
     /**
      * 发表评论（登录）。parentId 为空 = 主评论；指向二级评论时归一化到其 root。
+     * 准入判定（敏感词 FOLDED / 审核开关 PENDING）在 service 内一次完成，
+     * 这里只按随行返回的落库状态翻译提示文案，不做二次判定。
      */
     @PostMapping
     @PreAuthorize("isAuthenticated()")
@@ -77,24 +69,18 @@ public class CommentController {
         String userId = String.valueOf(JwtSubjects.userIdOf(jwt));
         captchaService.verify(CaptchaService.SCENE_COMMENT, userId, dto.getCaptchaId(), dto.getCaptchaCode());
         captchaService.recordAttempt(CaptchaService.SCENE_COMMENT, userId);
-        Result<Long> result = Result.ok(commentService.create(dto, jwt));
-        // M5：命中敏感词的评论以 FOLDED 落库进入审核，接口正常返回但 message 覆盖提示（前端按 message 提示）
-        if (sensitiveWordService.containsSensitiveWord(dto.getContent())) {
-            result.setMessage("包含敏感内容，已进入审核");
-        } else if (isCommentReviewRequired()) {
+        CommentCreateResult created = commentService.create(dto, jwt);
+        // 线上契约不变：data 仍是评论 id；仅按落库状态覆盖 message（前端按 message 提示）
+        Result<Long> result = Result.ok(created.id());
+        switch (created.status()) {
+            // M5：命中敏感词的评论以 FOLDED 落库进入审核，接口正常返回但 message 覆盖提示
+            case FOLDED -> result.setMessage("包含敏感内容，已进入审核");
             // P0 §2.1：审核开关开启时评论以 PENDING 落库，公开列表不可见，message 覆盖提示
-            result.setMessage("评论已提交，审核通过后展示");
+            case PENDING -> result.setMessage("评论已提交，审核通过后展示");
+            default -> {
+            }
         }
         return result;
-    }
-
-    /**
-     * P0 §2.1 评论审核开关：SiteConfigService 实现缺失时默认关闭（兼容 IT 与合并前环境）
-     */
-    private boolean isCommentReviewRequired() {
-        SiteConfigService siteConfigService = siteConfigServiceProvider.getIfAvailable();
-        return Objects.nonNull(siteConfigService)
-                && siteConfigService.getBool("comment.review_required", false);
     }
 
     /**

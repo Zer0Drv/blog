@@ -1,14 +1,15 @@
 package com.zer0drv.blog.comment;
 
-import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.article.api.ArticleCatalog;
 import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.dto.CommentCreateDTO;
 import com.zer0drv.blog.comment.enums.CommentStatus;
+import com.zer0drv.blog.comment.service.CommentCreateResult;
 import com.zer0drv.blog.comment.service.impl.CommentServiceImpl;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
+import com.zer0drv.blog.common.sensitive.SensitiveWordChecker;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.site.service.SiteConfigService;
 import com.zer0drv.blog.social.enums.NotificationType;
@@ -47,6 +48,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -74,7 +76,7 @@ class CommentServiceImplTest {
     @Mock
     private NotificationService notificationService;
     @Mock
-    private SensitiveWordService sensitiveWordService;
+    private SensitiveWordChecker sensitiveWordChecker;
     @Mock
     private ObjectProvider<SiteConfigService> siteConfigServiceProvider;
     @Mock
@@ -86,7 +88,7 @@ class CommentServiceImplTest {
     void setUp() {
         commentService = spy(new CommentServiceImpl(
                 articleCatalog, commentLikeMapper, userService, converter,
-                notificationService, sensitiveWordService, siteConfigServiceProvider));
+                notificationService, sensitiveWordChecker, siteConfigServiceProvider));
         // 默认：SiteConfigService 可用但审核开关关闭（非 create 路径的测试不触达该桩，lenient 防误报）
         lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(siteConfigService);
         lenient().when(siteConfigService.getBool(anyString(), anyBoolean())).thenReturn(false);
@@ -130,11 +132,14 @@ class CommentServiceImplTest {
     @Test
     void create_sensitiveHit_savedAsFoldedWithoutNotification() {
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord("bad word here")).thenReturn(true);
+        when(sensitiveWordChecker.containsSensitiveWord("bad word here")).thenReturn(true);
         doReturn(true).when(commentService).save(any(Comment.class));
 
-        commentService.create(dtoOf(10L, "bad word here", null), jwtOf(2L));
+        CommentCreateResult result = commentService.create(dtoOf(10L, "bad word here", null), jwtOf(2L));
 
+        assertEquals(CommentStatus.FOLDED, result.status());
+        // 每条评论的敏感词判定只跑一次（结论随行返回，controller 不再二次判定）
+        verify(sensitiveWordChecker, times(1)).containsSensitiveWord(any());
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentService).save(captor.capture());
         assertEquals(CommentStatus.FOLDED.name(), captor.getValue().getStatus());
@@ -146,11 +151,13 @@ class CommentServiceImplTest {
     @Test
     void create_rootComment_savedNormalAndNotifiesAuthor() {
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(sensitiveWordChecker.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
 
-        commentService.create(dtoOf(10L, "great article", null), jwtOf(2L));
+        CommentCreateResult result = commentService.create(dtoOf(10L, "great article", null), jwtOf(2L));
 
+        assertEquals(CommentStatus.NORMAL, result.status());
+        verify(sensitiveWordChecker, times(1)).containsSensitiveWord(any());
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentService).save(captor.capture());
         Comment saved = captor.getValue();
@@ -165,7 +172,7 @@ class CommentServiceImplTest {
     @Test
     void create_replyToSecondLevel_normalizesToRoot() {
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(sensitiveWordChecker.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
         // parent=5 是二级评论（其父为 root=2），同属文章 10
         Comment parent = new Comment();
@@ -198,7 +205,7 @@ class CommentServiceImplTest {
     @Test
     void create_replyToRootAuthor_allowed() {
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(sensitiveWordChecker.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
         // parent=5 是主评论（root），作者为 8
         Comment root = new Comment();
@@ -228,7 +235,7 @@ class CommentServiceImplTest {
     void create_replyToNonParticipant_rejected() {
         // replyToUserId 不是 root 作者、也未在楼层内回复过 → 参数无效，防 MENTION 轰炸
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(sensitiveWordChecker.containsSensitiveWord(any())).thenReturn(false);
         Comment root = new Comment();
         root.setId(5L);
         root.setParentId(0L);
@@ -250,7 +257,7 @@ class CommentServiceImplTest {
     @Test
     void create_replyWithoutReplyToUser_notifiesRootAuthor() {
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(sensitiveWordChecker.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
         Comment root = new Comment();
         root.setId(5L);
@@ -275,7 +282,7 @@ class CommentServiceImplTest {
     @Test
     void create_replyToMissingParent_rejected() {
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(sensitiveWordChecker.containsSensitiveWord(any())).thenReturn(false);
         doReturn(null).when(commentService).getById(99L);
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -311,12 +318,14 @@ class CommentServiceImplTest {
     void create_reviewRequired_savedPendingWithoutNotification() {
         // P0 §2.1：审核开关开启 → PENDING 落库、不触发通知
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(sensitiveWordChecker.containsSensitiveWord(any())).thenReturn(false);
         when(siteConfigService.getBool("comment.review_required", false)).thenReturn(true);
         doReturn(true).when(commentService).save(any(Comment.class));
 
-        commentService.create(dtoOf(10L, "great article", null), jwtOf(2L));
+        CommentCreateResult result = commentService.create(dtoOf(10L, "great article", null), jwtOf(2L));
 
+        assertEquals(CommentStatus.PENDING, result.status());
+        verify(sensitiveWordChecker, times(1)).containsSensitiveWord(any());
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentService).save(captor.capture());
         assertEquals(CommentStatus.PENDING.name(), captor.getValue().getStatus());
@@ -328,11 +337,12 @@ class CommentServiceImplTest {
     void create_reviewRequiredButSensitiveHit_savedFolded() {
         // 分支顺序：敏感词优先于审核开关（命中 → FOLDED，不进入 PENDING）
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord("bad word here")).thenReturn(true);
+        when(sensitiveWordChecker.containsSensitiveWord("bad word here")).thenReturn(true);
         doReturn(true).when(commentService).save(any(Comment.class));
 
-        commentService.create(dtoOf(10L, "bad word here", null), jwtOf(2L));
+        CommentCreateResult result = commentService.create(dtoOf(10L, "bad word here", null), jwtOf(2L));
 
+        assertEquals(CommentStatus.FOLDED, result.status());
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentService).save(captor.capture());
         assertEquals(CommentStatus.FOLDED.name(), captor.getValue().getStatus());
@@ -345,10 +355,12 @@ class CommentServiceImplTest {
         // 容器无 SiteConfigService 实现（合并前/IT 形态）→ 默认关闭审核，评论直接 NORMAL
         when(siteConfigServiceProvider.getIfAvailable()).thenReturn(null);
         stubVisibleArticle(10L, 1L);
-        when(sensitiveWordService.containsSensitiveWord(any())).thenReturn(false);
+        when(sensitiveWordChecker.containsSensitiveWord(any())).thenReturn(false);
         doReturn(true).when(commentService).save(any(Comment.class));
 
-        commentService.create(dtoOf(10L, "great article", null), jwtOf(2L));
+        CommentCreateResult result = commentService.create(dtoOf(10L, "great article", null), jwtOf(2L));
+
+        assertEquals(CommentStatus.NORMAL, result.status());
 
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentService).save(captor.capture());

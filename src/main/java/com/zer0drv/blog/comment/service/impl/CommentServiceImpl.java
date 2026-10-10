@@ -5,7 +5,6 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
-import com.zer0drv.blog.admin.service.SensitiveWordService;
 import com.zer0drv.blog.article.api.ArticleCatalog;
 import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.comment.domain.Comment;
@@ -13,12 +12,14 @@ import com.zer0drv.blog.comment.dto.CommentCreateDTO;
 import com.zer0drv.blog.comment.enums.CommentSort;
 import com.zer0drv.blog.comment.enums.CommentStatus;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
+import com.zer0drv.blog.comment.service.CommentCreateResult;
 import com.zer0drv.blog.comment.service.CommentService;
 import com.zer0drv.blog.comment.vo.CommentUserVO;
 import com.zer0drv.blog.comment.vo.CommentVO;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
+import com.zer0drv.blog.common.sensitive.SensitiveWordChecker;
 import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.interaction.domain.CommentLike;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
@@ -74,7 +75,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     private final UserService userService;
     private final Converter converter;
     private final NotificationService notificationService;
-    private final SensitiveWordService sensitiveWordService;
+    private final SensitiveWordChecker sensitiveWordChecker;
     /**
      * 站点配置（P0 §2.1 审核开关）。实现类由 backend-C 提供，
      * 容器中没有实现类时（如 IT/合并前）走默认关闭兜底，必须 ObjectProvider 注入避免上下文启动失败
@@ -112,7 +113,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     }
 
     @Override
-    public Long create(CommentCreateDTO dto, Jwt jwt) {
+    public CommentCreateResult create(CommentCreateDTO dto, Jwt jwt) {
         String content = dto.getContent();
         if (Objects.isNull(content) || content.isBlank() || content.length() > CONTENT_MAX_LENGTH) {
             throw new BusinessException(StatusCode.COMMENT_CONTENT_INVALID);
@@ -123,17 +124,18 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (!articleCatalog.isVisible(article.id())) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_PUBLISHED);
         }
-        // M5 敏感词过滤：命中则以 FOLDED 落库、不触发通知，响应 message 由 controller 覆盖提示
-        boolean sensitiveHit = sensitiveWordService.containsSensitiveWord(content);
-        // P0 §2.1 审核开关：开启时正常评论以 PENDING 落库、不触发通知，响应 message 由 controller 覆盖提示
+        // M5 敏感词过滤：命中则以 FOLDED 落库、不触发通知；判定结论随行返回，controller 按 status 覆盖提示
+        boolean sensitiveHit = sensitiveWordChecker.containsSensitiveWord(content);
+        // P0 §2.1 审核开关：开启时正常评论以 PENDING 落库、不触发通知
         boolean reviewRequired = !sensitiveHit && isCommentReviewRequired();
+        CommentStatus status = sensitiveHit ? CommentStatus.FOLDED
+                : (reviewRequired ? CommentStatus.PENDING : CommentStatus.NORMAL);
         Comment comment = new Comment();
         comment.setArticleId(dto.getArticleId());
         comment.setUserId(JwtSubjects.userIdOf(jwt));
         comment.setContent(content);
         comment.setLikeCount(0);
-        comment.setStatus(sensitiveHit ? CommentStatus.FOLDED.name()
-                : (reviewRequired ? CommentStatus.PENDING.name() : CommentStatus.NORMAL.name()));
+        comment.setStatus(status.name());
         if (Objects.isNull(dto.getParentId()) || dto.getParentId() == 0L) {
             // 主评论
             comment.setParentId(0L);
@@ -169,7 +171,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (!sensitiveHit && !reviewRequired) {
             notifyCommentCreated(comment, article);
         }
-        return comment.getId();
+        return new CommentCreateResult(comment.getId(), status);
     }
 
     /**

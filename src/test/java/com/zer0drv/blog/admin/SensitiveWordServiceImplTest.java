@@ -18,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 
@@ -108,5 +109,47 @@ class SensitiveWordServiceImplTest {
         org.mockito.ArgumentCaptor<SensitiveWord> captor = org.mockito.ArgumentCaptor.forClass(SensitiveWord.class);
         verify(sensitiveWordService).save(captor.capture());
         assertTrue("fresh".equals(captor.getValue().getWord()));
+    }
+
+    @Test
+    void containsSensitiveWord_secondCall_hitsCacheWithoutQuery() {
+        // 词表缓存：第二次判定不查库（词表小，全量缓存小写预处理结果）
+        doReturn(List.of(word("bad"))).when(sensitiveWordService).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+
+        assertTrue(sensitiveWordService.containsSensitiveWord("a BAD word"));
+        assertFalse(sensitiveWordService.containsSensitiveWord("totally fine"));
+
+        verify(sensitiveWordService, times(1)).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+    }
+
+    @Test
+    void add_newWord_invalidatesCache_takesEffectImmediately() {
+        // add 后缓存即时失效：新词不等 TTL 立即生效
+        doReturn(List.of(word("bad"))).when(sensitiveWordService).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+        assertFalse(sensitiveWordService.containsSensitiveWord("fresh content"));
+
+        doReturn(0L).when(sensitiveWordService).count(any());
+        doReturn(true).when(sensitiveWordService).save(any(SensitiveWord.class));
+        sensitiveWordService.add("fresh");
+        // 模拟库表已写入新词：失效后下次判定重新加载
+        doReturn(List.of(word("bad"), word("fresh"))).when(sensitiveWordService).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+
+        assertTrue(sensitiveWordService.containsSensitiveWord("fresh content"));
+        // 三次判定对应两次查库：首次加载 + add 失效后重载
+        verify(sensitiveWordService, times(2)).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+    }
+
+    @Test
+    void delete_word_invalidatesCache_takesEffectImmediately() {
+        // delete 后缓存即时失效：被删词立即不再命中
+        doReturn(List.of(word("bad"))).when(sensitiveWordService).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+        assertTrue(sensitiveWordService.containsSensitiveWord("a BAD word"));
+
+        doReturn(true).when(sensitiveWordService).removeById(1L);
+        sensitiveWordService.delete(1L);
+        doReturn(List.of()).when(sensitiveWordService).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+
+        assertFalse(sensitiveWordService.containsSensitiveWord("a BAD word"));
+        verify(sensitiveWordService, times(2)).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
     }
 }
