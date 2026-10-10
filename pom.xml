@@ -123,6 +123,13 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 架构边界红线测试（Issue #24 第四步）：ArchUnit 断言 article 域内部包不被域外访问 -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.5.1</version>
+            <scope>test</scope>
+        </dependency>
 
         <!-- spring boot3 引入可选模块 -->
         <dependency>
