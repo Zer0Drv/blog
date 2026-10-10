@@ -51,19 +51,24 @@ jobs:
           docker push "$IMAGE:latest"
 
   # ---- 阶段 2：自托管 runner（部署机）拉镜像并更新容器 ----
+  # 部署机为 Windows：脚本统一 bash（Git for Windows 提供）；
+  # compose 用 Docker Desktop 自带的 docker-compose.exe（本机未注册 compose 插件）；
+  # 直接操作部署机上的工程目录（.env 不入库，compose 必需的口令只在部署机存在），不做 checkout
   deploy:
     needs: image
     runs-on: self-hosted
     environment: production
+    defaults:
+      run:
+        shell: bash
+        working-directory: 'E:\dev\zer0drv\blog'
     steps:
-      - uses: actions/checkout@v7
-
       - name: 拉取新镜像并更新后端容器
         env:
           BACKEND_TAG: ${{ needs.image.outputs.tag }}
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
+          docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
 
       - name: 等待健康检查
         run: |
