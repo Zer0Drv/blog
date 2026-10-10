@@ -75,7 +75,38 @@ services:
       timeout: 3s
       retries: 30
 
+  # 统一网关（Nginx）：模拟生产「CDN 边缘 + 反代」——
+  # 前端静态资源走 MinIO blog-frontend 桶（边缘缓存），/api、/uploads、/ws 反代后端（宿主 8082）。
+  # 前端发布 = 构建 dist 推到 MinIO 桶（deploy-frontend.sh），网关无需重启。
+  gateway:
+    image: nginx:1.29-alpine
+    container_name: blog-gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"               # 对外唯一入口
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - minio
+
+  # DBX 数据库管理工具（Web 版，Apache-2.0 开源）：统一管理 MySQL/Redis/MinIO(S3) 连接，
+  # 其 MCP server（@dbx-app/mcp-server）可让 AI 代理通过这些连接查询。
+  # 控制台 http://localhost:4224 ；数据（连接配置，加密存储）在 dbx-data 卷。
+  dbx:
+    image: t8y2/dbx:latest
+    container_name: blog-dbx
+    restart: unless-stopped
+    pull_policy: always
+    environment:
+      DBX_WEB_PASSWORD: ${DBX_WEB_PASSWORD:?DBX_WEB_PASSWORD 未设置：Web 控制台登录口令，请写入 .env}
+      TZ: Asia/Shanghai
+    ports:
+      - "4224:4224"
+    volumes:
+      - dbx-data:/app/data
+
 volumes:
   blog-mysql-data:
   blog-redis-data:
   blog-minio-data:
+  dbx-data:
