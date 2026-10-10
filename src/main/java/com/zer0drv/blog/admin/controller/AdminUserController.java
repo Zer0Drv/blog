@@ -60,7 +60,8 @@ public class AdminUserController {
     }
 
     /**
-     * 角色变更（仅 USER↔AUTHOR；不允许改成 ADMIN、不允许改自己）
+     * 角色变更（USER/AUTHOR/ADMIN 均可设为目标角色；不允许操作现有 ADMIN 账号、不允许改自己；
+     * 变更后吊销目标全部 token，强制重新登录领取新角色）
      */
     @PutMapping("/{id}/role")
     public Result<Void> updateRole(@AuthenticationPrincipal Jwt jwt,

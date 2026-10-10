@@ -16,6 +16,7 @@ import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.user.service.UserService;
 import io.github.linpeilie.Converter;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,10 +24,15 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -84,10 +90,23 @@ class CommentServiceImplTest {
         lenient().when(siteConfigService.getBool(anyString(), anyBoolean())).thenReturn(false);
     }
 
+    @AfterEach
+    void tearDown() {
+        // jwtOf 会向安全上下文写入认证，逐个用例清理防串扰
+        SecurityContextHolder.clearContext();
+    }
+
     private static Jwt jwtOf(long userId, String... roles) {
-        return new Jwt("tk", Instant.now(), Instant.now().plusSeconds(3600),
+        Jwt jwt = new Jwt("tk", Instant.now(), Instant.now().plusSeconds(3600),
                 Map.of("alg", "HS256"),
                 Map.of("sub", String.valueOf(userId), "roles", List.of(roles)));
+        // 与生产链路对齐：isAdmin 以安全上下文权限为准（由 DatabaseRoleJwtAuthenticationConverter
+        // 实时读库装配），单测在此把 roles 同步进安全上下文
+        List<GrantedAuthority> authorities = Arrays.stream(roles)
+                .<GrantedAuthority>map(SimpleGrantedAuthority::new)
+                .toList();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, authorities));
+        return jwt;
     }
 
     private static Article publishedArticle(long id, long authorId) {

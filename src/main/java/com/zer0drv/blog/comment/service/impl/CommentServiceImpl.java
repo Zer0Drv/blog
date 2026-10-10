@@ -32,6 +32,8 @@ import com.zer0drv.blog.user.service.UserService;
 import io.github.linpeilie.Converter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -193,7 +195,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
             throw new BusinessException(StatusCode.COMMENT_NOT_EXIST);
         }
         Long userId = JwtSubjects.userIdOf(jwt);
-        if (!comment.getUserId().equals(userId) && !isAdmin(jwt)) {
+        if (!comment.getUserId().equals(userId) && !isAdmin()) {
             throw new BusinessException(StatusCode.NOT_AUTHOR);
         }
         removeById(id);
@@ -377,10 +379,14 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     }
 
     /**
-     * 从 JWT 的 roles 声明判断是否为 ADMIN（签发时值形如 ROLE_ADMIN）
+     * 判断当前请求主体是否为 ADMIN：以安全上下文中的权限为准（由
+     * DatabaseRoleJwtAuthenticationConverter 按 sub 实时读库装配），不再解析 JWT 的
+     * roles 声明——声明在签发时固化，库内直改角色后会失真（提拔 ADMIN 误拒 / 降级误放行）
      */
-    private boolean isAdmin(Jwt jwt) {
-        List<String> roles = jwt.getClaimAsStringList("roles");
-        return Objects.nonNull(roles) && roles.contains("ROLE_" + UserRole.ADMIN.name());
+    private boolean isAdmin() {
+        String adminAuthority = "ROLE_" + UserRole.ADMIN.name();
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        return Objects.nonNull(authentication) && authentication.getAuthorities().stream()
+                .anyMatch(authority -> adminAuthority.equals(authority.getAuthority()));
     }
 }

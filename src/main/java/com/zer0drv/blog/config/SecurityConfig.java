@@ -1,5 +1,6 @@
 package com.zer0drv.blog.config;
 
+import com.zer0drv.blog.auth.converter.DatabaseRoleJwtAuthenticationConverter;
 import com.zer0drv.blog.user.enums.UserRole;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -28,6 +29,7 @@ public class SecurityConfig {
 
     private final com.zer0drv.blog.auth.oauth2.OAuth2LoginSuccessHandler oAuth2LoginSuccessHandler;
     private final CookieBearerTokenResolver cookieBearerTokenResolver;
+    private final DatabaseRoleJwtAuthenticationConverter databaseRoleJwtAuthenticationConverter;
 
     /**
      * OAuth 登录失败回跳地址
@@ -87,10 +89,12 @@ public class SecurityConfig {
                         .failureHandler((request, response, exception) ->
                                 response.sendRedirect(oauthFailureRedirect)))
                 // 资源服务器：优先 Cookie 取 token，兼容 Authorization: Bearer（过渡期）；
-                // 权限映射由配置驱动（authorities-claim-name=roles + authority-prefix=""，Boot 自动装配转换器）
+                // 权限由 DatabaseRoleJwtAuthenticationConverter 按 sub 实时读库装配——
+                // 不信任 token 内 roles 声明（签发时固化，库内直改角色后会失真，
+                // 提拔 ADMIN 后旧 token 访问 /admin/** 曾误返 403）
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .bearerTokenResolver(cookieBearerTokenResolver)
-                        .jwt(Customizer.withDefaults()));
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(databaseRoleJwtAuthenticationConverter)));
         return http.build();
     }
 }

@@ -36,13 +36,8 @@ spring:
             client-id: test-only-client-id
             client-secret: test-only-client-secret
             scope: [ read:user, user:email ]
-      resourceserver:
-        jwt:
-          # 测试 yaml 会整体遮蔽主 application.yaml，须重复声明：
-          # 本项目 JWT 角色放在自定义 roles 声明（值形如 ROLE_ADMIN），
-          # 缺省 converter 只读 scope/scp 且前缀 SCOPE_，不配则 hasRole 一律 403
-          authorities-claim-name: roles
-          authority-prefix: ""
+      # 资源服务器权限映射不再走 authorities-claim-name 属性（转换器已改为按 sub 实时读库，
+      # 见 DatabaseRoleJwtAuthenticationConverter），无需在此重复声明 roles 声明映射
 
 blog:
   minio:

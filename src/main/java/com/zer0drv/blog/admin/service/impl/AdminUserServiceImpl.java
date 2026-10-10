@@ -82,15 +82,13 @@ public class AdminUserServiceImpl implements AdminUserService {
         if (!UserRole.isValid(role)) {
             throw new BusinessException(StatusCode.ROLE_CHOICE_ERROR);
         }
-        // 不允许改成 ADMIN（ADMIN 仅种子/库内直改）
-        if (UserRole.ADMIN.name().equals(role)) {
-            throw new BusinessException(StatusCode.CANNOT_OPERATE_ADMIN);
-        }
         User target = requireUser(id);
+        // 边界：不能动现有 ADMIN（含降级）、不能改自己；提拔 ADMIN 已放开——
+        // 角色变更必须走 API 以保证吊销事件闭环，不再倒逼库内直改
         assertOperable(target, jwt);
         target.setRole(role);
         userService.updateById(target);
-        // #9：角色变更吊销历史 token（旧 token 内 roles 声明已过期）
+        // #9：角色变更吊销历史 token（旧 token 内 roles 声明已过期），目标用户重新登录领取新角色
         tokenService.blackUserTokens(id);
     }
 

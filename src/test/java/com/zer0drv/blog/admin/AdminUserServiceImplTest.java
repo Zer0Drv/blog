@@ -28,7 +28,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 管理员用户操作边界纯单测：ban/unban 管理员/自己拒绝、非法角色拒绝、操作后吊销 token。
+ * 管理员用户操作边界纯单测：ban/unban 管理员/自己拒绝、非法角色拒绝、操作后吊销 token、
+ * 提拔 ADMIN 放开但吊销闭环、不允许操作现有 ADMIN 账号。
  *
  * @author Yoruhaki
  */
@@ -151,14 +152,19 @@ class AdminUserServiceImplTest {
     }
 
     @Test
-    void updateRole_toAdmin_rejected() {
+    void updateRole_toAdmin_allowedAndRevokesTokens() {
+        // 提拔 ADMIN 已放开：走 API 才能保证吊销事件闭环，变更后目标用户须重新登录
         RoleUpdateDTO dto = new RoleUpdateDTO();
         dto.setRole(UserRole.ADMIN.name());
+        User target = user(6L, UserRole.USER.name());
+        when(userService.getById(6L)).thenReturn(target);
+        when(userService.updateById(any(User.class))).thenReturn(true);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> adminUserService.updateRole(6L, dto, adminJwt(1L)));
-        assertEquals(StatusCode.CANNOT_OPERATE_ADMIN.getCode(), ex.getCode());
-        verify(userService, never()).updateById(any());
+        adminUserService.updateRole(6L, dto, adminJwt(1L));
+
+        assertEquals(UserRole.ADMIN.name(), target.getRole());
+        verify(userService).updateById(target);
+        verify(tokenService).blackUserTokens(6L);
     }
 
     @Test

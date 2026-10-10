@@ -330,7 +330,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 
 ## 实战笔记（踩过的坑）
 
-- **JWT 角色声明必须是 `roles`**：角色放在自定义声明 `roles`（值形如 `ROLE_ADMIN`）。Spring 默认的 `JwtGrantedAuthoritiesConverter` 只读 `scope`/`scp` 且前缀 `SCOPE_`，因此 `application.yaml` 显式配置 `authorities-claim-name: roles` + `authority-prefix: ""`，否则 `hasRole('ADMIN')` 一律 403。
+- **JWT 的 `roles` 声明不能作为授权依据**：声明在登录签发时固化，此后角色变更（尤其库内直改提拔 ADMIN）不会反映到已签发 token，持旧 token 访问 `/admin/**` 曾一律 403（test1 事件，2026-10）。现改为 `DatabaseRoleJwtAuthenticationConverter` 按 token `sub` 实时读库装配权限，角色变更即时生效；`roles` 声明仍照常签发但仅作展示参考。服务内（文章/评论的 `isAdmin`）同样以安全上下文权限为准，不再解析声明。token 吊销（封禁/改密/登出/角色变更）仍由 `BlacklistJwtValidator` + `blog:user-tokens:{userId}` 活跃集合负责，与读库装配正交。
 - **`/error` 必须放行**：错误转发（ERROR dispatch）同样经过安全链，不放行会把真实异常改写成 401。
 - **CSRF 两层防线**：Cookie 认证后浏览器自动携带凭据，第一层是 SameSite=Strict Cookie（跨站不带），第二层是 `CsrfHeaderCheckFilter` 强制 mutating 请求携带 `X-Requested-With: XMLHttpRequest` 自定义头（跨站表单无法伪造自定义头）；项目无 Cookie 会话，故仍关闭 Spring Security 的会话型 CSRF。
 - **`jwt.secret` 无默认值**：必须环境变量注入（≥32 字节），未配置/强度不足启动 fail-fast；compose 与 `.env.example` 同样不落任何默认口令。
@@ -349,3 +349,5 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 已完成：用户体系与鉴权、内容模块、互动模块、社交模块（含 WebSocket 实时推送）、管理后台、自适应验证码，以及对标 WordPress/Halo 的 P0 补缺（版本历史、自动保存、定时发布、回收站、全文搜索、归档、评论审核 + 邮件通知、SEO 三件套、站点设置中心、附件库）。
 
 后续候选（P1）：文章 slug 固定链接、密码保护/私密文章、友情链接、自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、附件对象物理清理、首登强制改密标记（需前后端字段契约）。
+
+鉴权体系演进（方向已定，跟踪见 GitHub issue）：① 已完成——权限按 token `sub` 实时读库装配（`DatabaseRoleJwtAuthenticationConverter`），角色变更即时生效，提拔 ADMIN 已放开走 API（`PUT /admin/users/{id}/role`，变更即吊销目标全部 token）；② 双 token——短 TTL access token + HttpOnly refresh Cookie + rotation，缩小 token 泄露滥用窗口；③ 事件驱动失效——角色变更投递事件供多实例/网关消费；④ ②③ 落地后，鉴权可切回 claims 模式（`SecurityConfig` 一行），实时读库降级为刷新时的角色来源。

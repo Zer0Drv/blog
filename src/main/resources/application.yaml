@@ -9,15 +9,8 @@ spring:
       # 否则超限请求被 multipart 解析器先拒，拿不到业务错误码
       max-file-size: 5MB
       max-request-size: 5MB
-  security:
-    oauth2:
-      resourceserver:
-        jwt:
-          # 本项目 JWT 的角色放在自定义声明 roles 中（值形如 ROLE_ADMIN）。
-          # 默认的 JwtGrantedAuthoritiesConverter 只读 scope/scp 声明，且默认前缀是 SCOPE_，
-          # 因此必须显式指定声明名并把前缀置空，否则 hasRole('ADMIN')/hasAuthority 会一律 403。
-          authorities-claim-name: roles
-          authority-prefix: ""
+  # 说明：资源服务器权限不再由 authorities-claim-name/authority-prefix 属性驱动，
+  # 而由 DatabaseRoleJwtAuthenticationConverter 按 token sub 实时读库装配（角色变更即时生效）
 
 mybatis-plus:
   global-config:

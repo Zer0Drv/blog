@@ -42,4 +42,39 @@ class AdminAccessIntegrationTests extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("200"))
                 .andExpect(jsonPath("$.data").exists());
     }
+
+    /**
+     * 回归：库内直改提拔为 ADMIN 后，旧 token（roles 声明仍 ROLE_USER）立即获得访问权，
+     * 不再误返 403——权限由 DatabaseRoleJwtAuthenticationConverter 按 sub 实时读库装配
+     */
+    @Test
+    void staleTokenAfterPromotionToAdminReturns200() throws Exception {
+        String username = unique("it_admin_promote_");
+        long userId = seedUser(username, "待提拔", "USER");
+        String staleBearer = bearerOf(username);
+
+        jdbcTemplate.update("UPDATE `user` SET role = 'ADMIN' WHERE id = ?", userId);
+
+        mockMvc.perform(get("/admin/stats/overview")
+                        .header(HttpHeaders.AUTHORIZATION, staleBearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("200"));
+    }
+
+    /**
+     * 回归的反向：库内直改降级后，旧 token（roles 声明仍 ROLE_ADMIN）立即失效，
+     * 不得凭过期声明继续放行
+     */
+    @Test
+    void staleTokenAfterDemotionFromAdminReturns403() throws Exception {
+        String username = unique("it_admin_demote_");
+        long userId = seedUser(username, "待降级", "ADMIN");
+        String staleBearer = bearerOf(username);
+
+        jdbcTemplate.update("UPDATE `user` SET role = 'USER' WHERE id = ?", userId);
+
+        mockMvc.perform(get("/admin/stats/overview")
+                        .header(HttpHeaders.AUTHORIZATION, staleBearer))
+                .andExpect(status().isForbidden());
+    }
 }
