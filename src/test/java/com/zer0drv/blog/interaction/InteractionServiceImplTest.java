@@ -17,7 +17,7 @@ import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
 import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.interaction.service.impl.InteractionServiceImpl;
-import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,7 +34,6 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -92,8 +91,7 @@ class InteractionServiceImplTest {
         interactionService.likeArticle(10L, jwtOf(2L));
 
         verify(articleLikeMapper).insert(any(ArticleLike.class));
-        verify(notificationService).notify(eq(1L), eq(NotificationType.ARTICLE_LIKE),
-                eq(2L), eq(10L), isNull(), eq("hello"), eq(true));
+        verify(notificationService).notify(NotificationIntent.articleLike(1L, 2L, 10L, "hello"));
     }
 
     @Test
@@ -104,7 +102,7 @@ class InteractionServiceImplTest {
         interactionService.likeArticle(10L, jwtOf(2L));
 
         verify(articleLikeMapper, never()).insert(any(ArticleLike.class));
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any(), eq(true));
+        verify(notificationService, never()).notify(any());
     }
 
     @Test
@@ -116,7 +114,7 @@ class InteractionServiceImplTest {
         // 唯一索引兜底：不抛异常、不重复发通知
         interactionService.likeArticle(10L, jwtOf(2L));
 
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any(), eq(true));
+        verify(notificationService, never()).notify(any());
     }
 
     @Test
@@ -182,8 +180,7 @@ class InteractionServiceImplTest {
         verify(commentLikeMapper).insert(any(CommentLike.class));
         // like_count 原子自增
         verify(commentMapper).update(isNull(), any());
-        verify(notificationService).notify(eq(1L), eq(NotificationType.COMMENT_LIKE),
-                eq(2L), eq(10L), eq(100L), eq("nice"), eq(true));
+        verify(notificationService).notify(NotificationIntent.commentLike(1L, 2L, 10L, 100L, "nice"));
     }
 
     @Test
@@ -196,7 +193,7 @@ class InteractionServiceImplTest {
 
         verify(commentLikeMapper, never()).insert(any(CommentLike.class));
         verify(commentMapper, never()).update(any(), any());
-        verify(notificationService, never()).notify(any(), any(), any(), any(), any(), any(), eq(true));
+        verify(notificationService, never()).notify(any());
     }
 
     @Test

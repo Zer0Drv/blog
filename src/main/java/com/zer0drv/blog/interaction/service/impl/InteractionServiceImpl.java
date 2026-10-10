@@ -20,7 +20,7 @@ import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
 import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.interaction.service.InteractionService;
-import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DuplicateKeyException;
@@ -66,8 +66,8 @@ public class InteractionServiceImpl implements InteractionService {
         }
         if (inserted) {
             // M4 通知触发：首次点赞通知作者（防重：取消再赞不重复发；失败不影响主业务）
-            notificationService.notify(article.authorId(), NotificationType.ARTICLE_LIKE,
-                    userId, articleId, null, article.title(), true);
+            notificationService.notify(NotificationIntent.articleLike(
+                    article.authorId(), userId, articleId, article.title()));
         }
     }
 
@@ -136,8 +136,8 @@ public class InteractionServiceImpl implements InteractionService {
         // 通知评论作者（首次点赞才触发；自己给自己不发、失败不回滚主业务均由 notify 兜底）
         String summary = Objects.nonNull(comment.getContent()) && comment.getContent().length() > 50
                 ? comment.getContent().substring(0, 50) : comment.getContent();
-        notificationService.notify(comment.getUserId(), NotificationType.COMMENT_LIKE, userId,
-                comment.getArticleId(), commentId, summary, true);
+        notificationService.notify(NotificationIntent.commentLike(
+                comment.getUserId(), userId, comment.getArticleId(), commentId, summary));
     }
 
     @Override

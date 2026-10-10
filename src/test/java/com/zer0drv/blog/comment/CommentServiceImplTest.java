@@ -12,7 +12,7 @@ import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.common.sensitive.SensitiveWordChecker;
 import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.site.service.SiteConfigService;
-import com.zer0drv.blog.social.enums.NotificationType;
+import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationService;
 import com.zer0drv.blog.user.service.UserService;
 import io.github.linpeilie.Converter;
@@ -40,10 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -144,8 +141,7 @@ class CommentServiceImplTest {
         verify(commentService).save(captor.capture());
         assertEquals(CommentStatus.FOLDED.name(), captor.getValue().getStatus());
         // 命中敏感词：不触发任何通知
-        verify(notificationService, never()).notify(anyLong(), any(), anyLong(),
-                any(), any(), any(), eq(false));
+        verify(notificationService, never()).notify(any());
     }
 
     @Test
@@ -165,8 +161,7 @@ class CommentServiceImplTest {
         assertEquals(0L, saved.getParentId());
         assertEquals(2L, saved.getUserId());
         // 主评论 → 文章作者收 COMMENT_REPLY（不做 dedupe）
-        verify(notificationService).notify(eq(1L), eq(NotificationType.COMMENT_REPLY),
-                eq(2L), eq(10L), isNull(), eq("great article"), eq(false));
+        verify(notificationService).notify(NotificationIntent.commentReply(1L, 2L, 10L, null, "great article"));
     }
 
     @Test
@@ -224,11 +219,9 @@ class CommentServiceImplTest {
         Comment saved = captor.getValue();
         assertEquals(5L, saved.getParentId());
         assertEquals(8L, saved.getReplyToUserId());
-        // root 作者即被 @ 人：只发 MENTION，不重复发 COMMENT_REPLY
-        verify(notificationService).notify(eq(8L), eq(NotificationType.MENTION),
-                eq(2L), eq(10L), isNull(), eq("reply to root author"), eq(false));
-        verify(notificationService, never()).notify(anyLong(), eq(NotificationType.COMMENT_REPLY),
-                anyLong(), any(), any(), any(), eq(false));
+        // root 作者即被 @ 人：只发 MENTION，不重复发 COMMENT_REPLY（全程仅这一次通知）
+        verify(notificationService).notify(NotificationIntent.mention(8L, 2L, 10L, null, "reply to root author"));
+        verify(notificationService, times(1)).notify(any());
     }
 
     @Test
@@ -250,8 +243,7 @@ class CommentServiceImplTest {
                 () -> commentService.create(dto, jwtOf(2L)));
         assertEquals(StatusCode.PARAM_INVALID.getCode(), ex.getCode());
         verify(commentService, never()).save(any());
-        verify(notificationService, never()).notify(anyLong(), any(), anyLong(),
-                any(), any(), any(), eq(false));
+        verify(notificationService, never()).notify(any());
     }
 
     @Test
@@ -272,11 +264,9 @@ class CommentServiceImplTest {
         verify(commentService).save(captor.capture());
         assertEquals(5L, captor.getValue().getParentId());
         assertEquals(null, captor.getValue().getReplyToUserId());
-        // replyToUserId 为空 → root 作者收 COMMENT_REPLY，无 MENTION
-        verify(notificationService).notify(eq(8L), eq(NotificationType.COMMENT_REPLY),
-                eq(2L), eq(10L), isNull(), eq("plain reply"), eq(false));
-        verify(notificationService, never()).notify(anyLong(), eq(NotificationType.MENTION),
-                anyLong(), any(), any(), any(), eq(false));
+        // replyToUserId 为空 → root 作者收 COMMENT_REPLY，无 MENTION（全程仅这一次通知）
+        verify(notificationService).notify(NotificationIntent.commentReply(8L, 2L, 10L, null, "plain reply"));
+        verify(notificationService, times(1)).notify(any());
     }
 
     @Test
@@ -329,8 +319,7 @@ class CommentServiceImplTest {
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentService).save(captor.capture());
         assertEquals(CommentStatus.PENDING.name(), captor.getValue().getStatus());
-        verify(notificationService, never()).notify(anyLong(), any(), anyLong(),
-                any(), any(), any(), eq(false));
+        verify(notificationService, never()).notify(any());
     }
 
     @Test
@@ -346,8 +335,7 @@ class CommentServiceImplTest {
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentService).save(captor.capture());
         assertEquals(CommentStatus.FOLDED.name(), captor.getValue().getStatus());
-        verify(notificationService, never()).notify(anyLong(), any(), anyLong(),
-                any(), any(), any(), eq(false));
+        verify(notificationService, never()).notify(any());
     }
 
     @Test
@@ -365,8 +353,7 @@ class CommentServiceImplTest {
         ArgumentCaptor<Comment> captor = ArgumentCaptor.forClass(Comment.class);
         verify(commentService).save(captor.capture());
         assertEquals(CommentStatus.NORMAL.name(), captor.getValue().getStatus());
-        verify(notificationService).notify(eq(1L), eq(NotificationType.COMMENT_REPLY),
-                eq(2L), eq(10L), isNull(), eq("great article"), eq(false));
+        verify(notificationService).notify(NotificationIntent.commentReply(1L, 2L, 10L, null, "great article"));
     }
 
     @Test
