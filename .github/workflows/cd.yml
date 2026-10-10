@@ -62,7 +62,9 @@ jobs:
     environment: production
     defaults:
       run:
-        shell: bash
+        # shell: bash 会解析到 C:\Windows\System32\bash.exe（WSL），不认 Windows 路径；
+        # 必须显式指定 Git Bash 完整路径
+        shell: 'D:\KimiData\daimon-bundle\runtime\git\bin\bash.exe --noprofile --norc -eo pipefail {0}'
         working-directory: 'E:\dev\zer0drv\blog'
     steps:
       - name: 拉取新镜像并更新后端容器
