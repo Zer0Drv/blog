@@ -4,6 +4,7 @@ import com.zer0drv.blog.comment.dto.CommentCreateDTO;
 import com.zer0drv.blog.comment.service.CommentCreateResult;
 import com.zer0drv.blog.comment.service.CommentService;
 import com.zer0drv.blog.comment.vo.CommentVO;
+import com.zer0drv.blog.common.captcha.CaptchaGuard;
 import com.zer0drv.blog.common.captcha.CaptchaService;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.Result;
@@ -31,7 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class CommentController {
 
     private final CommentService commentService;
-    private final CaptchaService captchaService;
+    private final CaptchaGuard captchaGuard;
 
     /**
      * 主评论分页（公开）。sort：time_desc(默认) / time_asc / hot；
@@ -67,8 +68,7 @@ public class CommentController {
     public Result<Long> create(@AuthenticationPrincipal Jwt jwt, @RequestBody @Valid CommentCreateDTO dto) {
         // 业务执行前校验图形验证码（未达阈值直接放行），评论按当前用户 ID 计数
         String userId = String.valueOf(JwtSubjects.userIdOf(jwt));
-        captchaService.verify(CaptchaService.SCENE_COMMENT, userId, dto.getCaptchaId(), dto.getCaptchaCode());
-        captchaService.recordAttempt(CaptchaService.SCENE_COMMENT, userId);
+        captchaGuard.verifyAndRecord(CaptchaService.SCENE_COMMENT, userId, dto.getCaptchaId(), dto.getCaptchaCode());
         CommentCreateResult created = commentService.create(dto, jwt);
         // 线上契约不变：data 仍是评论 id；仅按落库状态覆盖 message（前端按 message 提示）
         Result<Long> result = Result.ok(created.id());

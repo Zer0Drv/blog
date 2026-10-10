@@ -11,6 +11,7 @@ import com.zer0drv.blog.auth.oauth2.OAuthCodeStore;
 import com.zer0drv.blog.auth.service.AuthCookieService;
 import com.zer0drv.blog.auth.service.AuthService;
 import com.zer0drv.blog.auth.service.EmailCodeService;
+import com.zer0drv.blog.common.captcha.CaptchaGuard;
 import com.zer0drv.blog.common.captcha.CaptchaService;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.Result;
@@ -46,7 +47,7 @@ public class AuthController {
     private final AuthService authService;
     private final EmailCodeService emailCodeService;
     private final Converter converter;
-    private final CaptchaService captchaService;
+    private final CaptchaGuard captchaGuard;
     private final AuthCookieService authCookieService;
     private final OAuthCodeStore oAuthCodeStore;
 
@@ -57,8 +58,7 @@ public class AuthController {
     public Result<Void> sendEmailCode(@RequestBody @Valid EmailCodeDTO dto, HttpServletRequest request) {
         String ip = IpUtils.clientIp(request);
         // 业务执行前校验图形验证码（未达阈值直接放行），发送尝试按来源 IP 计数
-        captchaService.verify(CaptchaService.SCENE_EMAIL_CODE, ip, dto.getCaptchaId(), dto.getCaptchaCode());
-        captchaService.recordAttempt(CaptchaService.SCENE_EMAIL_CODE, ip);
+        captchaGuard.verifyAndRecord(CaptchaService.SCENE_EMAIL_CODE, ip, dto.getCaptchaId(), dto.getCaptchaCode());
         emailCodeService.sendCode(EmailCodeService.SCENE_REGISTER, dto.getEmail());
         return Result.ok();
     }
@@ -71,8 +71,7 @@ public class AuthController {
                                                 HttpServletRequest request, HttpServletResponse response) {
         String ip = IpUtils.clientIp(request);
         // 业务执行前校验图形验证码（未达阈值直接放行），注册尝试按来源 IP 计数
-        captchaService.verify(CaptchaService.SCENE_REGISTER, ip, dto.getCaptchaId(), dto.getCaptchaCode());
-        captchaService.recordAttempt(CaptchaService.SCENE_REGISTER, ip);
+        captchaGuard.verifyAndRecord(CaptchaService.SCENE_REGISTER, ip, dto.getCaptchaId(), dto.getCaptchaCode());
         Map<String, String> tokens = authService.register(dto);
         // blog-ui#13 契约第 1 条：注册成功统一下发 HttpOnly Cookie（响应体 access_token 过渡期保留）
         authCookieService.writeTokenCookie(response, tokens.get("access_token"));
@@ -88,26 +87,12 @@ public class AuthController {
         String ip = IpUtils.clientIp(request);
         // #4 兜底：IP 维度之外按用户名维度独立计数，伪造 XFF / 轮换代理 IP 无法绕过
         String userKey = LOGIN_USER_KEY_PREFIX + dto.getUsername();
-        boolean captchaNeeded = captchaService.isRequired(CaptchaService.SCENE_LOGIN, ip)
-                || captchaService.isRequired(CaptchaService.SCENE_LOGIN, userKey);
-        try {
-            // 任一维度达阈值即强制校验图形验证码
-            if (captchaNeeded) {
-                captchaService.verifyForced(CaptchaService.SCENE_LOGIN, dto.getCaptchaId(), dto.getCaptchaCode());
-            }
-            Map<String, String> tokens = authService.userLogin(dto);
-            // 登录成功清零双维度计数
-            captchaService.clearAttempts(CaptchaService.SCENE_LOGIN, ip);
-            captchaService.clearAttempts(CaptchaService.SCENE_LOGIN, userKey);
-            // blog-ui#13 契约第 1 条：登录成功统一下发 HttpOnly Cookie（响应体 access_token 过渡期保留）
-            authCookieService.writeTokenCookie(response, tokens.get("access_token"));
-            return Result.ok(tokens);
-        } catch (BusinessException e) {
-            // 登录失败（含验证码缺失/错误）双维度计数
-            captchaService.recordAttempt(CaptchaService.SCENE_LOGIN, ip);
-            captchaService.recordAttempt(CaptchaService.SCENE_LOGIN, userKey);
-            throw e;
-        }
+        // 任一维度达阈值即强制校验图形验证码；登录成功清零双维度，失败（含验证码缺失/错误）双维度计数
+        Map<String, String> tokens = captchaGuard.guarded(CaptchaService.SCENE_LOGIN, ip, userKey,
+                dto.getCaptchaId(), dto.getCaptchaCode(), () -> authService.userLogin(dto));
+        // blog-ui#13 契约第 1 条：登录成功统一下发 HttpOnly Cookie（响应体 access_token 过渡期保留）
+        authCookieService.writeTokenCookie(response, tokens.get("access_token"));
+        return Result.ok(tokens);
     }
 
     /**
@@ -141,8 +126,7 @@ public class AuthController {
                                               HttpServletRequest request) {
         String ip = IpUtils.clientIp(request);
         // 业务执行前校验图形验证码（未达阈值直接放行），发码尝试按来源 IP 计数
-        captchaService.verify(CaptchaService.SCENE_PASSWORD_RESET, ip, dto.getCaptchaId(), dto.getCaptchaCode());
-        captchaService.recordAttempt(CaptchaService.SCENE_PASSWORD_RESET, ip);
+        captchaGuard.verifyAndRecord(CaptchaService.SCENE_PASSWORD_RESET, ip, dto.getCaptchaId(), dto.getCaptchaCode());
         authService.sendPasswordResetCode(dto.getEmail());
         Result<Void> result = Result.ok();
         result.setMessage("若该邮箱已注册，验证码已发送");
@@ -156,8 +140,7 @@ public class AuthController {
     public Result<Void> resetPassword(@RequestBody @Valid PasswordResetDTO dto, HttpServletRequest request) {
         String ip = IpUtils.clientIp(request);
         // 业务执行前校验图形验证码（未达阈值直接放行），重置尝试按来源 IP 计数
-        captchaService.verify(CaptchaService.SCENE_PASSWORD_RESET, ip, dto.getCaptchaId(), dto.getCaptchaCode());
-        captchaService.recordAttempt(CaptchaService.SCENE_PASSWORD_RESET, ip);
+        captchaGuard.verifyAndRecord(CaptchaService.SCENE_PASSWORD_RESET, ip, dto.getCaptchaId(), dto.getCaptchaCode());
         authService.resetPassword(dto);
         return Result.ok();
     }
