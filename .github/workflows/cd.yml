@@ -4,11 +4,20 @@ name: CD
 # 前置（一次性，由仓库管理员完成）：
 #   1) 仓库 Settings → Actions → Runners → New self-hosted runner，注册本机（label: self-hosted）
 #   2) GHCR 首推后，Packages 里把 ghcr.io/zer0drv/blog-backend 可见性设为 private（默认可推）
-# 触发：main 分支 push（ci.yml 的测试通过后才会走到这里；也可手动 workflow_dispatch）
-
+# 触发：main 分支 push 且改动涉及后端产物（路径过滤见下），或手动 workflow_dispatch；
+# 临时不想发布：commit message 里写 [skip cd] —— CI 照跑，CD 门控 job 直接跳过部署
 on:
   push:
     branches: [main]
+    paths:
+      - 'pom.xml'
+      - 'src/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker-compose*.yml'
+      - 'deploy/**'
+      - '.github/workflows/cd.yml'
+      - '.env.example'
   workflow_dispatch:
 
 concurrency:
@@ -16,8 +25,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ---- 门控：解析 [skip cd] 提交标记 ----
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.flag.outputs.deploy }}
+    steps:
+      - name: 检查 [skip cd] 标记
+        id: flag
+        env:
+          MSG: ${{ toJSON(github.event.head_commit.message) }}
+        run: |
+          if echo "$MSG" | grep -qi '\[skip cd\]'; then
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            echo "检测到 [skip cd]：本次提交跳过部署"
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # ---- 阶段 1：GitHub 托管 runner 构建并推送镜像 ----
   image:
+    needs: gate
+    if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
