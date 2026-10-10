@@ -1,7 +1,5 @@
 package com.zer0drv.blog.seo.service;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.rometools.rome.feed.synd.SyndContent;
 import com.rometools.rome.feed.synd.SyndContentImpl;
 import com.rometools.rome.feed.synd.SyndEntry;
@@ -10,9 +8,8 @@ import com.rometools.rome.feed.synd.SyndFeed;
 import com.rometools.rome.feed.synd.SyndFeedImpl;
 import com.rometools.rome.io.FeedException;
 import com.rometools.rome.io.SyndFeedOutput;
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.domain.ArticleVisibility;
-import com.zer0drv.blog.article.mapper.ArticleMapper;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticleFeedEntry;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.site.service.SiteConfigService;
@@ -34,7 +31,8 @@ import java.util.stream.Collectors;
 
 /**
  * SEO 三件套：RSS/Atom 订阅源（Rome 生成）+ sitemap.xml（手写 urlset）+ robots.txt。
- * 仅收录对外可见文章（谓词见 {@link ArticleVisibility}），定时中与草稿/下架文章不出现。
+ * 仅收录对外可见文章（经 article.api.ArticleCatalog，谓词出处 ArticleVisibility），
+ * 定时中与草稿/下架文章不出现。
  *
  * @author Yoruhaki
  */
@@ -54,7 +52,7 @@ public class SeoService {
 
     private static final DateTimeFormatter SITEMAP_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    private final ArticleMapper articleMapper;
+    private final ArticleCatalog articleCatalog;
     private final UserService userService;
     private final SiteConfigService siteConfigService;
 
@@ -77,17 +75,17 @@ public class SeoService {
      */
     public String buildSitemap() {
         String baseUrl = baseUrl();
-        List<Article> articles = pageVisibleArticles(SITEMAP_LIMIT);
+        List<ArticleFeedEntry> articles = articleCatalog.listVisibleLatest(SITEMAP_LIMIT);
         StringBuilder xml = new StringBuilder(4096);
         xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
         xml.append("  <url><loc>").append(escapeXml(baseUrl + "/")).append("</loc></url>\n");
-        for (Article article : articles) {
+        for (ArticleFeedEntry article : articles) {
             xml.append("  <url>\n");
-            xml.append("    <loc>").append(escapeXml(articleLink(baseUrl, article.getId()))).append("</loc>\n");
-            if (Objects.nonNull(article.getUpdateTime())) {
+            xml.append("    <loc>").append(escapeXml(articleLink(baseUrl, article.id()))).append("</loc>\n");
+            if (Objects.nonNull(article.updateTime())) {
                 xml.append("    <lastmod>")
-                        .append(article.getUpdateTime().format(SITEMAP_DATE_FORMATTER))
+                        .append(article.updateTime().format(SITEMAP_DATE_FORMATTER))
                         .append("</lastmod>\n");
             }
             xml.append("  </url>\n");
@@ -116,25 +114,25 @@ public class SeoService {
         feed.setLink(baseUrl);
         feed.setDescription(siteConfigService.getValue("site.description", ""));
 
-        List<Article> articles = pageVisibleArticles(FEED_LIMIT);
+        List<ArticleFeedEntry> articles = articleCatalog.listVisibleLatest(FEED_LIMIT);
         Map<Long, User> authors = authorsOf(articles);
         List<SyndEntry> entries = new ArrayList<>(articles.size());
-        for (Article article : articles) {
+        for (ArticleFeedEntry article : articles) {
             SyndEntry entry = new SyndEntryImpl();
-            entry.setTitle(article.getTitle());
-            String link = articleLink(baseUrl, article.getId());
+            entry.setTitle(article.title());
+            String link = articleLink(baseUrl, article.id());
             entry.setLink(link);
             entry.setUri(link);
-            User author = authors.get(article.getAuthorId());
+            User author = authors.get(article.authorId());
             if (Objects.nonNull(author)) {
                 entry.setAuthor(author.getNickname());
             }
-            if (Objects.nonNull(article.getPublishTime())) {
-                entry.setPublishedDate(toDate(article.getPublishTime()));
+            if (Objects.nonNull(article.publishTime())) {
+                entry.setPublishedDate(toDate(article.publishTime()));
             }
             SyndContent description = new SyndContentImpl();
             description.setType("text");
-            description.setValue(article.getSummary());
+            description.setValue(article.summary());
             entry.setDescription(description);
             entries.add(entry);
         }
@@ -147,20 +145,10 @@ public class SeoService {
     }
 
     /**
-     * 可见文章分页查询（publish_time 倒序；MP 逻辑删除自动拼 deleted=0）
-     */
-    private List<Article> pageVisibleArticles(int limit) {
-        Page<Article> page = articleMapper.selectPage(new Page<>(1, limit),
-                ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class))
-                        .orderByDesc(Article::getPublishTime));
-        return page.getRecords();
-    }
-
-    /**
      * 批量取作者（id -> User），用于 entry author 昵称
      */
-    private Map<Long, User> authorsOf(List<Article> articles) {
-        List<Long> authorIds = articles.stream().map(Article::getAuthorId).distinct().toList();
+    private Map<Long, User> authorsOf(List<ArticleFeedEntry> articles) {
+        List<Long> authorIds = articles.stream().map(ArticleFeedEntry::authorId).distinct().toList();
         if (authorIds.isEmpty()) {
             return Map.of();
         }

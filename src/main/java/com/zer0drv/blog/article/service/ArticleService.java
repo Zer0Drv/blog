@@ -1,6 +1,5 @@
 package com.zer0drv.blog.article.service;
 
-import com.baomidou.mybatisplus.spring.service.IService;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.dto.ArticleSaveDTO;
 import com.zer0drv.blog.article.dto.ArticleStatusDTO;
@@ -19,9 +18,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * 文章域作者 / 管理员用例接口（issue #24 第二步起不再 extends IService，
+ * MP CRUD 收回模块内部；跨模块只读走 article.api.ArticleCatalog）。
+ *
  * @author Yoruhaki
  */
-public interface ArticleService extends IService<Article> {
+public interface ArticleService {
 
     /**
      * 已发布文章分页列表（按发布时间倒序，支持关键字 / 标签 / 分类过滤）

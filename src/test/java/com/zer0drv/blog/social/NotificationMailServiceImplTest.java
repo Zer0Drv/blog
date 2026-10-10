@@ -1,7 +1,7 @@
 package com.zer0drv.blog.social;
 
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.mapper.ArticleMapper;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.site.service.SiteConfigService;
 import com.zer0drv.blog.social.enums.NotificationType;
 import com.zer0drv.blog.social.service.impl.NotificationMailServiceImpl;
@@ -16,6 +16,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
+
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,7 +42,7 @@ class NotificationMailServiceImplTest {
     @Mock
     private UserService userService;
     @Mock
-    private ArticleMapper articleMapper;
+    private ArticleCatalog articleCatalog;
     @Mock
     private ObjectProvider<JavaMailSender> mailSenderProvider;
     @Mock
@@ -55,7 +57,7 @@ class NotificationMailServiceImplTest {
     @BeforeEach
     void setUp() {
         mailService = new NotificationMailServiceImpl(
-                userService, articleMapper, mailSenderProvider, siteConfigServiceProvider);
+                userService, articleCatalog, mailSenderProvider, siteConfigServiceProvider);
     }
 
     private static User user(long id, String email, Short emailNotifyEnabled) {
@@ -125,10 +127,7 @@ class NotificationMailServiceImplTest {
         when(siteConfigServiceProvider.getIfAvailable()).thenReturn(siteConfigService);
         when(siteConfigService.getValue("site.name", "Blog")).thenReturn("我的站");
         when(siteConfigService.getValue("site.base_url", "http://localhost:5173")).thenReturn("https://blog.example.com");
-        Article article = new Article();
-        article.setId(10L);
-        article.setTitle("标题文");
-        when(articleMapper.selectById(10L)).thenReturn(article);
+        when(articleCatalog.findRef(10L)).thenReturn(Optional.of(new ArticleRef(10L, 1L, "标题文")));
 
         mailService.sendCommentMailAsync(9L, NotificationType.COMMENT_REPLY, "评论人甲", 10L, "写得好");
 
@@ -149,7 +148,7 @@ class NotificationMailServiceImplTest {
         when(userService.getById(9L)).thenReturn(user(9L, "a@example.com", null));
         when(mailSenderProvider.getIfAvailable()).thenReturn(mailSender);
         lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(null);
-        when(articleMapper.selectById(10L)).thenReturn(null);
+        when(articleCatalog.findRef(10L)).thenReturn(Optional.empty());
 
         mailService.sendCommentMailAsync(9L, NotificationType.MENTION, null, 10L, "摘要");
 
@@ -164,7 +163,7 @@ class NotificationMailServiceImplTest {
         when(userService.getById(9L)).thenReturn(user(9L, "a@example.com", (short) 1));
         when(mailSenderProvider.getIfAvailable()).thenReturn(mailSender);
         lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(null);
-        when(articleMapper.selectById(10L)).thenReturn(null);
+        when(articleCatalog.findRef(10L)).thenReturn(Optional.empty());
         doThrow(new RuntimeException("smtp down")).when(mailSender).send(any(SimpleMailMessage.class));
 
         // 邮件失败不抛出、不回滚主业务
