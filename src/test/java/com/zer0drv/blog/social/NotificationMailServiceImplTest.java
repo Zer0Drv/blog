@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
@@ -140,6 +141,30 @@ class NotificationMailServiceImplTest {
         assertTrue(message.getText().contains("标题文"));
         assertTrue(message.getText().contains("写得好"));
         assertTrue(message.getText().contains("https://blog.example.com/article/10"));
+    }
+
+    @Test
+    void send_articleForceDeleted_usesTakedownCopyWithoutDetailLink() {
+        // 违规强删：类型映射到「文章已被删除」文案；文章已物理删除（articleId=null、summary 即标题），
+        // 文案不得拼详情跳转，也不回查 ArticleCatalog
+        when(userService.getById(9L)).thenReturn(user(9L, "a@example.com", (short) 1));
+        when(mailSenderProvider.getIfAvailable()).thenReturn(mailSender);
+        when(siteConfigServiceProvider.getIfAvailable()).thenReturn(siteConfigService);
+        when(siteConfigService.getValue("site.name", "Blog")).thenReturn("我的站");
+        when(siteConfigService.getValue("site.base_url", "http://localhost:5173")).thenReturn("https://blog.example.com");
+
+        mailService.sendCommentMailAsync(9L, NotificationType.ARTICLE_FORCE_DELETED, "管理员乙", null, "违规标题文");
+
+        ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
+        verify(mailSender).send(captor.capture());
+        SimpleMailMessage message = captor.getValue();
+        assertEquals("【我的站】你的文章已被删除", message.getSubject());
+        assertTrue(message.getText().contains("《违规标题文》"));
+        assertTrue(message.getText().contains("已被管理员删除"));
+        assertTrue(message.getText().contains("https://blog.example.com"));
+        // 文章已不存在：不得出现详情链接与 article/null
+        assertFalse(message.getText().contains("/article/"), message.getText());
+        verify(articleCatalog, never()).findRef(any());
     }
 
     @Test

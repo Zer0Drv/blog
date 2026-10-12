@@ -29,6 +29,8 @@ class NotificationIntentTest {
         assertFalse(NotificationIntent.commentReply(1L, 2L, 10L, 100L, "s").dedupe());
         assertFalse(NotificationIntent.mention(1L, 2L, 10L, 100L, "s").dedupe());
         assertFalse(NotificationIntent.privateMessage(1L, 2L, "s").dedupe());
+        // 违规强删：每次代删都必发，作者需要感知每一篇被删
+        assertFalse(NotificationIntent.articleForceDeleted(1L, 2L, "t").dedupe());
     }
 
     @Test
@@ -65,6 +67,15 @@ class NotificationIntentTest {
         assertEquals("hello", pm.summary());
         assertNull(pm.articleId());
         assertNull(pm.commentId());
+
+        // 违规强删：summary 携带被删文章标题；articleId / commentId 恒为 null（行已物理删除）
+        NotificationIntent forceDeleted = NotificationIntent.articleForceDeleted(7L, 9L, "被删标题");
+        assertEquals(NotificationType.ARTICLE_FORCE_DELETED, forceDeleted.type());
+        assertEquals(7L, forceDeleted.recipientId());
+        assertEquals(9L, forceDeleted.actorId());
+        assertEquals("被删标题", forceDeleted.summary());
+        assertNull(forceDeleted.articleId());
+        assertNull(forceDeleted.commentId());
     }
 
     @Test

@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -64,7 +65,6 @@ class ArticleCascadeIntegrationTests extends IntegrationTestSupport {
         String liker = unique("it_casc_liker_");
         long likerId = seedUser(liker, "点赞人", "USER");
         long articleId = seedArticle(authorId, unique("级联文章"), "PUBLISHED");
-
         // article 自有：article_tag + article_version
         long tagId = seedTag(unique("级联标签"));
         jdbcTemplate.update("INSERT INTO article_tag (article_id, tag_id) VALUES (?,?)", articleId, tagId);
@@ -97,6 +97,8 @@ class ArticleCascadeIntegrationTests extends IntegrationTestSupport {
         assertRowCount("article_favorite", "article_id = " + articleId);
         // 作者即操作者：autosave 只清一份
         Mockito.verify(stringRedisTemplate).delete("blog:autosave:" + articleId + ":" + authorId);
+        // 作者自删：不通知（违规强删通知只针对 admin 代删）
+        assertRowCount("notification", "user_id = " + authorId + " AND type = 'ARTICLE_FORCE_DELETED'");
     }
 
     @Test
@@ -119,6 +121,34 @@ class ArticleCascadeIntegrationTests extends IntegrationTestSupport {
         // admin 代删他人文章：作者与操作者的 autosave 双键都清
         Mockito.verify(stringRedisTemplate).delete("blog:autosave:" + articleId + ":" + authorId);
         Mockito.verify(stringRedisTemplate).delete("blog:autosave:" + articleId + ":" + adminId);
+    }
+
+    @Test
+    void adminForceDeleteInsertsForceDeletedNotificationForAuthor() throws Exception {
+        String author = unique("it_casc_author3_");
+        long authorId = seedUser(author, "级联作者", "AUTHOR");
+        String admin = unique("it_casc_admin3_");
+        long adminId = seedUser(admin, "管理员", "ADMIN");
+        String title = unique("被代删文章");
+        long articleId = seedArticle(authorId, title, "PUBLISHED");
+
+        mockMvc.perform(delete("/articles/{id}/force", articleId)
+                        .header(HttpHeaders.AUTHORIZATION, bearerOf(admin)))
+                .andExpect(jsonPath("$.code").value("200"));
+
+        // 产品决策（违规强删通知作者）：通知落库——接收人=作者、触发人=操作管理员、
+        // summary=被删标题（文章行已物理删除，标题随通知留存）、article_id 为空、未读
+        var notifications = jdbcTemplate.queryForList(
+                "SELECT user_id, actor_id, type, summary, article_id, read_flag FROM notification"
+                        + " WHERE user_id = ? AND type = 'ARTICLE_FORCE_DELETED'",
+                authorId);
+        assertEquals(1, notifications.size(), "admin 代删应恰好落一条 ARTICLE_FORCE_DELETED 通知");
+        var row = notifications.getFirst();
+        assertEquals(authorId, ((Number) row.get("USER_ID")).longValue());
+        assertEquals(adminId, ((Number) row.get("ACTOR_ID")).longValue());
+        assertEquals(title, row.get("SUMMARY"));
+        assertNull(row.get("ARTICLE_ID"), "文章已物理删除，通知不得再引用 article_id");
+        assertEquals(0, ((Number) row.get("READ_FLAG")).intValue());
     }
 
     private long seedComment(long articleId, long userId, String content, int deleted) {

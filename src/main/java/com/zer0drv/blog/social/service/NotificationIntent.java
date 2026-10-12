@@ -66,4 +66,13 @@ public record NotificationIntent(Long recipientId, NotificationType type, Long a
     public static NotificationIntent privateMessage(Long to, Long actor, String summary) {
         return new NotificationIntent(to, NotificationType.PRIVATE_MESSAGE, actor, null, null, summary, false);
     }
+
+    /**
+     * 文章被管理员彻底删除通知（违规强删，summary 为被删文章标题；dedupe=false：
+     * 每次代删都必发，作者需要感知每一篇被删）。articleId 恒为 null——
+     * 文章行已物理删除，前端渲染不得再拼接详情跳转
+     */
+    public static NotificationIntent articleForceDeleted(Long to, Long actor, String title) {
+        return new NotificationIntent(to, NotificationType.ARTICLE_FORCE_DELETED, actor, null, null, title, false);
+    }
 }

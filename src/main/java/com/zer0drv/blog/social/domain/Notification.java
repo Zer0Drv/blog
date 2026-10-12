@@ -30,7 +30,8 @@ public class Notification {
     private Long userId;
 
     /**
-     * 类型：COMMENT_REPLY / MENTION / ARTICLE_LIKE / FOLLOW / PRIVATE_MESSAGE / SYSTEM
+     * 类型：COMMENT_REPLY / MENTION / ARTICLE_LIKE / COMMENT_LIKE / FOLLOW / PRIVATE_MESSAGE /
+     * ARTICLE_FORCE_DELETED / SYSTEM
      */
     @TableField(value = "type")
     private String type;

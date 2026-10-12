@@ -142,8 +142,10 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
         } catch (Exception e) {
             log.error("通知投递失败：intent={}", intent, e);
         }
-        // 邮件通道：P0 §2.2 评论邮件通知，仅评论回复/@ 两类触发（@Async 异步发送，全部失败自兜底）
-        if (intent.type() == NotificationType.COMMENT_REPLY || intent.type() == NotificationType.MENTION) {
+        // 邮件通道：P0 §2.2 评论邮件通知（评论回复/@）+ 违规强删告知作者。
+        // articleId 为 null 时（文章已物理删除）由 mail service 按类型选择文案，不拼详情链接
+        if (intent.type() == NotificationType.COMMENT_REPLY || intent.type() == NotificationType.MENTION
+                || intent.type() == NotificationType.ARTICLE_FORCE_DELETED) {
             try {
                 String actorNickname = null;
                 if (Objects.nonNull(intent.actorId())) {

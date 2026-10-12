@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.api.ArticleCascade;
+import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
@@ -16,6 +17,7 @@ import com.zer0drv.blog.article.mapper.ArticleMapper;
 import com.zer0drv.blog.article.mapper.ArticleTagMapper;
 import com.zer0drv.blog.article.mapper.ArticleVersionMapper;
 import com.zer0drv.blog.article.service.impl.ArticleServiceImpl;
+import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.category.mapper.CategoryMapper;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
@@ -56,6 +58,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -106,6 +109,8 @@ class ArticleServiceImplTest {
     private ArticleCascade commentCascade;
     @Mock
     private ArticleCascade interactionCascade;
+    @Mock
+    private ArticleNotificationPort articleNotificationPort;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -132,7 +137,7 @@ class ArticleServiceImplTest {
                 articleTagMapper, tagMapper, categoryMapper, userService, converter,
                 commentMapper, articleLikeMapper, articleFavoriteMapper,
                 articleVersionMapper, stringRedisTemplate, objectMapper,
-                List.of(commentCascade, interactionCascade)));
+                List.of(commentCascade, interactionCascade), articleNotificationPort));
         ReflectionTestUtils.setField(articleService, "baseMapper", articleMapper);
         ReflectionTestUtils.setField(articleService, "fulltextEnabled", false);
     }
@@ -441,6 +446,35 @@ class ArticleServiceImplTest {
     }
 
     @Test
+    void assemble_fillsVisibleFlagFromVisibilityPredicate() {
+        // 三态：已发布到点 = 可见；已下架 = 不可见；定时中（PUBLISHED 但 publish_time 在未来）= 不可见。
+        // 可见性谓词唯一出处 ArticleVisibility，装配层只转发不另算
+        Article published = draftArticle(1L, 7L);
+        published.setStatus(ArticleStatus.PUBLISHED.name());
+        published.setPublishTime(LocalDateTime.now().minusMinutes(1));
+        Article offline = draftArticle(2L, 7L);
+        offline.setStatus(ArticleStatus.OFFLINE.name());
+        offline.setPublishTime(LocalDateTime.now().minusDays(1));
+        Article scheduled = draftArticle(3L, 7L);
+        scheduled.setStatus(ArticleStatus.PUBLISHED.name());
+        scheduled.setPublishTime(LocalDateTime.now().plusHours(1));
+        when(converter.convert(any(Article.class), eq(ArticleListVO.class))).thenAnswer(invocation -> {
+            ArticleListVO vo = new ArticleListVO();
+            vo.setId(invocation.getArgument(0, Article.class).getId());
+            return vo;
+        });
+        when(articleTagMapper.selectList(any())).thenReturn(List.of());
+        when(userService.listByIds(any())).thenReturn(List.of());
+
+        List<ArticleListVO> vos = articleService.assemble(List.of(published, offline, scheduled));
+
+        assertEquals(List.of(1L, 2L, 3L), vos.stream().map(ArticleListVO::getId).toList());
+        assertTrue(vos.get(0).getVisible(), "已发布到点应可见");
+        assertFalse(vos.get(1).getVisible(), "已下架应不可见（收藏夹置灰依据）");
+        assertFalse(vos.get(2).getVisible(), "定时中应不可见（收藏夹置灰依据）");
+    }
+
+    @Test
     void forceDelete_cascadesPhysicalDeletesAndClearsAutosave() {
         Article trashed = draftArticle(10L, 1L);
         when(articleMapper.selectAnyById(10L)).thenReturn(trashed);
@@ -469,6 +503,28 @@ class ArticleServiceImplTest {
         verify(stringRedisTemplate).delete("blog:autosave:10:2");
         verify(commentCascade).purgeByArticleId(10L);
         verify(interactionCascade).purgeByArticleId(10L);
+    }
+
+    @Test
+    void forceDelete_adminOperator_notifiesAuthorWithTitle() {
+        // 产品决策（违规强删通知作者）：admin 代删（operator ≠ author）→ 通知作者，参数为作者 id / 操作者 id / 被删标题
+        Article trashed = draftArticle(10L, 1L);
+        when(articleMapper.selectAnyById(10L)).thenReturn(trashed);
+
+        articleService.forceDelete(10L, jwtOf(2L, "ROLE_" + UserRole.ADMIN.name()));
+
+        verify(articleNotificationPort).notifyAuthorForceDeleted(1L, 2L, "旧标题");
+    }
+
+    @Test
+    void forceDelete_authorSelf_noNotification() {
+        // 作者自删：不通知（通知只针对代删场景）
+        Article trashed = draftArticle(10L, 1L);
+        when(articleMapper.selectAnyById(10L)).thenReturn(trashed);
+
+        articleService.forceDelete(10L, jwtOf(1L));
+
+        verify(articleNotificationPort, never()).notifyAuthorForceDeleted(any(), any(), any());
     }
 
     @Test

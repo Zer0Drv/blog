@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.zer0drv.blog.article.api.ArticleCascade;
+import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
@@ -149,6 +150,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final List<ArticleCascade> articleCascades;
+    private final ArticleNotificationPort articleNotificationPort;
 
     /**
      * 全文搜索开关（P0）：true 走 ngram FULLTEXT（仅 MySQL）；false 走 LIKE 兜底（H2 测试环境）
@@ -328,6 +330,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         Long operatorId = JwtSubjects.userIdOf(jwt);
         if (!operatorId.equals(article.getAuthorId())) {
             deleteAutosave(id, operatorId);
+            // 产品决策（违规强删通知作者）：admin 代删时通知作者「文章已被删除」；作者自删不通知。
+            // 放在事务内级联之后；通知失败不回滚删除——端口实现内部三通道（落库/WS/邮件）独立兜底
+            articleNotificationPort.notifyAuthorForceDeleted(article.getAuthorId(), operatorId, article.getTitle());
         }
     }
 
@@ -869,7 +874,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     /**
-     * 为 VO 填充关联信息（作者 / 分类名 / 标签）。vos 与 articles 需按下标一一对应。
+     * 为 VO 填充关联信息（作者 / 分类名 / 标签）与可见性标记。vos 与 articles 需按下标一一对应。
      */
     private void fillAssociations(List<? extends ArticleListVO> vos, List<Article> articles) {
         List<Long> articleIds = articles.stream().map(Article::getId).toList();
@@ -885,6 +890,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         for (int i = 0; i < articles.size(); i++) {
             Article article = articles.get(i);
             ArticleListVO vo = vos.get(i);
+            // 可见性标记：谓词单一出处 ArticleVisibility，所有走装配的列表/详情统一在此填充。
+            // 公开列表恒 true（无副作用）；收藏夹（listByIdsPreserveOrder 不过滤可见性）里
+            // 已下架 / 定时中的条目为 false，前端据此置灰
+            vo.setVisible(ArticleVisibility.isVisible(article));
             vo.setCategoryName(Objects.nonNull(article.getCategoryId())
                     ? categoryNameMap.get(article.getCategoryId()) : null);
             vo.setTags(tagsMap.getOrDefault(article.getId(), List.of()));
