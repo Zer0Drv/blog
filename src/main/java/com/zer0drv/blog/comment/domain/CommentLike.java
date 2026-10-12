@@ -1,4 +1,4 @@
-package com.zer0drv.blog.interaction.domain;
+package com.zer0drv.blog.comment.domain;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;

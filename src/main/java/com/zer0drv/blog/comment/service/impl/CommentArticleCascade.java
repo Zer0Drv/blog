@@ -2,9 +2,9 @@ package com.zer0drv.blog.comment.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.zer0drv.blog.article.api.ArticleCascade;
+import com.zer0drv.blog.comment.domain.CommentLike;
+import com.zer0drv.blog.comment.mapper.CommentLikeMapper;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
-import com.zer0drv.blog.interaction.domain.CommentLike;
-import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
