@@ -2,8 +2,7 @@ package com.zer0drv.blog.tag.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
-import com.zer0drv.blog.article.domain.ArticleTag;
-import com.zer0drv.blog.article.mapper.ArticleTagMapper;
+import com.zer0drv.blog.article.api.ArticleTagMaintenance;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.tag.domain.Tag;
@@ -26,7 +25,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements TagService {
 
-    private final ArticleTagMapper articleTagMapper;
+    private final ArticleTagMaintenance articleTagMaintenance;
     private final Converter converter;
 
     @Override
@@ -60,8 +59,8 @@ public class TagServiceImpl extends ServiceImpl<TagMapper, Tag> implements TagSe
     public void delete(Long id) {
         requireTag(id);
         removeById(id);
-        // 清理文章-标签关联（关联表无逻辑删除字段，物理删除）
-        articleTagMapper.delete(Wrappers.lambdaQuery(ArticleTag.class).eq(ArticleTag::getTagId, id));
+        // 清理文章-标签关联（关联表归 article 模块，经 article.api 端口物理删除）
+        articleTagMaintenance.unlinkTag(id);
     }
 
     private Tag requireTag(Long id) {

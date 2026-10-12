@@ -7,7 +7,6 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.zer0drv.blog.admin.service.impl.AdminArticleServiceImpl;
 import com.zer0drv.blog.admin.service.impl.AdminStatsServiceImpl;
 import com.zer0drv.blog.category.service.impl.CategoryServiceImpl;
-import com.zer0drv.blog.tag.service.impl.TagServiceImpl;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
@@ -39,10 +38,8 @@ class ArticleBoundaryArchTest {
             AdminStatsServiceImpl.class,
             // PR #28 残留：delete 分类前引用计数需覆盖任意状态文章
             CategoryServiceImpl.class,
-            // 本步（④）新发现，不在 PR #28/#29 清单内：delete 标签时清理 article_tag 关联行。
-            // 与 CategoryServiceImpl.delete 同类问题，建议后续以 ArticleCascade 式 SPI
-            // 或 ArticleCatalog 方法收口，收口后从此清单删除
-            TagServiceImpl.class,
+            // issue #34 第四步已收口：delete 标签清理 article_tag 改走 article.api.ArticleTagMaintenance，
+            // TagServiceImpl 退出本清单
     };
 
     /**
