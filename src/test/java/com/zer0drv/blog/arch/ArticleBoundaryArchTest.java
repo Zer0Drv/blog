@@ -75,6 +75,33 @@ class ArticleBoundaryArchTest {
                     .allowEmptyShould(true);
 
     /**
+     * api 纯度（issue #34）：{@code comment.api} 与 article.api 同款约束——
+     * 跨模块窄契约、零 MyBatis-Plus 类型，外模块单测 mock 接口即可。
+     */
+    @ArchTest
+    static final ArchRule comment_api_stays_free_of_mybatis_plus =
+            noClasses()
+                    .that().resideInAPackage("..comment.api..")
+                    .should().dependOnClassesThat()
+                    .resideInAnyPackage("com.baomidou.mybatisplus..")
+                    .as("comment.api 是跨模块窄契约，不得依赖 MyBatis-Plus 类型")
+                    .allowEmptyShould(true);
+
+    /**
+     * 评论数据归属红线（issue #34 第一/二步）：interaction 模块读写评论数据
+     * （comment / comment_like，含 like_count 计数）唯一入口是 {@code comment.api}
+     * 契约包，不得直注 comment 的 Mapper / domain / service.impl。
+     */
+    @ArchTest
+    static final ArchRule interaction_does_not_touch_comment_internals =
+            noClasses()
+                    .that().resideInAPackage("..interaction..")
+                    .should().dependOnClassesThat()
+                    .resideInAnyPackage("..comment.mapper..", "..comment.domain..", "..comment.service.impl..")
+                    .as("interaction 访问评论数据唯一入口是 comment.api 契约包")
+                    .allowEmptyShould(true);
+
+    /**
      * 全局兜底：Controller 不直连任何模块的 Mapper，持久化访问一律走 service/api 层。
      * 当前零违例、零豁免；留着它挡住"顺手在 Controller 里注入 Mapper"的未来退化。
      */

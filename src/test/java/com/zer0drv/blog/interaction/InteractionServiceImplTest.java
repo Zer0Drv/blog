@@ -4,11 +4,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.api.ArticleCatalog;
 import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.article.vo.ArticleListVO;
-import com.zer0drv.blog.comment.domain.Comment;
-import com.zer0drv.blog.comment.domain.CommentLike;
-import com.zer0drv.blog.comment.enums.CommentStatus;
-import com.zer0drv.blog.comment.mapper.CommentLikeMapper;
-import com.zer0drv.blog.comment.mapper.CommentMapper;
+import com.zer0drv.blog.comment.api.CommentLikePort;
+import com.zer0drv.blog.comment.api.CommentRef;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
@@ -30,20 +27,23 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 点赞/取消点赞纯单测：幂等静默、首次点赞发通知、可见性拒绝、计数扣减。
+ * 点赞/取消点赞纯单测：幂等静默、首次点赞发通知、可见性拒绝。
  * 文章可见性判定已收口到 article.api.ArticleCatalog（requireVisible 抛 ARTICLE_NOT_EXIST），
- * 「草稿 / 定时中 / 不存在为何不可见」的谓词细节由 ArticleCatalogImplTest 边界测试覆盖，此处不叠加。
+ * 评论数据访问已收口到 comment.api.CommentLikePort（issue #34 第一步）——
+ * 「仅 NORMAL 可点赞 / like_count 原子 ±1 / 删到关联才扣减」的口径细节由
+ * CommentLikePortImplTest 覆盖，此处只验证编排与通知。
  *
  * @author Yoruhaki
  */
@@ -55,9 +55,7 @@ class InteractionServiceImplTest {
     @Mock
     private ArticleFavoriteMapper articleFavoriteMapper;
     @Mock
-    private CommentLikeMapper commentLikeMapper;
-    @Mock
-    private CommentMapper commentMapper;
+    private CommentLikePort commentLikePort;
     @Mock
     private ArticleCatalog articleCatalog;
     @Mock
@@ -70,15 +68,6 @@ class InteractionServiceImplTest {
         return new Jwt("tk", Instant.now(), Instant.now().plusSeconds(3600),
                 Map.of("alg", "HS256"),
                 Map.of("sub", String.valueOf(userId), "roles", List.of("ROLE_USER")));
-    }
-
-    private static Comment normalComment(long id, long userId, long articleId) {
-        Comment comment = new Comment();
-        comment.setId(id);
-        comment.setUserId(userId);
-        comment.setArticleId(articleId);
-        comment.setStatus(CommentStatus.NORMAL.name());
-        return comment;
     }
 
     // ---------- 文章点赞 ----------
@@ -169,87 +158,72 @@ class InteractionServiceImplTest {
     // ---------- 评论点赞 ----------
 
     @Test
-    void likeComment_firstTime_incrementsCountAndNotifies() {
-        Comment comment = normalComment(100L, 1L, 10L);
-        comment.setContent("nice");
-        when(commentMapper.selectById(100L)).thenReturn(comment);
-        when(commentLikeMapper.selectCount(any())).thenReturn(0L);
+    void likeComment_firstTime_addsLikeAndNotifies() {
+        when(commentLikePort.findLikeable(100L))
+                .thenReturn(Optional.of(new CommentRef(100L, 1L, 10L, "nice")));
+        when(commentLikePort.addLike(100L, 2L)).thenReturn(true);
 
         interactionService.likeComment(100L, jwtOf(2L));
 
-        verify(commentLikeMapper).insert(any(CommentLike.class));
-        // like_count 原子自增
-        verify(commentMapper).update(isNull(), any());
+        verify(commentLikePort).addLike(100L, 2L);
         verify(notificationService).notify(NotificationIntent.commentLike(1L, 2L, 10L, 100L, "nice"));
     }
 
     @Test
-    void likeComment_repeat_isSilentWithoutCountChange() {
-        Comment comment = normalComment(100L, 1L, 10L);
-        when(commentMapper.selectById(100L)).thenReturn(comment);
-        when(commentLikeMapper.selectCount(any())).thenReturn(1L);
+    void likeComment_repeat_isSilentAndSkipsNotification() {
+        when(commentLikePort.findLikeable(100L))
+                .thenReturn(Optional.of(new CommentRef(100L, 1L, 10L, "nice")));
+        // 已赞过（或并发重复被唯一索引兜底）：端口返回 false
+        when(commentLikePort.addLike(100L, 2L)).thenReturn(false);
 
         interactionService.likeComment(100L, jwtOf(2L));
 
-        verify(commentLikeMapper, never()).insert(any(CommentLike.class));
-        verify(commentMapper, never()).update(any(), any());
         verify(notificationService, never()).notify(any());
     }
 
     @Test
     void likeComment_missingComment_rejected() {
-        when(commentMapper.selectById(100L)).thenReturn(null);
+        when(commentLikePort.findLikeable(100L)).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> interactionService.likeComment(100L, jwtOf(2L)));
         assertEquals(StatusCode.COMMENT_NOT_EXIST.getCode(), ex.getCode());
+        verify(commentLikePort, never()).addLike(anyLong(), anyLong());
     }
 
     @Test
-    void likeComment_foldedComment_rejected() {
-        // 仅 NORMAL 评论可点赞：FOLDED 评论对外不可见
-        Comment folded = normalComment(100L, 1L, 10L);
-        folded.setStatus(CommentStatus.FOLDED.name());
-        when(commentMapper.selectById(100L)).thenReturn(folded);
+    void likeComment_hiddenComment_rejected() {
+        // FOLDED / PENDING 评论对外不可见：端口查询侧即过滤，此处同样表现为「不存在」
+        when(commentLikePort.findLikeable(100L)).thenReturn(Optional.empty());
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> interactionService.likeComment(100L, jwtOf(2L)));
         assertEquals(StatusCode.COMMENT_NOT_EXIST.getCode(), ex.getCode());
-        verify(commentLikeMapper, never()).insert(any(CommentLike.class));
+        verify(commentLikePort, never()).addLike(anyLong(), anyLong());
+        verify(notificationService, never()).notify(any());
     }
 
     @Test
-    void likeComment_pendingComment_rejected() {
-        // 仅 NORMAL 评论可点赞：PENDING（待审核）评论对外不可见
-        Comment pending = normalComment(100L, 1L, 10L);
-        pending.setStatus(CommentStatus.PENDING.name());
-        when(commentMapper.selectById(100L)).thenReturn(pending);
+    void likeComment_longContent_notifiesWithFiftyCharSummary() {
+        String content = "x".repeat(60);
+        when(commentLikePort.findLikeable(100L))
+                .thenReturn(Optional.of(new CommentRef(100L, 1L, 10L, content)));
+        when(commentLikePort.addLike(100L, 2L)).thenReturn(true);
 
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> interactionService.likeComment(100L, jwtOf(2L)));
-        assertEquals(StatusCode.COMMENT_NOT_EXIST.getCode(), ex.getCode());
-        verify(commentLikeMapper, never()).insert(any(CommentLike.class));
+        interactionService.likeComment(100L, jwtOf(2L));
+
+        verify(notificationService).notify(
+                NotificationIntent.commentLike(1L, 2L, 10L, 100L, "x".repeat(50)));
     }
 
     // ---------- 取消点赞 ----------
 
     @Test
-    void unlikeComment_existingLike_decrementsCount() {
-        when(commentLikeMapper.delete(any())).thenReturn(1);
-
+    void unlikeComment_delegatesToPort() {
         interactionService.unlikeComment(100L, jwtOf(2L));
 
-        // 确实删到一条才扣减计数
-        verify(commentMapper).update(isNull(), any());
-    }
-
-    @Test
-    void unlikeComment_noLike_doesNotTouchCount() {
-        when(commentLikeMapper.delete(any())).thenReturn(0);
-
-        interactionService.unlikeComment(100L, jwtOf(2L));
-
-        verify(commentMapper, never()).update(any(), any());
+        // 删关联与「确实删到才扣计数」的语义均在端口实现内
+        verify(commentLikePort).removeLike(100L, 2L);
     }
 
     @Test
