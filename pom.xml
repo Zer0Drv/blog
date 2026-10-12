@@ -167,7 +167,7 @@
         <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-captcha</artifactId>
-            <version>5.8.47</version>
+            <version>5.8.48</version>
         </dependency>
 
         <!-- 富文本 XSS 清洗（blog-ui#9 后端部分）：文章 RICHTEXT 内容入库前 Safelist.relaxed() 白名单清洗 -->
