@@ -5,9 +5,7 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.zer0drv.blog.admin.service.impl.AdminArticleServiceImpl;
-import com.zer0drv.blog.admin.service.impl.AdminStatsServiceImpl;
 import com.zer0drv.blog.category.service.impl.CategoryServiceImpl;
-import com.zer0drv.blog.tag.service.impl.TagServiceImpl;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
@@ -35,20 +33,22 @@ class ArticleBoundaryArchTest {
     private static final Class<?>[] ARTICLE_INTERNALS_KNOWN_VIOLATORS = {
             // PR #28 残留：回收站 SQL、任意状态分页、标记写操作——管理端有权绕过可见性契约
             AdminArticleServiceImpl.class,
-            // PR #28 残留：统计口径（仅 status=PUBLISHED，无 publish_time 条件），与可见性谓词语义不符
-            AdminStatsServiceImpl.class,
+            // issue #34 第五步已收口：管理端统计改走 article.api.ArticleStatsPort 等各模块公共 API，
+            // AdminStatsServiceImpl 退出本清单
             // PR #28 残留：delete 分类前引用计数需覆盖任意状态文章
             CategoryServiceImpl.class,
-            // 本步（④）新发现，不在 PR #28/#29 清单内：delete 标签时清理 article_tag 关联行。
-            // 与 CategoryServiceImpl.delete 同类问题，建议后续以 ArticleCascade 式 SPI
-            // 或 ArticleCatalog 方法收口，收口后从此清单删除
-            TagServiceImpl.class,
+            // issue #34 第四步已收口：delete 标签清理 article_tag 改走 article.api.ArticleTagMaintenance，
+            // TagServiceImpl 退出本清单
     };
 
     /**
-     * 核心红线：article 域内部包（mapper / domain / service.impl）只允许被
+     * 核心红线：article 域内部包（mapper / domain / service.impl / enums）只允许被
      * {@code ..article..} 包内访问——域外唯一合法依赖是 {@code article.api} 契约包
      * （及约定俗成的 {@code article.vo} 视图投影）。
+     *
+     * <p>enums 于 issue #34 第六步纳入红线：跨模块契约枚举（ArticleStatus）已上移
+     * {@code article.api}，article.enums 只剩内部枚举（EditorType），扩展规则零新增豁免；
+     * 此后新的契约枚举必须直接落 {@code article.api}，否则即触发本红线。
      */
     @ArchTest
     static final ArchRule article_internals_only_accessible_within_article =
@@ -56,8 +56,9 @@ class ArticleBoundaryArchTest {
                     .that().resideOutsideOfPackage("..article..")
                     .and().doNotBelongToAnyOf(ARTICLE_INTERNALS_KNOWN_VIOLATORS)
                     .should().dependOnClassesThat()
-                    .resideInAnyPackage("..article.mapper..", "..article.domain..", "..article.service.impl..")
-                    .as("article 域内部包（mapper/domain/service.impl）只允许被 article 包内访问，"
+                    .resideInAnyPackage("..article.mapper..", "..article.domain..", "..article.service.impl..",
+                            "..article.enums..")
+                    .as("article 域内部包（mapper/domain/service.impl/enums）只允许被 article 包内访问，"
                             + "域外唯一契约是 article.api（豁免见 ARTICLE_INTERNALS_KNOWN_VIOLATORS）")
                     .allowEmptyShould(true);
 

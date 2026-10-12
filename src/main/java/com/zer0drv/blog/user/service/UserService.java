@@ -5,6 +5,9 @@ import com.zer0drv.blog.user.domain.User;
 import com.zer0drv.blog.user.dto.ProfileUpdateDTO;
 import com.zer0drv.blog.user.vo.UserVO;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -38,4 +41,25 @@ public interface UserService extends IService<User> {
      * @return 更新后的最新偏好
      */
     Map<String, Boolean> updatePreferences(Long userId, Map<String, Object> preferences);
+
+    /**
+     * 全站用户总数（管理端统计用，issue #34 第五步；逻辑删除由 MP 全局过滤）
+     */
+    long countAllUsers();
+
+    /**
+     * create_time 不早于 since 的用户数（管理端「今日新增用户」口径）
+     */
+    long countUsersCreatedSince(LocalDateTime since);
+
+    /**
+     * 最新注册用户投影（id 倒序，至多 limit 条；管理端统计用）
+     */
+    List<UserVO> listLatestUsers(int limit);
+
+    /**
+     * 按 id 集合批量查用户投影（管理端统计的用户名 / 昵称联查用）；
+     * ids 为空返回空表（不触库），查不到的 id 不出现在结果中
+     */
+    Map<Long, UserVO> mapUsersByIds(Collection<Long> ids);
 }

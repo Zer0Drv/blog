@@ -1,26 +1,19 @@
 package com.zer0drv.blog.admin.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.zer0drv.blog.admin.service.AdminStatsService;
 import com.zer0drv.blog.admin.vo.StatsOverviewVO;
 import com.zer0drv.blog.admin.vo.StatsRecentVO;
-import com.zer0drv.blog.article.domain.Article;
-import com.zer0drv.blog.article.enums.ArticleStatus;
-import com.zer0drv.blog.article.mapper.ArticleMapper;
-import com.zer0drv.blog.comment.domain.Comment;
-import com.zer0drv.blog.comment.enums.CommentStatus;
-import com.zer0drv.blog.comment.mapper.CommentMapper;
-import com.zer0drv.blog.interaction.domain.ArticleFavorite;
-import com.zer0drv.blog.interaction.domain.ArticleLike;
-import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
-import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
-import com.zer0drv.blog.social.domain.Follow;
-import com.zer0drv.blog.social.domain.Notification;
-import com.zer0drv.blog.social.mapper.FollowMapper;
-import com.zer0drv.blog.social.mapper.NotificationMapper;
-import com.zer0drv.blog.user.domain.User;
-import com.zer0drv.blog.user.mapper.UserMapper;
+import com.zer0drv.blog.article.api.ArticleCatalog;
+import com.zer0drv.blog.article.api.ArticlePublishedEntry;
+import com.zer0drv.blog.article.api.ArticleRef;
+import com.zer0drv.blog.article.api.ArticleStatsPort;
+import com.zer0drv.blog.comment.api.CommentStatsEntry;
+import com.zer0drv.blog.comment.api.CommentStatsPort;
+import com.zer0drv.blog.interaction.service.InteractionService;
+import com.zer0drv.blog.social.service.FollowService;
+import com.zer0drv.blog.social.service.NotificationService;
+import com.zer0drv.blog.user.service.UserService;
+import com.zer0drv.blog.user.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -30,10 +23,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
+ * 管理端全站统计（issue #34 第五步）：所有统计查询经拥有数据的模块的
+ * 公共 API（article.api / comment.api 端口与各模块公共 Service 窄方法）完成，
+ * 不再直注任何业务模块 Mapper；统计 SQL 与各口径（含「仅 status=PUBLISHED、
+ * 无 publish_time 条件」的管理端语义）逐字节等价于收口前的内联实现。
+ *
  * @author Yoruhaki
  */
 @Service
@@ -50,38 +47,29 @@ public class AdminStatsServiceImpl implements AdminStatsService {
      */
     private static final int RECENT_SIZE = 5;
 
-    private static final short UNREAD = 0;
-
-    private final UserMapper userMapper;
-    private final ArticleMapper articleMapper;
-    private final CommentMapper commentMapper;
-    private final ArticleLikeMapper articleLikeMapper;
-    private final ArticleFavoriteMapper articleFavoriteMapper;
-    private final FollowMapper followMapper;
-    private final NotificationMapper notificationMapper;
+    private final UserService userService;
+    private final ArticleStatsPort articleStatsPort;
+    private final ArticleCatalog articleCatalog;
+    private final CommentStatsPort commentStatsPort;
+    private final InteractionService interactionService;
+    private final FollowService followService;
+    private final NotificationService notificationService;
 
     @Override
     public StatsOverviewVO overview() {
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         StatsOverviewVO vo = new StatsOverviewVO();
-        vo.setUserCount(userMapper.selectCount(Wrappers.lambdaQuery(User.class)));
-        vo.setArticleCount(articleMapper.selectCount(Wrappers.lambdaQuery(Article.class)
-                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())));
-        vo.setCommentCount(commentMapper.selectCount(Wrappers.lambdaQuery(Comment.class)
-                .eq(Comment::getStatus, CommentStatus.NORMAL.name())));
-        vo.setTotalViews(totalViews());
-        vo.setLikeCount(articleLikeMapper.selectCount(Wrappers.lambdaQuery(ArticleLike.class)));
-        vo.setFavoriteCount(articleFavoriteMapper.selectCount(Wrappers.lambdaQuery(ArticleFavorite.class)));
-        vo.setFollowCount(followMapper.selectCount(Wrappers.lambdaQuery(Follow.class)));
-        vo.setTodayNewUsers(userMapper.selectCount(Wrappers.lambdaQuery(User.class)
-                .ge(User::getCreateTime, todayStart)));
-        vo.setTodayNewArticles(articleMapper.selectCount(Wrappers.lambdaQuery(Article.class)
-                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                .ge(Article::getCreateTime, todayStart)));
-        vo.setTodayNewComments(commentMapper.selectCount(Wrappers.lambdaQuery(Comment.class)
-                .ge(Comment::getCreateTime, todayStart)));
-        vo.setUnreadNotificationCount(notificationMapper.selectCount(Wrappers.lambdaQuery(Notification.class)
-                .eq(Notification::getReadFlag, UNREAD)));
+        vo.setUserCount(userService.countAllUsers());
+        vo.setArticleCount(articleStatsPort.countPublished());
+        vo.setCommentCount(commentStatsPort.countNormal());
+        vo.setTotalViews(articleStatsPort.totalViews());
+        vo.setLikeCount(interactionService.countArticleLikes());
+        vo.setFavoriteCount(interactionService.countArticleFavorites());
+        vo.setFollowCount(followService.countAllFollows());
+        vo.setTodayNewUsers(userService.countUsersCreatedSince(todayStart));
+        vo.setTodayNewArticles(articleStatsPort.countPublishedSince(todayStart));
+        vo.setTodayNewComments(commentStatsPort.countCreatedSince(todayStart));
+        vo.setUnreadNotificationCount(notificationService.countAllUnread());
         return vo;
     }
 
@@ -94,23 +82,8 @@ public class AdminStatsServiceImpl implements AdminStatsService {
         return vo;
     }
 
-    /**
-     * 全站文章总浏览量：SUM(view_count)，空表 / 全 NULL 兜底 0
-     */
-    private Long totalViews() {
-        List<Map<String, Object>> rows = articleMapper.selectMaps(new QueryWrapper<Article>()
-                .select("IFNULL(SUM(view_count), 0) AS totalViews"));
-        if (rows.isEmpty()) {
-            return 0L;
-        }
-        Object total = rows.getFirst().get("totalViews");
-        return Objects.nonNull(total) ? ((Number) total).longValue() : 0L;
-    }
-
     private List<StatsRecentVO.LatestUser> latestUsers() {
-        return userMapper.selectList(Wrappers.lambdaQuery(User.class)
-                        .orderByDesc(User::getId)
-                        .last("LIMIT " + RECENT_SIZE))
+        return userService.listLatestUsers(RECENT_SIZE)
                 .stream().map(user -> {
                     StatsRecentVO.LatestUser vo = new StatsRecentVO.LatestUser();
                     vo.setId(user.getId());
@@ -122,50 +95,43 @@ public class AdminStatsServiceImpl implements AdminStatsService {
     }
 
     private List<StatsRecentVO.LatestArticle> latestArticles() {
-        List<Article> articles = articleMapper.selectList(Wrappers.lambdaQuery(Article.class)
-                .eq(Article::getStatus, ArticleStatus.PUBLISHED.name())
-                .orderByDesc(Article::getPublishTime)
-                .last("LIMIT " + RECENT_SIZE));
+        List<ArticlePublishedEntry> articles = articleStatsPort.listPublishedLatest(RECENT_SIZE);
         if (articles.isEmpty()) {
             return List.of();
         }
-        Set<Long> authorIds = articles.stream().map(Article::getAuthorId).collect(Collectors.toSet());
-        Map<Long, User> authorMap = userMapper.selectByIds(authorIds).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
+        Set<Long> authorIds = articles.stream().map(ArticlePublishedEntry::authorId).collect(Collectors.toSet());
+        Map<Long, UserVO> authorMap = userService.mapUsersByIds(authorIds);
         return articles.stream().map(article -> {
             StatsRecentVO.LatestArticle vo = new StatsRecentVO.LatestArticle();
-            vo.setId(article.getId());
-            vo.setTitle(article.getTitle());
-            User author = authorMap.get(article.getAuthorId());
+            vo.setId(article.id());
+            vo.setTitle(article.title());
+            UserVO author = authorMap.get(article.authorId());
             vo.setAuthorNickname(Objects.nonNull(author) ? author.getNickname() : null);
-            vo.setPublishTime(article.getPublishTime());
+            vo.setPublishTime(article.publishTime());
             return vo;
         }).toList();
     }
 
     private List<StatsRecentVO.LatestComment> latestComments() {
-        List<Comment> comments = commentMapper.selectList(Wrappers.lambdaQuery(Comment.class)
-                .orderByDesc(Comment::getId)
-                .last("LIMIT " + RECENT_SIZE));
+        List<CommentStatsEntry> comments = commentStatsPort.listLatest(RECENT_SIZE);
         if (comments.isEmpty()) {
             return List.of();
         }
-        Set<Long> userIds = comments.stream().map(Comment::getUserId).collect(Collectors.toSet());
-        Map<Long, User> userMap = userMapper.selectByIds(userIds).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
-        Set<Long> articleIds = comments.stream().map(Comment::getArticleId).collect(Collectors.toSet());
-        Map<Long, String> articleTitleMap = articleMapper.selectByIds(articleIds).stream()
-                .collect(Collectors.toMap(Article::getId, Article::getTitle));
+        Set<Long> userIds = comments.stream().map(CommentStatsEntry::userId).collect(Collectors.toSet());
+        Map<Long, UserVO> userMap = userService.mapUsersByIds(userIds);
+        Set<Long> articleIds = comments.stream().map(CommentStatsEntry::articleId).collect(Collectors.toSet());
+        Map<Long, String> articleTitleMap = articleCatalog.listRefsByIds(articleIds).stream()
+                .collect(Collectors.toMap(ArticleRef::id, ArticleRef::title));
         return comments.stream().map(comment -> {
             StatsRecentVO.LatestComment vo = new StatsRecentVO.LatestComment();
-            vo.setId(comment.getId());
-            String content = comment.getContent();
+            vo.setId(comment.id());
+            String content = comment.content();
             vo.setContent(content.length() <= COMMENT_SUMMARY_MAX_LENGTH
                     ? content : content.substring(0, COMMENT_SUMMARY_MAX_LENGTH));
-            User user = userMap.get(comment.getUserId());
+            UserVO user = userMap.get(comment.userId());
             vo.setUsername(Objects.nonNull(user) ? user.getUsername() : null);
-            vo.setArticleTitle(articleTitleMap.get(comment.getArticleId()));
-            vo.setCreateTime(comment.getCreateTime());
+            vo.setArticleTitle(articleTitleMap.get(comment.articleId()));
+            vo.setCreateTime(comment.createTime());
             return vo;
         }).toList();
     }

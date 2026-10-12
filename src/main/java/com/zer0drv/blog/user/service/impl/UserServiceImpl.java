@@ -1,5 +1,6 @@
 package com.zer0drv.blog.user.service.impl;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
@@ -13,8 +14,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * @author Yoruhaki
@@ -74,6 +79,37 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException(StatusCode.USER_NOT_EXIST);
         }
         return user;
+    }
+
+    @Override
+    public long countAllUsers() {
+        return count(Wrappers.lambdaQuery(User.class));
+    }
+
+    @Override
+    public long countUsersCreatedSince(LocalDateTime since) {
+        return count(Wrappers.lambdaQuery(User.class)
+                .ge(User::getCreateTime, since));
+    }
+
+    @Override
+    public List<UserVO> listLatestUsers(int limit) {
+        return list(Wrappers.lambdaQuery(User.class)
+                        .orderByDesc(User::getId)
+                        .last("LIMIT " + limit))
+                .stream()
+                .map(user -> converter.convert(user, UserVO.class))
+                .toList();
+    }
+
+    @Override
+    public Map<Long, UserVO> mapUsersByIds(Collection<Long> ids) {
+        if (Objects.isNull(ids) || ids.isEmpty()) {
+            return Map.of();
+        }
+        return listByIds(ids).stream()
+                .map(user -> converter.convert(user, UserVO.class))
+                .collect(Collectors.toMap(UserVO::getId, Function.identity()));
     }
 
     /**

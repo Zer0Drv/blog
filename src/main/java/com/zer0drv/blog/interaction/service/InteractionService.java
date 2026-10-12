@@ -45,4 +45,14 @@ public interface InteractionService {
      * 我的收藏文章分页（按收藏时间倒序）
      */
     PageResult<ArticleListVO> pageMyFavorites(long page, long size, Jwt jwt);
+
+    /**
+     * 全站文章点赞总数（管理端统计用，issue #34 第五步）
+     */
+    long countArticleLikes();
+
+    /**
+     * 全站文章收藏总数（管理端统计用，issue #34 第五步）
+     */
+    long countArticleFavorites();
 }

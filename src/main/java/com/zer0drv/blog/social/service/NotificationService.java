@@ -46,4 +46,9 @@ public interface NotificationService extends IService<Notification> {
      * 落库、WS 推送、邮件三通道各自隔离兜底：任一通道失败仅 log.error 记录，不回滚主业务、不连坐其他通道。
      */
     void notify(NotificationIntent intent);
+
+    /**
+     * 全站未读通知总数（管理端统计口径，issue #34 第五步：read_flag=0，不分用户）
+     */
+    long countAllUnread();
 }
