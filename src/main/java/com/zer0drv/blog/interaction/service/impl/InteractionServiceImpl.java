@@ -1,24 +1,20 @@
 package com.zer0drv.blog.interaction.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.api.ArticleCatalog;
 import com.zer0drv.blog.article.api.ArticleRef;
 import com.zer0drv.blog.article.vo.ArticleListVO;
-import com.zer0drv.blog.comment.domain.Comment;
-import com.zer0drv.blog.comment.enums.CommentStatus;
-import com.zer0drv.blog.comment.mapper.CommentMapper;
+import com.zer0drv.blog.comment.api.CommentLikePort;
+import com.zer0drv.blog.comment.api.CommentRef;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.common.util.JwtSubjects;
 import com.zer0drv.blog.interaction.domain.ArticleFavorite;
 import com.zer0drv.blog.interaction.domain.ArticleLike;
-import com.zer0drv.blog.interaction.domain.CommentLike;
 import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
 import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
-import com.zer0drv.blog.interaction.mapper.CommentLikeMapper;
 import com.zer0drv.blog.interaction.service.InteractionService;
 import com.zer0drv.blog.social.service.NotificationIntent;
 import com.zer0drv.blog.social.service.NotificationService;
@@ -40,8 +36,7 @@ public class InteractionServiceImpl implements InteractionService {
 
     private final ArticleLikeMapper articleLikeMapper;
     private final ArticleFavoriteMapper articleFavoriteMapper;
-    private final CommentLikeMapper commentLikeMapper;
-    private final CommentMapper commentMapper;
+    private final CommentLikePort commentLikePort;
     private final ArticleCatalog articleCatalog;
     private final NotificationService notificationService;
 
@@ -110,47 +105,27 @@ public class InteractionServiceImpl implements InteractionService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void likeComment(Long commentId, Jwt jwt) {
-        Comment comment = commentMapper.selectById(commentId);
-        // 仅 NORMAL 评论可点赞：FOLDED/PENDING 评论对外不可见，视为「不存在」
-        if (Objects.isNull(comment) || !CommentStatus.NORMAL.name().equals(comment.getStatus())) {
-            throw new BusinessException(StatusCode.COMMENT_NOT_EXIST);
-        }
+        // 评论数据经 comment.api 端口访问：不存在 / FOLDED / PENDING 一律表现为「不存在」
+        CommentRef comment = commentLikePort.findLikeable(commentId)
+                .orElseThrow(() -> new BusinessException(StatusCode.COMMENT_NOT_EXIST));
         Long userId = JwtSubjects.userIdOf(jwt);
-        Long count = commentLikeMapper.selectCount(Wrappers.lambdaQuery(CommentLike.class)
-                .eq(CommentLike::getCommentId, commentId)
-                .eq(CommentLike::getUserId, userId));
-        if (count > 0) {
+        if (!commentLikePort.addLike(commentId, userId)) {
+            // 幂等（含并发重复点赞）：静默成功，不重复发通知
             return;
         }
-        try {
-            CommentLike like = new CommentLike();
-            like.setCommentId(commentId);
-            like.setUserId(userId);
-            commentLikeMapper.insert(like);
-        } catch (DuplicateKeyException _) {
-            // 并发重复点赞：唯一索引兜底，静默成功（不再累加计数）
-            return;
-        }
-        // 原子自增，防并发丢计数
-        commentMapper.update(null, likeCountWrapper(commentId, true));
         // 通知评论作者（首次点赞才触发；自己给自己不发、失败不回滚主业务均由 notify 兜底）
-        String summary = Objects.nonNull(comment.getContent()) && comment.getContent().length() > 50
-                ? comment.getContent().substring(0, 50) : comment.getContent();
+        String summary = Objects.nonNull(comment.content()) && comment.content().length() > 50
+                ? comment.content().substring(0, 50) : comment.content();
         notificationService.notify(NotificationIntent.commentLike(
-                comment.getUserId(), userId, comment.getArticleId(), commentId, summary));
+                comment.authorId(), userId, comment.articleId(), commentId, summary));
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void unlikeComment(Long commentId, Jwt jwt) {
         Long userId = JwtSubjects.userIdOf(jwt);
-        int deleted = commentLikeMapper.delete(Wrappers.lambdaQuery(CommentLike.class)
-                .eq(CommentLike::getCommentId, commentId)
-                .eq(CommentLike::getUserId, userId));
-        if (deleted > 0) {
-            // 仅在确实取消了一条点赞时扣减计数（gt 0 兜底防负数）
-            commentMapper.update(null, likeCountWrapper(commentId, false));
-        }
+        // 确实取消了一条点赞才扣减计数，语义在端口实现内
+        commentLikePort.removeLike(commentId, userId);
     }
 
     @Override
@@ -163,20 +138,6 @@ public class InteractionServiceImpl implements InteractionService {
         List<Long> articleIds = result.getRecords().stream().map(ArticleFavorite::getArticleId).toList();
         // 收藏夹语义：已删除的文章被过滤，已下架 / 回草稿的仍保留；保持收藏顺序
         return PageResult.of(articleCatalog.listByIdsPreserveOrder(articleIds), result.getTotal(), page, size);
-    }
-
-    /**
-     * like_count 原子 +/-1 的 UpdateWrapper（一条 update 语句，不先查后写）
-     */
-    private LambdaUpdateWrapper<Comment> likeCountWrapper(Long commentId, boolean increment) {
-        LambdaUpdateWrapper<Comment> wrapper = Wrappers.lambdaUpdate(Comment.class)
-                .eq(Comment::getId, commentId);
-        if (increment) {
-            wrapper.setSql("like_count = like_count + 1");
-        } else {
-            wrapper.setSql("like_count = like_count - 1").gt(Comment::getLikeCount, 0);
-        }
-        return wrapper;
     }
 
     private boolean isLiked(Long articleId, Long userId) {

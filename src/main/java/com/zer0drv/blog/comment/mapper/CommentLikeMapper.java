@@ -1,7 +1,7 @@
-package com.zer0drv.blog.interaction.mapper;
+package com.zer0drv.blog.comment.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.zer0drv.blog.interaction.domain.CommentLike;
+import com.zer0drv.blog.comment.domain.CommentLike;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
