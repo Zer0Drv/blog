@@ -1,33 +1,23 @@
-name: 功能建议
-description: 提出一个新功能或改进建议
-title: "[模块] 建议简述"
-labels: ["enhancement"]
+name: ✨ 功能请求
+description: 提出一个新功能或改进
+title: "[Feat] "
+labels: [enhancement]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: 要解决的痛点
-      description: 当前使用中遇到的不便或缺失的能力
+      label: 要解决什么问题
+      description: 先谈用户场景与痛点，再谈方案
     validations:
       required: true
   - type: textarea
     id: solution
     attributes:
-      label: 期望的方案
-      description: 希望实现的效果，可附参考产品/截图
+      label: 提议方案
     validations:
       required: true
   - type: textarea
-    id: alternatives
+    id: impact
     attributes:
-      label: 替代方案
-      description: 考虑过的其他解决方式（可选）
-    validations:
-      required: false
-  - type: textarea
-    id: context
-    attributes:
-      label: 补充上下文
-      description: 使用场景、优先级期望等（可选）
-    validations:
-      required: false
+      label: 影响面
+      description: 涉及哪些模块 / API / 数据表？是否有行为变化或数据迁移？
