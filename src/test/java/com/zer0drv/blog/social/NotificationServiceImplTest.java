@@ -192,4 +192,16 @@ class NotificationServiceImplTest {
 
         verify(notificationMailService, never()).sendCommentMailAsync(any(), any(), any(), any(), any());
     }
+
+    @Test
+    void notify_articleForceDeleted_triggersMailWithoutArticleId() {
+        // 违规强删：dedupe=false 直接落库，邮件通道同步触发；articleId 为 null（行已物理删除），summary 即标题
+        doReturn(true).when(notificationService).save(any(Notification.class));
+
+        notificationService.notify(NotificationIntent.articleForceDeleted(1L, 2L, "被删标题"));
+
+        verify(notificationService, never()).count(any());
+        verify(notificationMailService).sendCommentMailAsync(eq(1L), eq(NotificationType.ARTICLE_FORCE_DELETED),
+                any(), eq(null), eq("被删标题"));
+    }
 }

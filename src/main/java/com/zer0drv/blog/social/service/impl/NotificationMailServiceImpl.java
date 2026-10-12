@@ -18,7 +18,9 @@ import org.springframework.stereotype.Service;
 import java.util.Objects;
 
 /**
- * 评论邮件通知实现（P0 §2.2）。@Async 异步发送；所有跳过/失败路径仅 log，不抛异常、不回滚主业务。
+ * 通知邮件实现：评论回复 / @ 提及（P0 §2.2）与文章被管理员彻底删除（违规强删）两类。
+ * 主题与文案按 NotificationType 映射；@Async 异步发送，所有跳过/失败路径仅 log，
+ * 不抛异常、不回滚主业务。
  *
  * @author Yoruhaki
  */
@@ -66,23 +68,34 @@ public class NotificationMailServiceImpl implements NotificationMailService {
             JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
             if (Objects.isNull(mailSender)) {
                 // dev 兜底：未配置 SMTP 时进日志，联调不受影响；生产必须配置 spring.mail.*
-                log.warn("【dev-email-fallback】type={} userId={} articleId={}（未配置 SMTP，评论通知邮件仅打印日志）",
+                log.warn("【dev-email-fallback】type={} userId={} articleId={}（未配置 SMTP，通知邮件仅打印日志）",
                         type, targetUserId, articleId);
                 return;
             }
-            String articleTitle = Objects.nonNull(articleId)
-                    ? articleCatalog.findRef(articleId).map(ArticleRef::title).orElse("") : "";
             String siteName = siteConfigValue("site.name", "Blog");
             String baseUrl = siteConfigValue("site.base_url", "http://localhost:5173");
-            String actor = Objects.isNull(actorNickname) || actorNickname.isBlank() ? "有用户" : actorNickname;
-            String action = type == NotificationType.MENTION ? "在评论中提到了你" : "回复了你的文章";
             SimpleMailMessage message = new SimpleMailMessage();
             message.setTo(email);
-            message.setSubject("【" + siteName + "】你的文章有新回复");
-            message.setText(actor + " " + action
-                    + (articleTitle.isBlank() ? "" : "《" + articleTitle + "》") + "：\n"
-                    + (Objects.isNull(summary) ? "" : summary) + "\n\n"
-                    + "查看详情：" + baseUrl + "/article/" + articleId);
+            if (type == NotificationType.ARTICLE_FORCE_DELETED) {
+                // 违规强删：文章行已物理删除（articleId 为 null，summary 即被删标题），不拼详情链接
+                message.setSubject("【" + siteName + "】你的文章已被删除");
+                message.setText("你的文章"
+                        + (Objects.isNull(summary) || summary.isBlank() ? "" : "《" + summary + "》")
+                        + "因违反社区规范，已被管理员删除。\n\n"
+                        + "如有疑问或认为属于误删，请联系站点管理员。\n\n"
+                        + siteName + "：" + baseUrl);
+            } else {
+                // 评论回复 / @ 提及
+                String articleTitle = Objects.nonNull(articleId)
+                        ? articleCatalog.findRef(articleId).map(ArticleRef::title).orElse("") : "";
+                String actor = Objects.isNull(actorNickname) || actorNickname.isBlank() ? "有用户" : actorNickname;
+                String action = type == NotificationType.MENTION ? "在评论中提到了你" : "回复了你的文章";
+                message.setSubject("【" + siteName + "】你的文章有新回复");
+                message.setText(actor + " " + action
+                        + (articleTitle.isBlank() ? "" : "《" + articleTitle + "》") + "：\n"
+                        + (Objects.isNull(summary) ? "" : summary) + "\n\n"
+                        + "查看详情：" + baseUrl + "/article/" + articleId);
+            }
             mailSender.send(message);
         } catch (Exception e) {
             // 邮件发送失败不回滚主业务

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.api.ArticleCascade;
+import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
@@ -108,6 +109,8 @@ class ArticleServiceImplTest {
     private ArticleCascade commentCascade;
     @Mock
     private ArticleCascade interactionCascade;
+    @Mock
+    private ArticleNotificationPort articleNotificationPort;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -134,7 +137,7 @@ class ArticleServiceImplTest {
                 articleTagMapper, tagMapper, categoryMapper, userService, converter,
                 commentMapper, articleLikeMapper, articleFavoriteMapper,
                 articleVersionMapper, stringRedisTemplate, objectMapper,
-                List.of(commentCascade, interactionCascade)));
+                List.of(commentCascade, interactionCascade), articleNotificationPort));
         ReflectionTestUtils.setField(articleService, "baseMapper", articleMapper);
         ReflectionTestUtils.setField(articleService, "fulltextEnabled", false);
     }
@@ -500,6 +503,28 @@ class ArticleServiceImplTest {
         verify(stringRedisTemplate).delete("blog:autosave:10:2");
         verify(commentCascade).purgeByArticleId(10L);
         verify(interactionCascade).purgeByArticleId(10L);
+    }
+
+    @Test
+    void forceDelete_adminOperator_notifiesAuthorWithTitle() {
+        // 产品决策（违规强删通知作者）：admin 代删（operator ≠ author）→ 通知作者，参数为作者 id / 操作者 id / 被删标题
+        Article trashed = draftArticle(10L, 1L);
+        when(articleMapper.selectAnyById(10L)).thenReturn(trashed);
+
+        articleService.forceDelete(10L, jwtOf(2L, "ROLE_" + UserRole.ADMIN.name()));
+
+        verify(articleNotificationPort).notifyAuthorForceDeleted(1L, 2L, "旧标题");
+    }
+
+    @Test
+    void forceDelete_authorSelf_noNotification() {
+        // 作者自删：不通知（通知只针对代删场景）
+        Article trashed = draftArticle(10L, 1L);
+        when(articleMapper.selectAnyById(10L)).thenReturn(trashed);
+
+        articleService.forceDelete(10L, jwtOf(1L));
+
+        verify(articleNotificationPort, never()).notifyAuthorForceDeleted(any(), any(), any());
     }
 
     @Test

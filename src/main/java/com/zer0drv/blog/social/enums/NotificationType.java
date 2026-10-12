@@ -40,6 +40,12 @@ public enum NotificationType {
     PRIVATE_MESSAGE,
 
     /**
+     * 文章被管理员彻底删除（违规强删）：operator ≠ author 时通知作者，
+     * summary 为被删文章标题，articleId 为空（行已物理删除，不可再跳转）
+     */
+    ARTICLE_FORCE_DELETED,
+
+    /**
      * 系统通知
      */
     SYSTEM;
