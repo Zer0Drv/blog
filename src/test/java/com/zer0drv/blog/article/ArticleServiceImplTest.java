@@ -16,6 +16,7 @@ import com.zer0drv.blog.article.mapper.ArticleMapper;
 import com.zer0drv.blog.article.mapper.ArticleTagMapper;
 import com.zer0drv.blog.article.mapper.ArticleVersionMapper;
 import com.zer0drv.blog.article.service.impl.ArticleServiceImpl;
+import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.category.mapper.CategoryMapper;
 import com.zer0drv.blog.comment.domain.Comment;
 import com.zer0drv.blog.comment.mapper.CommentMapper;
@@ -56,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -438,6 +440,35 @@ class ArticleServiceImplTest {
         // 作者恢复：回草稿
         articleService.restore(10L, jwtOf(1L));
         verify(articleMapper).restoreDeleted(10L);
+    }
+
+    @Test
+    void assemble_fillsVisibleFlagFromVisibilityPredicate() {
+        // 三态：已发布到点 = 可见；已下架 = 不可见；定时中（PUBLISHED 但 publish_time 在未来）= 不可见。
+        // 可见性谓词唯一出处 ArticleVisibility，装配层只转发不另算
+        Article published = draftArticle(1L, 7L);
+        published.setStatus(ArticleStatus.PUBLISHED.name());
+        published.setPublishTime(LocalDateTime.now().minusMinutes(1));
+        Article offline = draftArticle(2L, 7L);
+        offline.setStatus(ArticleStatus.OFFLINE.name());
+        offline.setPublishTime(LocalDateTime.now().minusDays(1));
+        Article scheduled = draftArticle(3L, 7L);
+        scheduled.setStatus(ArticleStatus.PUBLISHED.name());
+        scheduled.setPublishTime(LocalDateTime.now().plusHours(1));
+        when(converter.convert(any(Article.class), eq(ArticleListVO.class))).thenAnswer(invocation -> {
+            ArticleListVO vo = new ArticleListVO();
+            vo.setId(invocation.getArgument(0, Article.class).getId());
+            return vo;
+        });
+        when(articleTagMapper.selectList(any())).thenReturn(List.of());
+        when(userService.listByIds(any())).thenReturn(List.of());
+
+        List<ArticleListVO> vos = articleService.assemble(List.of(published, offline, scheduled));
+
+        assertEquals(List.of(1L, 2L, 3L), vos.stream().map(ArticleListVO::getId).toList());
+        assertTrue(vos.get(0).getVisible(), "已发布到点应可见");
+        assertFalse(vos.get(1).getVisible(), "已下架应不可见（收藏夹置灰依据）");
+        assertFalse(vos.get(2).getVisible(), "定时中应不可见（收藏夹置灰依据）");
     }
 
     @Test

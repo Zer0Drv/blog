@@ -869,7 +869,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     /**
-     * 为 VO 填充关联信息（作者 / 分类名 / 标签）。vos 与 articles 需按下标一一对应。
+     * 为 VO 填充关联信息（作者 / 分类名 / 标签）与可见性标记。vos 与 articles 需按下标一一对应。
      */
     private void fillAssociations(List<? extends ArticleListVO> vos, List<Article> articles) {
         List<Long> articleIds = articles.stream().map(Article::getId).toList();
@@ -885,6 +885,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         for (int i = 0; i < articles.size(); i++) {
             Article article = articles.get(i);
             ArticleListVO vo = vos.get(i);
+            // 可见性标记：谓词单一出处 ArticleVisibility，所有走装配的列表/详情统一在此填充。
+            // 公开列表恒 true（无副作用）；收藏夹（listByIdsPreserveOrder 不过滤可见性）里
+            // 已下架 / 定时中的条目为 false，前端据此置灰
+            vo.setVisible(ArticleVisibility.isVisible(article));
             vo.setCategoryName(Objects.nonNull(article.getCategoryId())
                     ? categoryNameMap.get(article.getCategoryId()) : null);
             vo.setTags(tagsMap.getOrDefault(article.getId(), List.of()));
