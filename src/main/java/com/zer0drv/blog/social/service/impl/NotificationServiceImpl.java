@@ -74,6 +74,12 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     }
 
     @Override
+    public long countAllUnread() {
+        return count(Wrappers.lambdaQuery(Notification.class)
+                .eq(Notification::getReadFlag, UNREAD));
+    }
+
+    @Override
     public void markRead(Long id, Jwt jwt) {
         Notification notification = getById(id);
         if (Objects.isNull(notification)) {

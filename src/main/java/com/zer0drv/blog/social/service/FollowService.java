@@ -49,4 +49,9 @@ public interface FollowService extends IService<Follow> {
      * 某用户的 PUBLISHED 文章分页（公开，publish_time 倒序）
      */
     PageResult<ArticleListVO> pageUserArticles(Long userId, long page, long size);
+
+    /**
+     * 全站关注关系总数（管理端统计用，issue #34 第五步）
+     */
+    long countAllFollows();
 }

@@ -5,7 +5,6 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.zer0drv.blog.admin.service.impl.AdminArticleServiceImpl;
-import com.zer0drv.blog.admin.service.impl.AdminStatsServiceImpl;
 import com.zer0drv.blog.category.service.impl.CategoryServiceImpl;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
@@ -34,8 +33,8 @@ class ArticleBoundaryArchTest {
     private static final Class<?>[] ARTICLE_INTERNALS_KNOWN_VIOLATORS = {
             // PR #28 残留：回收站 SQL、任意状态分页、标记写操作——管理端有权绕过可见性契约
             AdminArticleServiceImpl.class,
-            // PR #28 残留：统计口径（仅 status=PUBLISHED，无 publish_time 条件），与可见性谓词语义不符
-            AdminStatsServiceImpl.class,
+            // issue #34 第五步已收口：管理端统计改走 article.api.ArticleStatsPort 等各模块公共 API，
+            // AdminStatsServiceImpl 退出本清单
             // PR #28 残留：delete 分类前引用计数需覆盖任意状态文章
             CategoryServiceImpl.class,
             // issue #34 第四步已收口：delete 标签清理 article_tag 改走 article.api.ArticleTagMaintenance，

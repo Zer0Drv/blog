@@ -174,6 +174,11 @@ public class FollowServiceImpl extends ServiceImpl<FollowMapper, Follow> impleme
                 .stream().map(Follow::getFolloweeId).collect(Collectors.toSet());
     }
 
+    @Override
+    public long countAllFollows() {
+        return count(Wrappers.lambdaQuery(Follow.class));
+    }
+
     private boolean isFollowed(Long followerId, Long followeeId) {
         return count(Wrappers.lambdaQuery(Follow.class)
                 .eq(Follow::getFollowerId, followerId)

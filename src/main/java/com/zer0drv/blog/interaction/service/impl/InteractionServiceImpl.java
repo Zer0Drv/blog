@@ -140,6 +140,16 @@ public class InteractionServiceImpl implements InteractionService {
         return PageResult.of(articleCatalog.listByIdsPreserveOrder(articleIds), result.getTotal(), page, size);
     }
 
+    @Override
+    public long countArticleLikes() {
+        return articleLikeMapper.selectCount(Wrappers.lambdaQuery(ArticleLike.class));
+    }
+
+    @Override
+    public long countArticleFavorites() {
+        return articleFavoriteMapper.selectCount(Wrappers.lambdaQuery(ArticleFavorite.class));
+    }
+
     private boolean isLiked(Long articleId, Long userId) {
         return articleLikeMapper.selectCount(Wrappers.lambdaQuery(ArticleLike.class)
                 .eq(ArticleLike::getArticleId, articleId)
