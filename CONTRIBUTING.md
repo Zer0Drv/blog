@@ -16,5 +16,5 @@
    - 反例（历史遗留，不再出现）：纯英文摘要、`fix:` 后无摘要正文、scope 与模块名不一致
 7. **优先级管理**：Issue 必须打优先级 label——P0（线上故障/安全问题，立即处理）/ P1（本迭代应完成）/ P2（backlog 择机）；类型 label：bug / enhancement / refactor。
 8. **Hotfix 通道**：线上紧急问题允许加急——Issue 可先开后补（合并后 24h 内补登），分支命名 `hotfix/<scope>`，PR 标题带 `[hotfix]` 前缀优先评审；**CI 门禁与所有者审批不可跳过**。
-9. **发布与回滚**：完成一组有价值变更后在 main 打 semver tag（`vX.Y.Z`）；每次 CD 构建产物带 `sha-<8位>` 标签长期保留（后端镜像在 GHCR，前端 dist 归档 MinIO `releases/` 前缀）；回滚 = 手动运行 CD（workflow_dispatch）并填入目标 tag，见 cd.yml 头部说明。
+9. **发布与回滚**：完成一组有价值变更后在 main 打 semver tag（`vX.Y.Z`）并同步更新 `CHANGELOG.md`（Keep a Changelog 格式，Unreleased 段随 PR 累积）；每次 CD 构建产物带 `sha-<8位>` 标签长期保留（后端镜像在 GHCR，前端 dist 归档 MinIO `releases/` 前缀）；回滚 = 手动运行 CD（workflow_dispatch）并填入目标 tag，见 cd.yml 头部说明。
 10. **AI 协作者同样遵守本规范**——包括不直推 main、不跳过 Issue、不自行合并。

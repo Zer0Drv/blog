@@ -1,6 +1,7 @@
 # blog — 动态博客后端
 
 [![CI](https://github.com/Zer0Drv/blog/actions/workflows/ci.yml/badge.svg)](https://github.com/Zer0Drv/blog/actions/workflows/ci.yml)
+[![CD](https://github.com/Zer0Drv/blog/actions/workflows/cd.yml/badge.svg)](https://github.com/Zer0Drv/blog/actions/workflows/cd.yml)
 
 基于 Spring Boot 4 + MyBatis-Plus 的个人博客后端：内容管理、评论互动、关注/私信/通知社交体系、SEO 三件套与管理后台，单体应用、按业务模块分包（Spring Modulith 边界），模块间只经 `*/api/` 契约包通信、边界由 ArchUnit 红线测试固化（见「项目结构」）。前端仓库：[Zer0Drv/blog-ui](https://github.com/Zer0Drv/blog-ui)。需求基线见 [`docs/requirements-v1.md`](docs/requirements-v1.md)。
 
