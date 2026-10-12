@@ -165,7 +165,7 @@
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
-            <version>1.18.3</version>
+            <version>1.23.2</version>
         </dependency>
 
         <!-- RSS/Atom 订阅输出（P0 SEO 三件套：/rss.xml 与 /atom.xml 由 Rome 生成） -->
