@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Zer0Drv/blog/actions/workflows/ci.yml/badge.svg)](https://github.com/Zer0Drv/blog/actions/workflows/ci.yml)
 
-基于 Spring Boot 4 + MyBatis-Plus 的个人博客后端：内容管理、评论互动、关注/私信/通知社交体系、SEO 三件套与管理后台，单体应用、按业务模块分包（Spring Modulith 边界）。前端仓库：[Zer0Drv/blog-ui](https://github.com/Zer0Drv/blog-ui)。需求基线见 [`docs/requirements-v1.md`](docs/requirements-v1.md)。
+基于 Spring Boot 4 + MyBatis-Plus 的个人博客后端：内容管理、评论互动、关注/私信/通知社交体系、SEO 三件套与管理后台，单体应用、按业务模块分包（Spring Modulith 边界），模块间只经 `*/api/` 契约包通信、边界由 ArchUnit 红线测试固化（见「项目结构」）。前端仓库：[Zer0Drv/blog-ui](https://github.com/Zer0Drv/blog-ui)。需求基线见 [`docs/requirements-v1.md`](docs/requirements-v1.md)。
 
 ## 功能特性
 
@@ -10,7 +10,7 @@
 - 文章 CRUD：Markdown / 富文本双编辑器模式，草稿 / 发布 / 下架状态流转，置顶与推荐位
 - **版本历史**：每次保存自动快照（版本号递增），可查看任意版本并一键恢复（恢复也留痕）
 - **自动保存**：草稿自动保存到 Redis（TTL 2h），正式保存后自动清除
-- **定时发布**：`publishTime` 可选，公众可见性统一为 `status=PUBLISHED AND publish_time<=now`
+- **定时发布**：`publishTime` 可选，公众可见性谓词（`status=PUBLISHED AND publish_time<=now`）单一出处在 `article/domain/ArticleVisibility`——内存判定 / MyBatis-Plus Wrapper 拼接 / 原生 SQL 常量三种消费形态同源，`Clock` 注入支持固定时钟单测
 - **回收站**：文章/评论删除仅逻辑删，可恢复（回草稿）或物理删除（级联）
 - **全文搜索**：`content_text` 纯文本冗余 + ngram FULLTEXT；`blog.search.fulltext-enabled=false` 时降级三路 LIKE
 - **归档**：按月分组的文章归档；标签 / 树形分类完整管理
@@ -21,12 +21,12 @@
 - 评论两层楼中楼：时间正/倒序 + 热度排序、@ 提及、主评论内嵌前 3 条回复
 - **审核队列**：站点开关 `comment.review_required` 开启后新评论先落 PENDING，管理端 approve / reject
 - 文章点赞 / 收藏、评论点赞、浏览量统计、我的收藏列表
-- 敏感词过滤：评论命中则折叠进审核（接口正常返回、message 覆盖提示），私信命中直接拒绝
+- 敏感词过滤：评论命中则折叠进审核（接口正常返回、message 覆盖提示），私信命中直接拒绝；命中判定接口 `common/sensitive/SensitiveWordChecker` 下沉公共包（词库管理面由 admin 模块实现并 extends 该接口），评论等下游模块不再依赖 admin
 
 ### 社交
 - 关注 / 取关、粉丝与关注列表、用户主页、关注作者的文章 Feed
 - 一对一私信：会话列表、消息分页、已读回执
-- 通知中心：评论回复 / @提及 / 点赞 / 关注 / 私信五类通知，未读数、单条与全部已读
+- 通知中心：评论回复 / @提及 / 文章点赞 / 评论点赞 / 关注 / 私信 / 违规强删告知七类触发（`NotificationType` 另预留 SYSTEM），未读数、单条与全部已读；投递以 `social/service/NotificationIntent` 不可变值对象收口（静态工厂内建去重策略），落库 / WebSocket / 邮件三通道各自独立 try/catch 互不连坐
 - **WebSocket 实时推送**：`/ws` 推送私信与通知，握手从 Cookie 读 `AUTH_TOKEN` 鉴权（不再接受 query 参数 token），前端断线自动回退轮询
 - 评论邮件通知：异步发送，用户在通知偏好中可关闭；未配 SMTP 走 dev 日志兜底
 
@@ -41,7 +41,7 @@
 - **token 吊销**：颁发时按 user→jti 集合（Redis Set）记录，封禁 / 解封 / 角色变更 / 改密 / 重置密码即整批拉黑，历史 token 立即 401
 - **密钥零硬编码**：`jwt.secret`、数据库 / MinIO 口令全部环境变量注入；未配置或密钥强度不足（<32 字节）启动 fail-fast；初始管理员由启动引导重建/轮换（随机密码打印一次日志或 `ADMIN_INITIAL_PASSWORD` 注入）
 - GitHub OAuth 登录（授权码流程由 Spring Security 托管，自动注册 `gh_` 账号；成功后回跳一次性换码 `?code=`，前端调 `/auth/oauth/exchange` 换 Cookie，token 不再经 URL 传递）
-- 自适应图形验证码：按场景 + 来源频率计数，超阈值才要求验证码；登录按 IP + 用户名双维度计数（伪造 XFF 不可绕过，XFF 仅在显式开启 `blog.security.trust-proxy-headers` 时才被信任）；邮箱验证码连续失败 5 次作废
+- 自适应图形验证码：按场景 + 来源频率计数，超阈值才要求验证码；登录按 IP + 用户名双维度计数（伪造 XFF 不可绕过，XFF 仅在显式开启 `blog.security.trust-proxy-headers` 时才被信任）；邮箱验证码连续失败 5 次作废。「校验 → 计数 / 清零」编排统一收口 `common/captcha/CaptchaGuard`（`verifyAndRecord` 简单场景 / `guarded` 登录双维度场景两方法），端点不再自行组合 CaptchaService
 - MinIO 对象存储（默认）/ 本地磁盘上传（fallback），bucket 创建由后端启动自检保证
 - Flyway 迁移、全局逻辑删除约定、统一响应体与分页结构
 
@@ -73,8 +73,8 @@
 | MySQL | 8.4 LTS | 主存储，ngram FULLTEXT 支撑全文搜索 |
 | Flyway | 随 Boot | MySQL 支持模块为 `flyway-mysql`（`flyway-database-mysql` 不存在，双仓 404 实测） |
 | Redis | 7 | 验证码、防刷限流、token 黑名单与用户活跃 jti 集合、OAuth 一次性换码、自动保存草稿 |
-| MinIO | 8.5.17（SDK） | 对象存储，镜像用 `alpine/minio`（官方镜像已 EOL 下架） |
-| 其他 | — | MapStruct-Plus 1.5.2、Hutool 5.8.47（含 captcha）、jsoup 1.18.3（富文本清洗）、Rome 2.1.0、Spring Modulith 2.1.1、Lombok |
+| MinIO | 9.0.3（SDK） | 对象存储，镜像用 `alpine/minio`（官方镜像已 EOL 下架）；需显式搭配 `okhttp-jvm` 5.5.0（原因见实战笔记①） |
+| 其他 | — | MapStruct-Plus 1.5.3、Hutool 5.8.48（含 captcha）、jsoup 1.23.2（富文本清洗）、Rome 2.1.0、Spring Modulith 2.1.1、ArchUnit 1.5.1（test，架构红线）、Lombok |
 
 ## 快速开始
 
@@ -181,19 +181,26 @@ src/main/java/com/zer0drv/blog/
 ├── auth/          认证：注册/登录/登出/找回密码、邮箱验证码、Token 黑名单与用户 jti 集合、认证 Cookie、OAuth 换码
 ├── user/          用户领域：User 实体、SecurityUser、个人资料与通知偏好
 ├── article/       文章：CRUD、版本历史、自动保存、定时发布、回收站、搜索、归档、富文本 XSS 清洗
+│   ├── api/       对外契约包：ArticleCatalog/ArticleCascade/ArticleNotificationPort/ArticleInteractionPort/
+│   │              ArticleCommentStatsPort/ArticleTagMaintenance/ArticleStatsPort 端口
+│   │              + ArticleRef 等 record 投影 + ArticleStatus 契约枚举（零 MyBatis-Plus 类型）
+│   └── domain/    ArticleVisibility：可见性谓词单一出处（Clock 注入）
 ├── tag/           标签 CRUD
 ├── category/      树形分类 CRUD
 ├── comment/       评论：两层楼中楼、排序、审核联动
-├── interaction/   点赞/收藏（文章+评论）、我的收藏
-├── social/        关注/Feed、私信、通知中心、WebSocket 推送、邮件通知
+│   └── api/       对外契约包：CommentLikePort/CommentStatsPort + CommentRef/CommentStatsEntry record
+├── interaction/   点赞/收藏（文章+评论）、我的收藏（评论数据只经 comment.api 访问）
+├── social/        关注/Feed、私信、通知中心（NotificationIntent 三通道投递）、WebSocket 推送、邮件通知
 ├── admin/         管理后台：用户/文章/评论/敏感词/统计/站点配置/附件
 ├── site/          站点设置中心（site_config，内存缓存读）
 ├── seo/           RSS/Atom/sitemap/robots
 ├── attachment/    附件库：上传落库、分组管理
 ├── upload/        图片上传（MinIO / 本地磁盘，每用户日配额）
-├── common/        Result/PageResult、全局异常、自适应验证码、JwtSubjects/IpUtils
+├── common/        Result/PageResult、全局异常、验证码编排 CaptchaGuard、敏感词判定 SensitiveWordChecker、JwtSubjects/IpUtils
 └── config/        Security / Jwt / MybatisPlus / WebMvc / WebSocket / MinIO / Async / Cookie解析 / CSRF头检查 / 代理信任 / 管理员引导
 ```
+
+**模块边界规则**：跨模块读写数据一律经由 `*/api/` 契约包（端口接口 + record 投影 + 契约枚举，零 MyBatis-Plus 类型），实现一律落在数据拥有方——如 `article.api` 的 `ArticleNotificationPort` 由 social 实现、`ArticleCascade` 由 comment 与 interaction 各实现、`ArticleInteractionPort` 由 interaction 实现、`ArticleCommentStatsPort` 由 comment 实现，`ArticleCatalog`/`ArticleStatsPort`/`ArticleTagMaintenance` 由 article 自实现；`comment.api` 两个端口由 comment 自实现、interaction 消费。域外直触 `mapper/domain/service.impl/enums` 内部包由 ArchUnit 红线测试（`src/test/.../arch/ArticleBoundaryArchTest`）拦截：新增违例直接测试失败；历史残留违例收在显式豁免清单（当前仅 2 项：`AdminArticleServiceImpl`、`CategoryServiceImpl`），清单只允许缩小、不允许扩大。
 
 ## API 概览
 
@@ -271,7 +278,7 @@ src/main/java/com/zer0drv/blog/
 | PUT | `/messages/read?peerId=` | 会话消息全部置已读 | 登录 |
 | GET | `/ws` | WebSocket 实时推送（私信 + 通知；握手从 Cookie 读 AUTH_TOKEN） | 登录 |
 
-通知触发点：评论回复（`COMMENT_REPLY`）、@提及（`MENTION`）、文章点赞（`ARTICLE_LIKE`）、关注（`FOLLOW`）、私信（`PRIVATE_MESSAGE`）；创建失败仅 log.warn 不回滚主业务，自己给自己不发，点赞/关注防重。
+通知触发点：评论回复（`COMMENT_REPLY`）、@提及（`MENTION`）、文章点赞（`ARTICLE_LIKE`）、评论点赞（`COMMENT_LIKE`）、关注（`FOLLOW`）、私信（`PRIVATE_MESSAGE`）、管理员违规强删告知（`ARTICLE_FORCE_DELETED`，articleId 恒空不拼跳转）。调用方只构造 `NotificationIntent`（静态工厂内建 dedupe：点赞/关注取消再操作不重复打扰，回复/@/私信/强删每次必发）；落库（含查重）、WebSocket 推送、邮件三通道各自 try/catch，单通道失败仅记日志、不回滚主业务、不连坐其他通道；自己给自己不发。
 
 ### 站点与 SEO
 
@@ -320,13 +327,17 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 
 逻辑删除约定：全局字段 `deleted`（`0` 未删 / `1` 已删）；`Article`/`ArticleVersion`/`Comment`/`Attachment`/`SiteConfig` 使用实体级 `@TableLogic`（原因见实战笔记）。点赞/收藏类关联实体不映射 `deleted`，取消走物理删除。
 
-## 测试与 CI
+## 测试与 CI/CD
 
-- **30 个测试类**：服务层单测 + MockMvc 接口级集成测试（H2 内存库替代 MySQL，全文搜索自动降级 LIKE 兜底）
+- **46 个测试类、299 例（全绿）**：服务层单测 + MockMvc 接口级集成测试（H2 内存库替代 MySQL，全文搜索自动降级 LIKE 兜底）+ ArchUnit 架构红线测试（`arch/ArticleBoundaryArchTest`，见「项目结构」模块边界规则）
 - 本地执行：`mvn verify`
 - CI（`.github/workflows/ci.yml`）双 job：
   - `build`：JDK 25 下 `mvn -B verify`（编译 + 全部测试）
   - `flyway-migration`：真实 MySQL 8.4 service 容器，用 `flyway/flyway:10` 镜像跑全部迁移，校验 `db/migration` 的 SQL 可执行
+- CD（`.github/workflows/cd.yml`）：main push（按后端产物路径过滤）或手动触发 → 构建镜像推 GHCR（tag 为 `sha-<8位>`，同时更新 `latest`）→ 自托管 runner 部署机拉取并更新容器、等待 `/actuator/health` 健康检查；commit message 含 `[skip cd]` 可跳过一次部署（CI 照跑）
+  - **回滚**：Actions → CD → Run workflow 填 `rollback_tag`（如 `sha-1a2b3c4d`，见 GHCR 镜像列表），跳过构建直接部署指定镜像
+  - deploy job 挂 GitHub `production` 环境：配置了 required reviewers 时合并后需在 Actions 页面批准才执行——**合并 ≠ 自动发布**（见实战笔记）
+- 流程规范：一切变更走 Issue → 分支 → PR → 所有者审批合并，禁止直推 main，提交信息遵循 Conventional Commits + 中文摘要（完整约定见 [`CONTRIBUTING.md`](CONTRIBUTING.md)）；Dependabot 每周一滚动更新 maven 与 github-actions 依赖（`.github/dependabot.yml`）
 
 ## 实战笔记（踩过的坑）
 
@@ -343,10 +354,15 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 - **MinIO 起不来先查卷属主**：见「快速开始」的 `chown -R 100:101` 一步；`file access denied` 不是镜像坏了。
 - **`spring.docker.compose.enabled=false`**：Boot 不会隐式拉起容器，基础设施一律靠显式 `docker compose up -d`；
   容器名/端口与手工 `docker run` 起的旧容器冲突时，先 `docker rm -f blog-mysql` 再 compose（否则容器名占用报错）。
+- **minio ≥8.6 的 okhttp 5 是 KMP 空壳 jar**：minio 8.6+ 依赖的 `com.squareup.okhttp3:okhttp` 5.x 是 Kotlin Multiplatform 根模块（jar 内无 class，JVM 字节码在 `okhttp-jvm`）；纯 Maven 不读 Gradle Module Metadata，传递依赖落不到 `okhttp-jvm`，`MinioClient.builder()` 编译期报 `class file for okhttp3.HttpUrl not found`。修法：显式声明 `okhttp-jvm`，版本须与 minio 传递的 okhttp 对齐（见 `pom.xml` 注释）；Dependabot 单侧升级 okhttp-jvm 时记得核对 minio 侧版本。
+- **minio 9.x 的 `PutObjectArgs.stream` 签名变更**：`partSize` 参数由 long 改 `Long` 包装类型，8.x 写法 `.stream(in, size, -1)` 编译失败，需 `-1L`（适配提交见 `fix(deps): 适配 minio 9.0.3 API 变更`）。
+- **GitHub production 环境会拦部署**：`cd.yml` deploy job 挂了 `environment: production`，若该环境配置了 required reviewers，main 合并后 CD 会停在审批等待——合并 ≠ 自动发布，要到 Actions 页面手动批准；回滚（workflow_dispatch）同样受拦。排查「镜像推了但容器没更新」先看这里。
 
 ## 路线图
 
 已完成：用户体系与鉴权、内容模块、互动模块、社交模块（含 WebSocket 实时推送）、管理后台、自适应验证码，以及对标 WordPress/Halo 的 P0 补缺（版本历史、自动保存、定时发布、回收站、全文搜索、归档、评论审核 + 邮件通知、SEO 三件套、站点设置中心、附件库）。
+
+已完成（架构深化与流程建设）：跨模块访问全部收口 `article/api` + `comment/api` 契约包（端口声明在 api 包、数据拥有方实现，外模块单测 mock 接口即可）；可见性谓词单一出处 `ArticleVisibility`；验证码编排 `CaptchaGuard` 与敏感词判定 `SensitiveWordChecker` 下沉 common；通知投递 `NotificationIntent` 值对象化 + 三通道隔离；ArchUnit 边界红线测试固化（豁免清单仅 2 项、只缩不扩）；Issue → PR → 审批合并全流程规范（CONTRIBUTING.md）、Dependabot 周更、CD 镜像 sha tag + `rollback_tag` 手动回滚。
 
 后续候选（P1）：文章 slug 固定链接、密码保护/私密文章、友情链接、自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、附件对象物理清理、首登强制改密标记（需前后端字段契约）。
 

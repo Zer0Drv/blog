@@ -2,6 +2,12 @@
 
 > 生成时间：2026-09-28。本文档为搭建前的需求基线，任何口径变更需回写此文档。
 
+> **口径回写**（实现期偏差，README 为最新事实源）：
+> - §8 Spring Boot 实际定型 **4.1.1**（4.1.4 当时未发布）；Flyway MySQL 模块实为 `flyway-mysql`（`flyway-database-mysql` 不存在）。
+> - §5 私信 / 通知已由「v1 轮询」升级为 **WebSocket 实时推送**（`/ws`，Cookie 鉴权，前端断线回退轮询）。
+> - §8 模块划分实际落为 15 个业务模块（message 拆为 social 等），跨模块访问经 `*/api/` 契约包 + ArchUnit 红线固化（见 README「项目结构」）。
+> - 依赖版本以 `pom.xml` 为准（Dependabot 每周滚动升级，如 MapStruct-Plus 现为 1.5.3）。
+
 ## 1. 产品定位
 
 | 项 | 结论 |
