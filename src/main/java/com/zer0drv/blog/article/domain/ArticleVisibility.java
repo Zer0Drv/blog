@@ -1,7 +1,7 @@
 package com.zer0drv.blog.article.domain;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.zer0drv.blog.article.enums.ArticleStatus;
+import com.zer0drv.blog.article.api.ArticleStatus;
 
 import java.time.Clock;
 import java.time.LocalDateTime;

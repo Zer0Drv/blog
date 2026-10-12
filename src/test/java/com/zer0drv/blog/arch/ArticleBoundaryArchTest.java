@@ -42,9 +42,13 @@ class ArticleBoundaryArchTest {
     };
 
     /**
-     * 核心红线：article 域内部包（mapper / domain / service.impl）只允许被
+     * 核心红线：article 域内部包（mapper / domain / service.impl / enums）只允许被
      * {@code ..article..} 包内访问——域外唯一合法依赖是 {@code article.api} 契约包
      * （及约定俗成的 {@code article.vo} 视图投影）。
+     *
+     * <p>enums 于 issue #34 第六步纳入红线：跨模块契约枚举（ArticleStatus）已上移
+     * {@code article.api}，article.enums 只剩内部枚举（EditorType），扩展规则零新增豁免；
+     * 此后新的契约枚举必须直接落 {@code article.api}，否则即触发本红线。
      */
     @ArchTest
     static final ArchRule article_internals_only_accessible_within_article =
@@ -52,8 +56,9 @@ class ArticleBoundaryArchTest {
                     .that().resideOutsideOfPackage("..article..")
                     .and().doNotBelongToAnyOf(ARTICLE_INTERNALS_KNOWN_VIOLATORS)
                     .should().dependOnClassesThat()
-                    .resideInAnyPackage("..article.mapper..", "..article.domain..", "..article.service.impl..")
-                    .as("article 域内部包（mapper/domain/service.impl）只允许被 article 包内访问，"
+                    .resideInAnyPackage("..article.mapper..", "..article.domain..", "..article.service.impl..",
+                            "..article.enums..")
+                    .as("article 域内部包（mapper/domain/service.impl/enums）只允许被 article 包内访问，"
                             + "域外唯一契约是 article.api（豁免见 ARTICLE_INTERNALS_KNOWN_VIOLATORS）")
                     .allowEmptyShould(true);
 
