@@ -169,7 +169,7 @@ public class UploadServiceImpl implements UploadService {
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(minioBucket)
                     .object(objectName)
-                    .stream(in, file.getSize(), -1)
+                    .stream(in, file.getSize(), -1L)
                     .contentType(Objects.nonNull(contentType) ? contentType : "application/octet-stream")
                     .build());
         } catch (Exception e) {
