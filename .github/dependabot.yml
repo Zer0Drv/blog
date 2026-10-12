@@ -1,0 +1,25 @@
+# Dependabot 版本与安全更新；commit 前缀遵循仓库提交规范（CONTRIBUTING.md 第 6 条）
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(deps)
+    labels: [dependencies, java, P2]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore(ci)
+    labels: [dependencies, P2]
