@@ -65,7 +65,7 @@
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
-            <version>8.6.0</version>
+            <version>9.0.3</version>
         </dependency>
         <!-- minio 8.6.0 将 okhttp 升级为 5.1.0（Kotlin Multiplatform 根模块，jar 内无 class，
              JVM 字节码在 okhttp-jvm）；纯 Maven 不读 Gradle Module Metadata，传递依赖落不到 okhttp-jvm，
