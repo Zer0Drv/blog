@@ -6,6 +6,8 @@ name: CD
 #   2) GHCR 首推后，Packages 里把 ghcr.io/zer0drv/blog-backend 可见性设为 private（默认可推）
 # 触发：main 分支 push 且改动涉及后端产物（路径过滤见下），或手动 workflow_dispatch；
 # 临时不想发布：commit message 里写 [skip cd] —— CI 照跑，CD 门控 job 直接跳过部署
+# 回滚：Actions → CD → Run workflow，填入 rollback_tag（如 sha-1a2b3c4d，见 GHCR 镜像列表）
+#       ——跳过构建，部署机直接拉取指定 tag 的镜像并更新容器
 on:
   push:
     branches: [main]
@@ -19,6 +21,11 @@ on:
       - '.github/workflows/cd.yml'
       - '.env.example'
   workflow_dispatch:
+    inputs:
+      rollback_tag:
+        description: '回滚到指定镜像 tag（如 sha-1a2b3c4d）；留空 = 正常构建部署最新'
+        required: false
+        type: string
 
 concurrency:
   group: cd-backend
@@ -46,7 +53,8 @@ jobs:
   # ---- 阶段 1：GitHub 托管 runner 构建并推送镜像 ----
   image:
     needs: gate
-    if: needs.gate.outputs.deploy == 'true'
+    # 回滚模式（填了 rollback_tag）跳过构建
+    if: needs.gate.outputs.deploy == 'true' && (github.event_name == 'push' || inputs.rollback_tag == '')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -86,7 +94,10 @@ jobs:
   # compose 用 Docker Desktop 自带的 docker-compose.exe（本机未注册 compose 插件）；
   # 直接操作部署机上的工程目录（.env 不入库，compose 必需的口令只在部署机存在），不做 checkout
   deploy:
-    needs: image
+    needs: [gate, image]
+    # 回滚模式 image 被跳过：needs 跳过上会连带跳过本 job，需 always() 兜底；
+    # 正常推送取新构建 tag，回滚取 rollback_tag
+    if: ${{ always() && needs.gate.outputs.deploy == 'true' && (inputs.rollback_tag != '' || needs.image.outputs.tag != '') }}
     runs-on: self-hosted
     environment: production
     defaults:
@@ -96,9 +107,9 @@ jobs:
         shell: 'D:\KimiData\daimon-bundle\runtime\git\bin\bash.exe --noprofile --norc -eo pipefail {0}'
         working-directory: 'E:\dev\zer0drv\blog'
     steps:
-      - name: 拉取新镜像并更新后端容器
+      - name: 拉取镜像并更新后端容器（正常部署取新 tag，回滚取指定 tag）
         env:
-          BACKEND_TAG: ${{ needs.image.outputs.tag }}
+          BACKEND_TAG: ${{ inputs.rollback_tag || needs.image.outputs.tag }}
         run: |
           docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
           docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
