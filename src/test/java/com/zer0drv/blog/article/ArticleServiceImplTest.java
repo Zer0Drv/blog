@@ -298,7 +298,7 @@ class ArticleServiceImplTest {
         target.setCategoryId(5L);
         when(articleVersionMapper.selectOne(any()))
                 // 第一次调用是 requireVersion 取目标版本，第二次是 snapshotVersion 取当前最大版本
-                .thenReturn(target, null);
+                .thenReturn(target, (ArticleVersion) null);
         doReturn(true).when(articleService).updateById(any(Article.class));
 
         articleService.restoreVersion(10L, 3, jwtOf(1L));

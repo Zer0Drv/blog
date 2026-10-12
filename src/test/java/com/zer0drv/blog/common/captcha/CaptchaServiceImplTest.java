@@ -71,7 +71,7 @@ class CaptchaServiceImplTest {
         // 一次性：第一次校验通过即删，第二次（键已删）报「验证码错误或已过期」
         String codeKey = "captcha:%s:%s".formatted(SCENE, "id-1");
         when(valueOperations.get(COUNT_KEY)).thenReturn("5");
-        when(valueOperations.get(codeKey)).thenReturn("ABCD", null);
+        when(valueOperations.get(codeKey)).thenReturn("ABCD", (String) null);
 
         assertDoesNotThrow(() -> captchaService.verify(SCENE, IP, "id-1", "abcd"));
         verify(stringRedisTemplate).delete(codeKey);
