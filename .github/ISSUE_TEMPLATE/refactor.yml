@@ -1,0 +1,26 @@
+name: 🔧 重构 / 架构改进
+description: 不改变外部行为的结构改进
+title: "[Refactor] "
+labels: [refactor]
+body:
+  - type: textarea
+    id: friction
+    attributes:
+      label: 摩擦点
+      description: 哪些模块浅 / 紧耦合？接缝风险在哪？附文件路径
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提议接口
+      description: 新接口签名、使用示例、隐藏了什么
+    validations:
+      required: true
+  - type: textarea
+    id: equivalence
+    attributes:
+      label: 行为等价性与测试策略
+      description: 如何论证行为不变？新增哪些边界测试、删除哪些旧测试（替代而非叠加）？
+    validations:
+      required: true
