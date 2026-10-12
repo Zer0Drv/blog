@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
 import com.zer0drv.blog.article.api.ArticleCascade;
+import com.zer0drv.blog.article.api.ArticleCommentStatsPort;
+import com.zer0drv.blog.article.api.ArticleInteractionPort;
+import com.zer0drv.blog.article.api.ArticleInteractionStats;
 import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleTag;
@@ -32,13 +35,6 @@ import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
 import com.zer0drv.blog.common.util.JwtSubjects;
-import com.zer0drv.blog.comment.domain.Comment;
-import com.zer0drv.blog.comment.enums.CommentStatus;
-import com.zer0drv.blog.comment.mapper.CommentMapper;
-import com.zer0drv.blog.interaction.domain.ArticleFavorite;
-import com.zer0drv.blog.interaction.domain.ArticleLike;
-import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
-import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
 import com.zer0drv.blog.tag.domain.Tag;
 import com.zer0drv.blog.tag.mapper.TagMapper;
 import com.zer0drv.blog.tag.vo.TagVO;
@@ -143,9 +139,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private final CategoryMapper categoryMapper;
     private final UserService userService;
     private final Converter converter;
-    private final CommentMapper commentMapper;
-    private final ArticleLikeMapper articleLikeMapper;
-    private final ArticleFavoriteMapper articleFavoriteMapper;
+    private final ArticleInteractionPort articleInteractionPort;
+    private final ArticleCommentStatsPort articleCommentStatsPort;
     private final ArticleVersionMapper articleVersionMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
@@ -828,34 +823,22 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     /**
      * 填充详情的互动数据：浏览量 / 点赞收藏评论数 / 当前用户点赞收藏状态。
-     * likeCount / favoriteCount / commentCount 实时 count 关联表，不落列。
+     * likeCount / favoriteCount / liked / favorited 经 interaction 模块端口实时查关联表，
+     * commentCount 经 comment 模块端口按 NORMAL 口径计数，均不落列（issue #34 第三步）。
      */
     private void fillInteraction(ArticleDetailVO vo, Article article, boolean visible, Jwt jwt) {
         Long articleId = article.getId();
         // 可见详情刚自增过一次，内存值 +1 与库内一致；不可见（草稿/下架/定时中）展示当前值
         long viewCount = Objects.isNull(article.getViewCount()) ? 0L : article.getViewCount();
         vo.setViewCount(visible ? viewCount + 1 : viewCount);
-        vo.setLikeCount(articleLikeMapper.selectCount(Wrappers.lambdaQuery(ArticleLike.class)
-                .eq(ArticleLike::getArticleId, articleId)));
-        vo.setFavoriteCount(articleFavoriteMapper.selectCount(Wrappers.lambdaQuery(ArticleFavorite.class)
-                .eq(ArticleFavorite::getArticleId, articleId)));
-        vo.setCommentCount(commentMapper.selectCount(Wrappers.lambdaQuery(Comment.class)
-                .eq(Comment::getArticleId, articleId)
-                .eq(Comment::getStatus, CommentStatus.NORMAL.name())));
-        // 匿名一律 false；登录人实时查关联表
-        boolean liked = false;
-        boolean favorited = false;
-        if (Objects.nonNull(jwt)) {
-            Long userId = JwtSubjects.userIdOf(jwt);
-            liked = articleLikeMapper.selectCount(Wrappers.lambdaQuery(ArticleLike.class)
-                    .eq(ArticleLike::getArticleId, articleId)
-                    .eq(ArticleLike::getUserId, userId)) > 0;
-            favorited = articleFavoriteMapper.selectCount(Wrappers.lambdaQuery(ArticleFavorite.class)
-                    .eq(ArticleFavorite::getArticleId, articleId)
-                    .eq(ArticleFavorite::getUserId, userId)) > 0;
-        }
-        vo.setLiked(liked);
-        vo.setFavorited(favorited);
+        // 匿名 viewerId 传 null：liked / favorited 恒 false（端口语义，与收口前一致）
+        Long viewerId = Objects.nonNull(jwt) ? JwtSubjects.userIdOf(jwt) : null;
+        ArticleInteractionStats stats = articleInteractionPort.statsOf(articleId, viewerId);
+        vo.setLikeCount(stats.likeCount());
+        vo.setFavoriteCount(stats.favoriteCount());
+        vo.setLiked(stats.liked());
+        vo.setFavorited(stats.favorited());
+        vo.setCommentCount(articleCommentStatsPort.countVisibleByArticleId(articleId));
     }
 
     /**

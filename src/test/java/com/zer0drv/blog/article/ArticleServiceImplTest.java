@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.api.ArticleCascade;
+import com.zer0drv.blog.article.api.ArticleCommentStatsPort;
+import com.zer0drv.blog.article.api.ArticleInteractionPort;
 import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleTag;
@@ -19,14 +21,8 @@ import com.zer0drv.blog.article.mapper.ArticleVersionMapper;
 import com.zer0drv.blog.article.service.impl.ArticleServiceImpl;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.category.mapper.CategoryMapper;
-import com.zer0drv.blog.comment.domain.Comment;
-import com.zer0drv.blog.comment.mapper.CommentMapper;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
-import com.zer0drv.blog.interaction.domain.ArticleFavorite;
-import com.zer0drv.blog.interaction.domain.ArticleLike;
-import com.zer0drv.blog.interaction.mapper.ArticleFavoriteMapper;
-import com.zer0drv.blog.interaction.mapper.ArticleLikeMapper;
 import com.zer0drv.blog.tag.mapper.TagMapper;
 import com.zer0drv.blog.user.enums.UserRole;
 import com.zer0drv.blog.user.service.UserService;
@@ -96,11 +92,9 @@ class ArticleServiceImplTest {
     @Mock
     private Converter converter;
     @Mock
-    private CommentMapper commentMapper;
+    private ArticleInteractionPort articleInteractionPort;
     @Mock
-    private ArticleLikeMapper articleLikeMapper;
-    @Mock
-    private ArticleFavoriteMapper articleFavoriteMapper;
+    private ArticleCommentStatsPort articleCommentStatsPort;
     @Mock
     private ArticleVersionMapper articleVersionMapper;
     @Mock
@@ -124,18 +118,16 @@ class ArticleServiceImplTest {
         TableInfoHelper.initTableInfo(assistant, Article.class);
         TableInfoHelper.initTableInfo(assistant, ArticleTag.class);
         TableInfoHelper.initTableInfo(assistant, ArticleVersion.class);
-        TableInfoHelper.initTableInfo(assistant, Comment.class);
-        TableInfoHelper.initTableInfo(assistant, ArticleLike.class);
-        TableInfoHelper.initTableInfo(assistant, ArticleFavorite.class);
     }
 
     @BeforeEach
     void setUp() {
         // 注意构造参数顺序与 @RequiredArgsConstructor 字段声明一致（baseMapper 由 MP 注入，此处反射补）
         // 跨模块级联清场以 ArticleCascade SPI mock 顶替（issue #24 第三步，外模块 Mapper 已退出编排）
+        // 详情页互动/评论计数经 article.api 读端口 mock 顶替（issue #34 第三步，三 Mapper 已退出装配）
         articleService = spy(new ArticleServiceImpl(
                 articleTagMapper, tagMapper, categoryMapper, userService, converter,
-                commentMapper, articleLikeMapper, articleFavoriteMapper,
+                articleInteractionPort, articleCommentStatsPort,
                 articleVersionMapper, stringRedisTemplate, objectMapper,
                 List.of(commentCascade, interactionCascade), articleNotificationPort));
         ReflectionTestUtils.setField(articleService, "baseMapper", articleMapper);
