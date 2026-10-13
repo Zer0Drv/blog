@@ -31,13 +31,15 @@ public class SiteConfigServiceImpl implements SiteConfigService {
      */
     public static final Set<String> KNOWN_KEYS = Set.of(
             "site.name", "site.description", "site.logo", "site.icp", "site.footer",
-            "site.base_url", "comment.review_required");
+            "site.base_url", "comment.review_required", "site.friend_links_enabled");
 
     /**
      * 公开接口（GET /site/config）允许外泄的白名单键；base_url 与审核开关不公开
+     * （site.friend_links_enabled 为友链展示开关，公众端需读取故入白名单，issue #17）
      */
     public static final Set<String> PUBLIC_KEYS = Set.of(
-            "site.name", "site.description", "site.logo", "site.icp", "site.footer");
+            "site.name", "site.description", "site.logo", "site.icp", "site.footer",
+            "site.friend_links_enabled");
 
     private final SiteConfigMapper siteConfigMapper;
 

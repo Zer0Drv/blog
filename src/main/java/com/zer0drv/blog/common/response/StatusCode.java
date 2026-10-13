@@ -62,6 +62,7 @@ public enum StatusCode {
     ATTACHMENT_GROUP_NOT_EXIST("40070", "附件分组不存在"),
     ATTACHMENT_GROUP_HAS_ITEMS("40071", "分组内仍有附件，无法删除"),
     UPLOAD_DAILY_LIMIT_EXCEEDED("40072", "今日上传次数已达上限，请明日再试"),
+    FRIEND_LINK_NOT_EXIST("40073", "友情链接不存在"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 
