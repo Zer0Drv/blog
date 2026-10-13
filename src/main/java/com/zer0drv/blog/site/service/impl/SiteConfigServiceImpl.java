@@ -1,6 +1,7 @@
 package com.zer0drv.blog.site.service.impl;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.zer0drv.blog.common.util.PageNavigationSlugs;
 import com.zer0drv.blog.site.domain.SiteConfig;
 import com.zer0drv.blog.site.mapper.SiteConfigMapper;
 import com.zer0drv.blog.site.service.SiteConfigService;
@@ -31,7 +32,7 @@ public class SiteConfigServiceImpl implements SiteConfigService {
      */
     public static final Set<String> KNOWN_KEYS = Set.of(
             "site.name", "site.description", "site.logo", "site.icp", "site.footer",
-            "site.base_url", "comment.review_required", "site.friend_links_enabled");
+            "site.base_url", "comment.review_required", "site.friend_links_enabled", "site.page_navigation");
 
     /**
      * 公开接口（GET /site/config）允许外泄的白名单键；base_url 与审核开关不公开
@@ -94,6 +95,10 @@ public class SiteConfigServiceImpl implements SiteConfigService {
     public synchronized void setAll(Map<String, String> values) {
         if (Objects.isNull(values) || values.isEmpty()) {
             return;
+        }
+        // 在任何写操作前校验，避免导航非法时其他配置被部分更新。
+        if (values.containsKey(PageNavigationSlugs.CONFIG_KEY)) {
+            PageNavigationSlugs.parse(values.get(PageNavigationSlugs.CONFIG_KEY));
         }
         for (Map.Entry<String, String> entry : values.entrySet()) {
             String key = entry.getKey();

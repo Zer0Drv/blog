@@ -1,4 +1,15 @@
--- 测试库（H2 MySQL 兼容模式）建表脚本：列与 db/migration/V1~V6 迁移后的最终结构一一对齐。
+-- 测试库（H2 MySQL 兼容模式）建表脚本。
+CREATE TABLE IF NOT EXISTS custom_page (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    slug VARCHAR(200) NOT NULL UNIQUE,
+    title VARCHAR(200) NOT NULL,
+    content LONGTEXT NOT NULL,
+    editor_type VARCHAR(16) NOT NULL DEFAULT 'MARKDOWN',
+    status VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted TINYINT NOT NULL DEFAULT 0
+);
 -- 不直接跑生产 migration 的原因：H2 约束名 schema 级全局唯一（MySQL 为表级），
 -- 生产脚本中 article_like/article_favorite 的 UNIQUE KEY 同名 `uk_article_user` 冲突；
 -- 此处约束名统一加表名前缀。ENGINE/CHARSET 表选项在 MySQL 模式下被 H2 忽略，保留以对齐。
@@ -260,6 +271,9 @@ WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'site.base_ur
 INSERT INTO `site_config` (`config_key`, `config_value`, `description`)
 SELECT 'comment.review_required', 'false', '评论审核开关：true-发表评论先进入待审核队列'
 WHERE NOT EXISTS (SELECT 1 FROM `site_config` WHERE `config_key` = 'comment.review_required');
+INSERT INTO site_config (config_key, config_value, description)
+SELECT 'site.page_navigation', '[]', '自定义页面导航'
+WHERE NOT EXISTS (SELECT 1 FROM site_config WHERE config_key = 'site.page_navigation');
 
 CREATE TABLE IF NOT EXISTS `attachment_group`
 (

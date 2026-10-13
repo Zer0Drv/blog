@@ -71,6 +71,8 @@ public enum StatusCode {
     ARTICLE_VISIBILITY_INVALID("40076", "文章可见性不合法"),
     ARTICLE_PASSWORD_REQUIRED("40077", "口令保护文章需设置访问口令"),
     ARTICLE_PASSWORD_INVALID("40078", "访问口令错误"),
+    PAGE_NOT_EXIST("40079", "页面不存在"),
+    PAGE_SLUG_EXISTS("40080", "slug 已被其他页面占用"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 
