@@ -1,19 +1,25 @@
 package com.zer0drv.blog.article.controller;
 
+import com.zer0drv.blog.article.dto.ArticlePasswordDTO;
 import com.zer0drv.blog.article.dto.ArticleSaveDTO;
 import com.zer0drv.blog.article.dto.ArticleStatusDTO;
 import com.zer0drv.blog.article.dto.AutosaveDTO;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.transfer.ArticleTransferService;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
+import com.zer0drv.blog.article.vo.ArticleAccessVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleExportVO;
 import com.zer0drv.blog.article.vo.ArticleImportResultVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
 import com.zer0drv.blog.article.vo.ArticleVersionVO;
+import com.zer0drv.blog.common.captcha.CaptchaGuard;
+import com.zer0drv.blog.common.captcha.CaptchaService;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.Result;
+import com.zer0drv.blog.common.util.IpUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ContentDisposition;
@@ -29,6 +35,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -49,6 +56,18 @@ public class ArticleController {
     private final ArticleService articleService;
 
     private final ArticleTransferService articleTransferService;
+
+    private final CaptchaGuard captchaGuard;
+
+    /**
+     * 口令访问令牌请求头（issue #15）：详情接口对 PASSWORD 文章凭它放行
+     */
+    private static final String ACCESS_TOKEN_HEADER = "X-Article-Access-Token";
+
+    /**
+     * 口令校验限流计数的文章维度键前缀（另一维度为客户端 IP，登录同款双维度编排）
+     */
+    private static final String PASSWORD_ARTICLE_KEY_PREFIX = "a:";
 
     /**
      * 已发布文章分页列表（公开）
@@ -93,22 +112,48 @@ public class ArticleController {
     }
 
     /**
-     * 文章详情（公开；非发布状态仅作者本人 / ADMIN 可见）
+     * 文章详情（公开；非发布状态仅作者本人 / ADMIN 可见）。
+     * 已到点的 PASSWORD 文章（issue #15）：无有效访问令牌时返回「需口令」极简视图
+     * （passwordRequired=true，不下发标题 / 正文）；令牌经 X-Article-Access-Token 头携带，
+     * 由口令校验端点签发。PRIVATE 对公众与「不存在」同语义。
      */
     @GetMapping("/{id}")
-    public Result<ArticleDetailVO> getDetail(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
-        return Result.ok(articleService.getDetail(id, jwt));
+    public Result<ArticleDetailVO> getDetail(@PathVariable Long id,
+                                             @RequestHeader(name = ACCESS_TOKEN_HEADER, required = false)
+                                             String accessToken,
+                                             @AuthenticationPrincipal Jwt jwt) {
+        return Result.ok(articleService.getDetail(id, jwt, accessToken));
     }
 
     /**
      * 按 slug 取文章详情（公开；issue #14 固定链接）。与 /{id} 并存——旧 id 链接继续可用，
      * slug 为新增能力。字面量前缀 slug 两段式路径不与 /{id}（Long）产生路由歧义，
-     * SecurityConfig 的 /articles/** permitAll 已覆盖，无需改安全链
+     * SecurityConfig 的 /articles/** permitAll 已覆盖，无需改安全链。
+     * 口令门禁与令牌头语义同 {@link #getDetail}
      */
     @GetMapping("/slug/{slug}")
     public Result<ArticleDetailVO> getDetailBySlug(@PathVariable String slug,
+                                                   @RequestHeader(name = ACCESS_TOKEN_HEADER, required = false)
+                                                   String accessToken,
                                                    @AuthenticationPrincipal Jwt jwt) {
-        return Result.ok(articleService.getDetailBySlug(slug, jwt));
+        return Result.ok(articleService.getDetailBySlug(slug, jwt, accessToken));
+    }
+
+    /**
+     * 校验口令保护文章的访问口令（issue #15，公开）：通过则签发短期访问令牌
+     * （Redis，TTL 2h），前端持令牌经 X-Article-Access-Token 头访问详情。
+     * 限流防爆破：CaptchaGuard 登录同款双维度编排（IP + 文章 id），口令错误两维各 +1、
+     * 成功清零，任一维度达阈值强制图形验证码。非「已到点的 PASSWORD 文章」与不存在同语义。
+     */
+    @PostMapping("/{id}/password")
+    public Result<ArticleAccessVO> verifyAccessPassword(@PathVariable Long id,
+                                                        @RequestBody @Valid ArticlePasswordDTO dto,
+                                                        HttpServletRequest request) {
+        String ip = IpUtils.clientIp(request);
+        ArticleAccessVO access = captchaGuard.guarded(CaptchaService.SCENE_ARTICLE_PASSWORD, ip,
+                PASSWORD_ARTICLE_KEY_PREFIX + id, dto.getCaptchaId(), dto.getCaptchaCode(),
+                () -> articleService.verifyAccessPassword(id, dto.getPassword()));
+        return Result.ok(access);
     }
 
     /**

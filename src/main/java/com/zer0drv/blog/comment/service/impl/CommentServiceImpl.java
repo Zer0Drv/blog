@@ -84,6 +84,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
 
     @Override
     public PageResult<CommentVO> pageRootComments(Long articleId, String sort, long page, long size, Jwt jwt) {
+        articleCatalog.requireVisible(articleId);
         CommentSort commentSort = CommentSort.of(sort);
         LambdaQueryWrapper<Comment> wrapper = Wrappers.lambdaQuery(Comment.class)
                 .eq(Comment::getArticleId, articleId)
@@ -105,6 +106,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (Objects.isNull(root) || root.getParentId() != 0L) {
             throw new BusinessException(StatusCode.COMMENT_NOT_EXIST);
         }
+        articleCatalog.requireVisible(root.getArticleId());
         Page<Comment> result = page(new Page<>(page, size), Wrappers.lambdaQuery(Comment.class)
                 .eq(Comment::getParentId, rootId)
                 .eq(Comment::getStatus, CommentStatus.NORMAL.name())

@@ -10,6 +10,7 @@ import com.zer0drv.blog.article.api.ArticleInteractionPort;
 import com.zer0drv.blog.article.api.ArticleInteractionStats;
 import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.api.ArticleStatus;
+import com.zer0drv.blog.article.api.Visibility;
 import com.zer0drv.blog.article.domain.Article;
 import com.zer0drv.blog.article.domain.ArticleSlugger;
 import com.zer0drv.blog.article.domain.ArticleTag;
@@ -24,6 +25,7 @@ import com.zer0drv.blog.article.mapper.ArticleTagMapper;
 import com.zer0drv.blog.article.mapper.ArticleVersionMapper;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
+import com.zer0drv.blog.article.vo.ArticleAccessVO;
 import com.zer0drv.blog.article.vo.ArticleAuthorVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
@@ -51,6 +53,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -66,6 +69,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -109,6 +113,21 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
      */
     private static final int SLUG_SUFFIX_MAX = 9999;
 
+    /**
+     * 口令访问令牌 Redis 键（issue #15）：blog:article-access:{articleId}:{token}，
+     * 值为签发时口令哈希，TTL 2 小时；改口令后旧令牌失效。口令校验只在校验端点（限流守护）发生，
+     * 详情接口只查令牌存在性，令牌本体是 122 位随机 UUID，无爆破面
+     */
+    private static final String ACCESS_KEY = "blog:article-access:%d:%s";
+    private static final Duration ACCESS_TTL = Duration.ofHours(2);
+
+    /**
+     * 文章访问口令长度边界（4~64）：独立于账号密码策略（8~64 且字母+数字），
+     * 口令用于口头分享，强度由作者自担；后端 BCrypt 哈希 + 校验端点限流兜底爆破面
+     */
+    private static final int ACCESS_PASSWORD_MIN_LENGTH = 4;
+    private static final int ACCESS_PASSWORD_MAX_LENGTH = 64;
+
     private final ArticleTagMapper articleTagMapper;
     private final TagMapper tagMapper;
     private final CategoryMapper categoryMapper;
@@ -121,6 +140,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private final ObjectMapper objectMapper;
     private final List<ArticleCascade> articleCascades;
     private final ArticleNotificationPort articleNotificationPort;
+    private final PasswordEncoder passwordEncoder;
 
     /**
      * 全文搜索开关（P0）：true 走 ngram FULLTEXT（仅 MySQL）；false 走 LIKE 兜底（H2 测试环境）
@@ -169,16 +189,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     @Override
-    public ArticleDetailVO getDetail(Long id, Jwt jwt) {
+    public ArticleDetailVO getDetail(Long id, Jwt jwt, String accessToken) {
         Article article = getById(id);
         if (Objects.isNull(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
-        return detailView(article, jwt);
+        return detailView(article, jwt, accessToken);
     }
 
     @Override
-    public ArticleDetailVO getDetailBySlug(String slug, Jwt jwt) {
+    public ArticleDetailVO getDetailBySlug(String slug, Jwt jwt, String accessToken) {
         if (Objects.isNull(slug) || slug.isBlank()) {
             // 空 slug 不构成有效固定链接，统一按不存在处理
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
@@ -188,28 +208,104 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (Objects.isNull(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
-        return detailView(article, jwt);
+        return detailView(article, jwt, accessToken);
     }
 
     /**
      * 详情视图装配（id / slug 两入口共用）：可见性判定、浏览量原子自增、关联与互动填充。
-     * 非可见状态仅作者本人 / ADMIN 可见；对匿名与非作者不暴露文章存在性，统一报不存在
+     * 非可见状态仅作者本人 / ADMIN 可见；对匿名与非作者不暴露文章存在性，统一报不存在。
+     * 口令保护（issue #15）：已到点的 PASSWORD 文章对公众先出「需口令」极简视图
+     * （不下发标题 / 正文），持有效访问令牌则放行并按可见文章计浏览量
      */
-    private ArticleDetailVO detailView(Article article, Jwt jwt) {
+    private ArticleDetailVO detailView(Article article, Jwt jwt, String accessToken) {
         boolean visible = ArticleVisibility.isVisible(article);
+        boolean passwordUnlocked = false;
         if (!visible && !isAuthorOrAdmin(article, jwt)) {
-            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+            if (isPasswordGated(article)) {
+                if (hasAccessGrant(article, accessToken)) {
+                    passwordUnlocked = true;
+                } else {
+                    // 只证实「存在且需口令」，标题 / 摘要 / 正文等一律不下发
+                    return passwordRequiredView(article);
+                }
+            } else {
+                throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+            }
         }
-        // 浏览量原子自增（一条 update 语句，不先查后写）；草稿 / 下架 / 定时中详情不加
-        if (visible) {
+        // 浏览量原子自增（一条 update 语句，不先查后写）；草稿 / 下架 / 定时中详情不加；
+        // 口令解锁的访问视同可见访问（真实公众阅读）
+        if (visible || passwordUnlocked) {
             baseMapper.update(null, Wrappers.lambdaUpdate(Article.class)
                     .setSql("view_count = view_count + 1")
                     .eq(Article::getId, article.getId()));
         }
         ArticleDetailVO vo = converter.convert(article, ArticleDetailVO.class);
+        vo.setPasswordRequired(false);
         fillAssociations(List.of(vo), List.of(article));
-        fillInteraction(vo, article, visible, jwt);
+        fillInteraction(vo, article, visible || passwordUnlocked, jwt);
         return vo;
+    }
+
+    /**
+     * 口令门禁判定（issue #15）：已到点的 PASSWORD 文章。未到点 / 草稿 / 下架的
+     * PASSWORD 文章不出门禁（对公众与不存在同语义，避免提前暴露存在性）
+     */
+    private boolean isPasswordGated(Article article) {
+        return Visibility.PASSWORD.name().equals(article.getVisibility())
+                && ArticleVisibility.isPublishedDue(article);
+    }
+
+    /**
+     * 访问令牌校验：Redis 中签发时的哈希须与当前口令哈希一致（TTL 2h）
+     */
+    private boolean hasAccessGrant(Article article, String accessToken) {
+        if (Objects.isNull(accessToken) || accessToken.isBlank()) {
+            return false;
+        }
+        String grantedHash = stringRedisTemplate.opsForValue()
+                .get(accessKey(article.getId(), accessToken.trim()));
+        // 绑定签发时的口令哈希：改口令或切换可见性后，旧令牌立即失效。
+        return Objects.nonNull(grantedHash) && grantedHash.equals(article.getAccessPasswordHash());
+    }
+
+    /**
+     * 「需口令」极简视图：仅回填 id / slug / visibility / passwordRequired，
+     * 标题 / 摘要 / 正文 / 作者等均不下发（口令页只需知道「往哪篇文章提交口令」）
+     */
+    private ArticleDetailVO passwordRequiredView(Article article) {
+        ArticleDetailVO vo = new ArticleDetailVO();
+        vo.setId(article.getId());
+        vo.setSlug(article.getSlug());
+        vo.setVisibility(article.getVisibility());
+        vo.setPasswordRequired(true);
+        return vo;
+    }
+
+    /**
+     * 校验口令并签发访问令牌（issue #15）。非「已到点的 PASSWORD 文章」一律按不存在
+     * （含 PRIVATE / 草稿 / 下架 / 回收站），不暴露存在性。限流编排在控制器层
+     * （CaptchaGuard 登录同款双维度：IP + 文章 id），本方法只做口令比对与签发
+     */
+    @Override
+    public ArticleAccessVO verifyAccessPassword(Long id, String password) {
+        Article article = getById(id);
+        if (Objects.isNull(article) || !isPasswordGated(article)) {
+            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+        }
+        String hash = Objects.nonNull(article.getAccessPasswordHash()) ? article.getAccessPasswordHash() : "";
+        if (password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+            throw new BusinessException(StatusCode.ARTICLE_PASSWORD_INVALID);
+        }
+        if (!passwordEncoder.matches(password, hash)) {
+            throw new BusinessException(StatusCode.ARTICLE_PASSWORD_INVALID);
+        }
+        String token = UUID.randomUUID().toString().replace("-", "");
+        stringRedisTemplate.opsForValue().set(accessKey(id, token), hash, ACCESS_TTL);
+        return new ArticleAccessVO(token, ACCESS_TTL.toSeconds());
+    }
+
+    private static String accessKey(Long articleId, String token) {
+        return ACCESS_KEY.formatted(articleId, token);
     }
 
     @Override
@@ -229,6 +325,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         article.setContentText(toPlainText(content));
         String status = resolveSaveStatus(dto.getStatus());
         article.setStatus(status);
+        // 可见性（issue #15）：缺省 PUBLIC；PASSWORD 必须带口令（只落 BCrypt 哈希）
+        article.setVisibility(resolveVisibility(dto.getVisibility()));
+        article.setAccessPasswordHash(resolvePasswordHash(dto, null));
         // slug 固定链接（issue #14）：显式指定校验格式与唯一性；缺省按标题清洗生成，
         // 清洗不出 ASCII 字母数字（如纯中文标题）时暂留 null，插入取 id 后回写 post-{id}
         article.setSlug(resolveSlugForCreate(dto));
@@ -273,6 +372,20 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 article.setSlug(slug);
             }
         }
+        // 可见性（issue #15）：留空 = 保持现状；PASSWORD 无既有口令时必须随本次设置新口令；
+        // 切回 PUBLIC / PRIVATE 时清空口令哈希（口令不残留在库）
+        boolean clearPasswordHash = false;
+        if ((Objects.nonNull(dto.getVisibility()) && !dto.getVisibility().isBlank())
+                || (Objects.nonNull(dto.getAccessPassword()) && !dto.getAccessPassword().isBlank())) {
+            String visibility = Objects.isNull(dto.getVisibility()) || dto.getVisibility().isBlank()
+                    ? article.getVisibility() : resolveVisibility(dto.getVisibility());
+            dto.setVisibility(visibility);
+            String passwordHash = resolvePasswordHash(dto, article);
+            article.setVisibility(visibility);
+            article.setAccessPasswordHash(passwordHash);
+            // MP updateById 默认 NOT_NULL 策略写不进 null，清哈希需随后显式 set null
+            clearPasswordHash = Objects.isNull(passwordHash);
+        }
         if (Objects.nonNull(dto.getStatus()) && !dto.getStatus().isBlank()) {
             String status = resolveSaveStatus(dto.getStatus());
             article.setStatus(status);
@@ -288,6 +401,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             }
         }
         updateById(article);
+        if (clearPasswordHash) {
+            baseMapper.update(null, Wrappers.lambdaUpdate(Article.class)
+                    .set(Article::getAccessPasswordHash, null)
+                    .eq(Article::getId, id));
+        }
         replaceTagRelations(article.getId(), dto.getTagIds());
         // P0 自动保存：正式保存成功后删除该操作者的草稿
         deleteAutosave(id, JwtSubjects.userIdOf(jwt));
@@ -431,6 +549,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         draft.put("summary", dto.getSummary());
         draft.put("cover", dto.getCover());
         draft.put("categoryId", dto.getCategoryId());
+        if (Objects.nonNull(dto.getVisibility())) draft.put("visibility", resolveVisibility(dto.getVisibility()));
         draft.put("savedAt", savedAt);
         stringRedisTemplate.opsForValue().set(autosaveKey(id, userId),
                 objectMapper.writeValueAsString(draft), AUTOSAVE_TTL);
@@ -702,6 +821,51 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             throw new BusinessException(StatusCode.ARTICLE_STATUS_INVALID);
         }
         return status;
+    }
+
+    /**
+     * 可见性入参解析（issue #15）：可空（新建缺省 PUBLIC；编辑由调用方先行判空保持现状），
+     * 非法值抛 ARTICLE_VISIBILITY_INVALID
+     */
+    private String resolveVisibility(String visibility) {
+        if (Objects.isNull(visibility) || visibility.isBlank()) {
+            return Visibility.PUBLIC.name();
+        }
+        if (!Visibility.isValid(visibility)) {
+            throw new BusinessException(StatusCode.ARTICLE_VISIBILITY_INVALID);
+        }
+        return visibility;
+    }
+
+    /**
+     * 访问口令哈希解析（issue #15）：仅在落 PASSWORD 时参与——
+     * dto 给了明文口令则校验长度后落 BCrypt 哈希；没给则沿用既有哈希（新建 / 从无口令
+     * 状态切入 PASSWORD 时没有既有哈希可沿用，抛 ARTICLE_PASSWORD_REQUIRED）。
+     * 非 PASSWORD 一律返回 null（切回 PUBLIC / PRIVATE 清空残留哈希）。
+     * 调用前提：dto.visibility 已经 {@link #resolveVisibility} 归一。
+     *
+     * @param existing 编辑场景的库内现值（新建传 null）
+     */
+    private String resolvePasswordHash(ArticleSaveDTO dto, Article existing) {
+        if (!Visibility.PASSWORD.name().equals(dto.getVisibility())) {
+            return null;
+        }
+        String plain = dto.getAccessPassword();
+        if (Objects.nonNull(plain) && !plain.isBlank()) {
+            if (plain.length() < ACCESS_PASSWORD_MIN_LENGTH || plain.length() > ACCESS_PASSWORD_MAX_LENGTH) {
+                throw new BusinessException(StatusCode.PARAM_INVALID.getCode(),
+                        "访问口令长度需为 " + ACCESS_PASSWORD_MIN_LENGTH + "~" + ACCESS_PASSWORD_MAX_LENGTH + " 个字符");
+            }
+            if (plain.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) {
+                throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "访问口令 UTF-8 编码不能超过 72 字节");
+            }
+            return passwordEncoder.encode(plain);
+        }
+        String existingHash = Objects.nonNull(existing) ? existing.getAccessPasswordHash() : null;
+        if (Objects.nonNull(existingHash) && !existingHash.isBlank()) {
+            return existingHash;
+        }
+        throw new BusinessException(StatusCode.ARTICLE_PASSWORD_REQUIRED);
     }
 
     /**

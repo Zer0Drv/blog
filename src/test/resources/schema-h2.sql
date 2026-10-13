@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS `article`
     `category_id`    BIGINT       NULL COMMENT '分类id',
     `author_id`      BIGINT       NOT NULL COMMENT '作者id',
     `status`         VARCHAR(16)  NOT NULL DEFAULT 'DRAFT' COMMENT '状态：DRAFT/PUBLISHED/OFFLINE',
+    `visibility`     VARCHAR(16)  NOT NULL DEFAULT 'PUBLIC' COMMENT '可见性：PUBLIC/PASSWORD/PRIVATE（V12）',
+    `access_password_hash` VARCHAR(100) NULL COMMENT '口令保护访问口令（BCrypt 哈希，V12）',
     `publish_time`   DATETIME     NULL COMMENT '首次发布时间',
     `view_count`     BIGINT       NOT NULL DEFAULT 0 COMMENT '浏览量',
     `is_top`         TINYINT      NOT NULL DEFAULT 0 COMMENT '置顶：0-否；1-是',

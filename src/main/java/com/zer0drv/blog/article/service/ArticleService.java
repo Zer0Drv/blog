@@ -5,6 +5,7 @@ import com.zer0drv.blog.article.dto.ArticleSaveDTO;
 import com.zer0drv.blog.article.dto.ArticleStatusDTO;
 import com.zer0drv.blog.article.dto.AutosaveDTO;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
+import com.zer0drv.blog.article.vo.ArticleAccessVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
@@ -31,14 +32,25 @@ public interface ArticleService {
     /**
      * 文章详情。匿名 / 非作者仅可见 PUBLISHED；作者本人或 ADMIN 可看任意状态。
      * jwt 可为 null（匿名访问）。
+     * <p>口令保护（issue #15）：已到点的 PASSWORD 文章对非作者返回「需口令」极简视图
+     * （passwordRequired=true，不含标题 / 正文）；持有效访问令牌（accessToken，口令校验
+     * 端点签发）则按正常详情放行。PRIVATE 对公众与「不存在」同语义。
      */
-    ArticleDetailVO getDetail(Long id, Jwt jwt);
+    ArticleDetailVO getDetail(Long id, Jwt jwt, String accessToken);
 
     /**
      * 按 slug 取文章详情（issue #14 固定链接）。可见性、浏览量自增、存在性隐藏
-     * 规则与 {@link #getDetail} 完全一致；slug 不存在或在回收站一律报 ARTICLE_NOT_EXIST。
+     * 规则与 {@link #getDetail} 完全一致（含口令门禁）；slug 不存在或在回收站一律报
+     * ARTICLE_NOT_EXIST。
      */
-    ArticleDetailVO getDetailBySlug(String slug, Jwt jwt);
+    ArticleDetailVO getDetailBySlug(String slug, Jwt jwt, String accessToken);
+
+    /**
+     * 校验口令保护文章的访问口令（issue #15）：通过则签发短期访问令牌（Redis，TTL 2h）。
+     * 非「已到点的 PASSWORD 文章」一律报 ARTICLE_NOT_EXIST（不暴露存在性）；
+     * 口令错误报 ARTICLE_PASSWORD_INVALID。限流编排在控制器层（CaptchaGuard 双维度计数）。
+     */
+    ArticleAccessVO verifyAccessPassword(Long id, String password);
 
     /**
      * 新建文章（允许直接发布），返回文章id

@@ -91,6 +91,20 @@ public class Article {
     private String status;
 
     /**
+     * 可见性（V12，issue #15）：PUBLIC / PASSWORD / PRIVATE；与 status 生命周期正交，
+     * 仅在「已发布且到点」后决定受众；公众可见性谓词要求 PUBLIC（出处 ArticleVisibility）
+     */
+    @TableField(value = "visibility")
+    private String visibility;
+
+    /**
+     * 口令保护访问口令的 BCrypt 哈希（仅 visibility=PASSWORD 时有值；明文口令永不出库，
+     * 切回 PUBLIC / PRIVATE 时清空）
+     */
+    @TableField(value = "access_password_hash")
+    private String accessPasswordHash;
+
+    /**
      * 首次发布时间
      */
     @TableField(value = "publish_time")
