@@ -136,7 +136,7 @@ class ArticleSlugIntegrationTests extends IntegrationTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("40073"));
+                .andExpect(jsonPath("$.code").value("40074"));
     }
 
     @Test
@@ -155,7 +155,7 @@ class ArticleSlugIntegrationTests extends IntegrationTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("40074"));
+                .andExpect(jsonPath("$.code").value("40075"));
     }
 
     @Test
@@ -186,7 +186,7 @@ class ArticleSlugIntegrationTests extends IntegrationTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("40074"));
+                .andExpect(jsonPath("$.code").value("40075"));
     }
 
     @Test
