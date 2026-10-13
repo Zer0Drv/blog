@@ -46,7 +46,7 @@ class SiteConfigServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new SiteConfigServiceImpl(siteConfigMapper);
-        // 启动加载：模拟 DB 中的 7 个种子键
+        // 启动加载：模拟 DB 中的 8 个种子键（V10 起新增 site.friend_links_enabled，issue #17）
         lenient().when(siteConfigMapper.selectList(any())).thenReturn(List.of(
                 row("site.name", "Blog"),
                 row("site.description", "记录与分享"),
@@ -54,7 +54,8 @@ class SiteConfigServiceImplTest {
                 row("site.icp", ""),
                 row("site.footer", ""),
                 row("site.base_url", "http://localhost:5173"),
-                row("comment.review_required", "false")));
+                row("comment.review_required", "false"),
+                row("site.friend_links_enabled", "true")));
         ReflectionTestUtils.invokeMethod(service, "init");
     }
 
@@ -76,15 +77,17 @@ class SiteConfigServiceImplTest {
     @Test
     void getAllReturnsFullCopy() {
         Map<String, String> all = service.getAll();
-        assertEquals(7, all.size());
+        assertEquals(8, all.size());
         assertEquals("http://localhost:5173", all.get("site.base_url"));
     }
 
     @Test
     void getPublicOnlyExposesWhitelistKeys() {
         Map<String, String> publicView = service.getPublic();
-        assertEquals(5, publicView.size());
+        assertEquals(6, publicView.size());
         assertTrue(publicView.containsKey("site.name"));
+        // 友链展示开关属公开白名单（公众端需读取，issue #17）
+        assertTrue(publicView.containsKey("site.friend_links_enabled"));
         assertFalse(publicView.containsKey("site.base_url"));
         assertFalse(publicView.containsKey("comment.review_required"));
     }

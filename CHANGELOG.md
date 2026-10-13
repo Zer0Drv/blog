@@ -6,6 +6,7 @@
 
 ### Added
 
+- 友情链接：`friend_link` 表 + 公众端只读列表（仅启用、排序升序）+ 管理端 CRUD/启停；新增 `site.friend_links_enabled` 配置键联动站点设置展示位（#17）
 - CD 回滚能力：`workflow_dispatch` 填 `rollback_tag` 直部 GHCR 历史镜像，image 构建自动跳过（#43）
 - 开发流程建设：CONTRIBUTING 规范、Issue/PR 模板、main 分支保护（必过 CI、禁直推/强推）、Dependabot 周更 + 安全扫描、优先级标签与 Projects 看板（#37、#38）
 
