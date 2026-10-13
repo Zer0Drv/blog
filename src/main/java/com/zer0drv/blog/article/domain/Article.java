@@ -36,6 +36,13 @@ public class Article {
     private String title;
 
     /**
+     * 固定链接 slug（V11，issue #14）：全局唯一（含回收站占位），小写字母/数字/连字符；
+     * 保存时未指定由服务端按标题生成，清洗不出 ASCII 字母数字时以 post-{id} 兜底
+     */
+    @TableField(value = "slug")
+    private String slug;
+
+    /**
      * 摘要
      */
     @TableField(value = "summary")

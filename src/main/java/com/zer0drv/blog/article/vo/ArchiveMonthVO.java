@@ -38,6 +38,11 @@ public class ArchiveMonthVO {
 
         private String title;
 
+        /**
+         * 固定链接 slug（issue #14）：前端归档列表优先按 slug 生成链接，缺失回退 id
+         */
+        private String slug;
+
         private LocalDateTime publishTime;
     }
 }

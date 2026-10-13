@@ -37,6 +37,12 @@ public interface ArticleService {
     ArticleDetailVO getDetail(Long id, Jwt jwt);
 
     /**
+     * 按 slug 取文章详情（issue #14 固定链接）。可见性、浏览量自增、存在性隐藏
+     * 规则与 {@link #getDetail} 完全一致；slug 不存在或在回收站一律报 ARTICLE_NOT_EXIST。
+     */
+    ArticleDetailVO getDetailBySlug(String slug, Jwt jwt);
+
+    /**
      * 新建文章（允许直接发布），返回文章id
      */
     Long create(ArticleSaveDTO dto, Jwt jwt);

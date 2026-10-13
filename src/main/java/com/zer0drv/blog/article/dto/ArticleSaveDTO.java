@@ -41,6 +41,13 @@ public class ArticleSaveDTO {
     private String summary;
 
     /**
+     * 固定链接 slug（issue #14，可空）：仅小写字母/数字/连字符；
+     * 新建留空由后端按标题自动生成；编辑留空表示保持现状
+     */
+    @Size(max = 200, message = "slug 不能超过 200 个字符")
+    private String slug;
+
+    /**
      * 封面图 URL
      */
     private String cover;

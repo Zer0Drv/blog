@@ -6,6 +6,7 @@
 
 ### Added
 
+- 文章 slug 固定链接（#14）：article 表新增 slug 列（V11；唯一索引含回收站占位，存量回填 `post-{id}`）；发布/保存校验格式与唯一性，未指定按标题清洗自动生成（纯中文标题 `post-{id}` 兜底，冲突追加序号）；新增公开详情 `GET /articles/slug/{slug}`（旧 `/{id}` 继续可用）；RSS/sitemap 文章链接改用 slug；列表/详情/归档 VO 带出 slug
 - CD 回滚能力：`workflow_dispatch` 填 `rollback_tag` 直部 GHCR 历史镜像，image 构建自动跳过（#43）
 - 开发流程建设：CONTRIBUTING 规范、Issue/PR 模板、main 分支保护（必过 CI、禁直推/强推）、Dependabot 周更 + 安全扫描、优先级标签与 Projects 看板（#37、#38）
 

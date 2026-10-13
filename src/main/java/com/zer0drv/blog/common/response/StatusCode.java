@@ -62,6 +62,9 @@ public enum StatusCode {
     ATTACHMENT_GROUP_NOT_EXIST("40070", "附件分组不存在"),
     ATTACHMENT_GROUP_HAS_ITEMS("40071", "分组内仍有附件，无法删除"),
     UPLOAD_DAILY_LIMIT_EXCEEDED("40072", "今日上传次数已达上限，请明日再试"),
+    // slug 固定链接（issue #14）：格式仅允许小写字母/数字/连字符；唯一性含回收站占位
+    ARTICLE_SLUG_INVALID("40073", "slug 格式不合法：仅允许小写字母、数字与连字符"),
+    ARTICLE_SLUG_EXISTS("40074", "slug 已被其他文章占用"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 
