@@ -133,9 +133,10 @@ public class ArticleTransferService {
 
     /**
      * front matter 应用白名单：仅这些字段会被写入草稿元数据
+     * （slug 走与编辑器保存相同的格式 + 全局唯一校验，冲突即该条失败）
      */
     private static final Set<String> META_APPLIED_KEYS =
-            Set.of("title", "date", "tags", "category", "summary", "cover");
+            Set.of("title", "slug", "date", "tags", "category", "summary", "cover");
 
     /**
      * 已知但静默忽略的字段：updated 由系统维护（导出会写入，导入不回填，也不打扰用户）
@@ -227,6 +228,9 @@ public class ArticleTransferService {
     private String renderExport(Article article) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("title", Objects.isNull(article.getTitle()) ? "" : article.getTitle());
+        if (Objects.nonNull(article.getSlug()) && !article.getSlug().isBlank()) {
+            meta.put("slug", article.getSlug());
+        }
         LocalDateTime date = Objects.nonNull(article.getPublishTime())
                 ? article.getPublishTime()
                 : (Objects.nonNull(article.getCreateTime()) ? article.getCreateTime() : LocalDateTime.now());
@@ -549,6 +553,12 @@ public class ArticleTransferService {
             } else {
                 dto.setCover(cover);
             }
+        }
+        // slug 原样透传给创建链路：格式 / 全局唯一校验与编辑器保存同一套（40074/40075），
+        // 冲突或非法时该条导入失败，不静默改写以保证固定链接可预期
+        String slug = metaScalar(meta, "slug", warnings);
+        if (Objects.nonNull(slug) && !slug.isBlank()) {
+            dto.setSlug(slug.trim());
         }
         String categoryName = metaScalar(meta, "category", warnings);
         if (Objects.nonNull(categoryName) && !categoryName.isBlank()) {

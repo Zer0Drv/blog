@@ -87,6 +87,8 @@ class ArticleImportExportIntegrationTests extends IntegrationTestSupport {
         long articleId = seedArticleWithEditorType(authorId, title, "PUBLISHED", "MARKDOWN", "# 你好\n\n正文内容");
         jdbcTemplate.update("INSERT INTO article_tag (article_id, tag_id) VALUES (?,?)", articleId, tagId);
         jdbcTemplate.update("UPDATE article SET category_id = ? WHERE id = ?", categoryId, articleId);
+        String slug = "it-exp-" + articleId;
+        jdbcTemplate.update("UPDATE article SET slug = ? WHERE id = ?", slug, articleId);
 
         // 匿名可导出已发布文章；format 省略时 MARKDOWN → md
         MvcResult result = mockMvc.perform(get("/articles/{id}/export", articleId))
@@ -99,7 +101,7 @@ class ArticleImportExportIntegrationTests extends IntegrationTestSupport {
                                 org.hamcrest.Matchers.endsWith(".md"))))
                 .andReturn();
         String body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-        assertTrue(body.startsWith("---\ntitle: " + title + "\ndate: '"), body);
+        assertTrue(body.startsWith("---\ntitle: " + title + "\nslug: " + slug + "\ndate: '"), body);
         // 元数据：状态 / 标签名 / 分类名（种子数据 summary=标题，cover 空不输出）
         assertTrue(body.contains("status: PUBLISHED\n"), body);
         assertTrue(body.contains("tags:\n- "), body);
@@ -279,8 +281,10 @@ class ArticleImportExportIntegrationTests extends IntegrationTestSupport {
         String categoryName = unique("导入分类");
         long categoryId = seedCategory(categoryName);
         String newTag = unique("新标签");
+        String slug = "it-imp-fm-" + System.nanoTime();
         String content = "---\n"
                 + "title: front matter 标题\n"
+                + "slug: " + slug + "\n"
                 + "date: '2025-03-04T05:06:07'\n"
                 + "tags:\n  - " + existingTag + "\n  - " + newTag + "\n"
                 + "category: " + categoryName + "\n"
@@ -310,14 +314,15 @@ class ArticleImportExportIntegrationTests extends IntegrationTestSupport {
         long articleId = objectMapper.readTree(result.getResponse().getContentAsString())
                 .path("data").path("imported").path(0).path("id").asLong();
 
-        // 元数据落库：DRAFT / 分类 / 摘要 / 封面 / date 回填 publish_time
+        // 元数据落库：DRAFT / 分类 / 摘要 / 封面 / slug / date 回填 publish_time
         Map<String, Object> row = jdbcTemplate.queryForMap(
-                "SELECT status, category_id, summary, cover, publish_time, content FROM article WHERE id = ?",
+                "SELECT status, category_id, summary, cover, slug, publish_time, content FROM article WHERE id = ?",
                 articleId);
         assertEquals("DRAFT", row.get("status"));
         assertEquals(categoryId, ((Number) row.get("category_id")).longValue());
         assertEquals("导入摘要", row.get("summary"));
         assertEquals("https://example.com/cover.png", row.get("cover"));
+        assertEquals(slug, row.get("slug"));
         assertEquals(Timestamp.valueOf("2025-03-04 05:06:07"), row.get("publish_time"));
         // front matter 已有标题：正文 H1 保留（round-trip 保真）
         assertTrue(((String) row.get("content")).contains("# 正文一级标题"), (String) row.get("content"));

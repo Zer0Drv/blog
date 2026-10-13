@@ -121,6 +121,7 @@ class ArticleTransferServiceTest {
         Article article = new Article();
         article.setId(id);
         article.setTitle("标题" + id);
+        article.setSlug("post-" + id);
         article.setSummary("摘要" + id);
         article.setContent("# 正文" + id);
         article.setEditorType(editorType);
@@ -204,6 +205,8 @@ class ArticleTransferServiceTest {
         String body = new String(export.body(), StandardCharsets.UTF_8);
         assertTrue(body.startsWith("---\n"), body);
         assertTrue(body.contains("title: 标题1\n"), body);
+        // slug 固定链接随 front matter 导出（issue #14/#16 协同）
+        assertTrue(body.contains("slug: post-1\n"), body);
         // date 取 publishTime（优先于 createTime），snakeyaml 对时间戳样式字符串加引号
         assertTrue(body.contains("date: '2026-01-01T12:00:00'\n"), body);
         assertTrue(body.contains("updated: '2026-01-02T09:00:00'\n"), body);
@@ -379,6 +382,20 @@ class ArticleTransferServiceTest {
         ArgumentCaptor<ArticleSaveDTO> captor = ArgumentCaptor.forClass(ArticleSaveDTO.class);
         verify(articleService).create(captor.capture(), any());
         assertEquals(List.of(99L), captor.getValue().getTagIds());
+    }
+
+    @Test
+    void importSingle_slugPassedThroughToCreate() {
+        when(articleService.create(any(), any())).thenReturn(48L);
+
+        ArticleImportResultVO result = transferService.importArticles(
+                mdFile("s.md", "---\ntitle: t\nslug: my-old-post\n---\n\n正文"), jwtOf(7L, "ROLE_AUTHOR"));
+
+        assertEquals(1, result.imported().size());
+        ArgumentCaptor<ArticleSaveDTO> captor = ArgumentCaptor.forClass(ArticleSaveDTO.class);
+        verify(articleService).create(captor.capture(), any());
+        // slug 透传创建链路（格式 / 唯一校验在 create 内与编辑器保存同一套）
+        assertEquals("my-old-post", captor.getValue().getSlug());
     }
 
     @Test

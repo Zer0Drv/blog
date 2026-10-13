@@ -60,6 +60,7 @@
   ```yaml
   ---
   title: 标题
+  slug: my-post                    # 固定链接 slug（issue #14 协同）
   date: '2026-10-01T12:00:00'      # publishTime ?? createTime
   updated: '2026-10-02T09:00:00'   # updateTime
   status: PUBLISHED                # DRAFT / PUBLISHED / OFFLINE
@@ -80,7 +81,7 @@
 - **权限**：仅 ADMIN / AUTHOR（其余角色 `40300`，匿名 `401`）；作为 mutating 请求需携带 `X-Requested-With: XMLHttpRequest`
 - **白名单**：`.md` / `.markdown` / `.txt` → 建 MARKDOWN 草稿；`.html` / `.htm` → 建 RICHTEXT 草稿（入库前走与正文保存相同的 jsoup `Safelist.relaxed()` 清洗）；`.zip` → 批量导入（见下）；其他扩展名 → `40023`「仅支持 .md/.markdown/.txt/.html 文件」
 - **限制**：单文件非空、≤2MB（超过 → `40023`「文件过大，最大 2MB」），UTF-8 解码（自动剥离 BOM）
-- **front matter 解析**：白名单字段自动填充——`title`（优先于首个 H1 / 文件名）、`date`（回填 `publish_time`，发布时沿用原日期）、`tags`（按名匹配，缺失自动创建）、`category`（按名匹配，不存在则跳过并记警告，不自动创建）、`summary`、`cover`；`status` 明确忽略（**导入一律创建 DRAFT 草稿**）并记警告，其余未知字段忽略并汇总一条警告；分隔线完整但 YAML 非法 / 非键值对 → `40023`「front matter 解析失败」
+- **front matter 解析**：白名单字段自动填充——`title`（优先于首个 H1 / 文件名）、`slug`（固定链接，格式与全局唯一校验同编辑器保存，冲突或非法即该条失败）、`date`（回填 `publish_time`，发布时沿用原日期）、`tags`（按名匹配，缺失自动创建）、`category`（按名匹配，不存在则跳过并记警告，不自动创建）、`summary`、`cover`；`status` 明确忽略（**导入一律创建 DRAFT 草稿**）并记警告，其余未知字段忽略并汇总一条警告；分隔线完整但 YAML 非法 / 非键值对 → `40023`「front matter 解析失败」
 - **标题**：front matter `title` > Markdown 首个一级标题（`# 标题`，该行从正文移除）> 文件名去扩展名；超长截断至 200 字符。front matter 已提供标题时正文 H1 保留，保证导出→导入 round-trip 保真
 - **zip 批量导入**：zip ≤5MB（与 multipart 上限对齐）、文件数 ≤50、解压总量 ≤20MB（防 zip bomb）；条目路径穿越校验（Zip Slip，含 `..` 段或绝对路径整包拒绝）；逐条容错——单条失败进 `failed` 明细不影响其他条目
 - **响应**：统一 `Result<ArticleImportResultVO>`——`imported: [{id, title, warnings[], externalImages[]}]` + `failed: [{name, message}]`；单文件硬性失败仍抛业务异常不进 `failed`
