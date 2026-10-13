@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zer0drv.blog.article.api.ArticleCascade;
 import com.zer0drv.blog.article.api.ArticleCommentStatsPort;
 import com.zer0drv.blog.article.api.ArticleInteractionPort;
+import com.zer0drv.blog.article.api.ArticleInteractionStats;
 import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.api.ArticleStatus;
 import com.zer0drv.blog.article.domain.Article;
@@ -19,6 +20,7 @@ import com.zer0drv.blog.article.mapper.ArticleMapper;
 import com.zer0drv.blog.article.mapper.ArticleTagMapper;
 import com.zer0drv.blog.article.mapper.ArticleVersionMapper;
 import com.zer0drv.blog.article.service.impl.ArticleServiceImpl;
+import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.category.mapper.CategoryMapper;
 import com.zer0drv.blog.common.exception.BusinessException;
@@ -62,6 +64,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -525,6 +529,215 @@ class ArticleServiceImplTest {
 
         BusinessException e = assertThrows(BusinessException.class,
                 () -> articleService.forceDelete(10L, jwtOf(1L)));
+        assertEquals(StatusCode.ARTICLE_NOT_EXIST.getCode(), e.getCode());
+    }
+
+    // ---------- slug 固定链接（issue #14） ----------
+
+    @Test
+    void create_explicitSlugSavedAsIs() {
+        when(articleMapper.selectIdBySlugAny("my-permalink")).thenReturn(null);
+        doReturn(true).when(articleService).save(any(Article.class));
+        ArticleSaveDTO dto = saveDto("标题", "正文", "DRAFT");
+        dto.setSlug("my-permalink");
+
+        articleService.create(dto, jwtOf(1L));
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleService).save(captor.capture());
+        assertEquals("my-permalink", captor.getValue().getSlug());
+        // 显式 slug 一次落库，不走 id 兜底回写
+        verify(articleService, never()).updateById(any(Article.class));
+    }
+
+    @Test
+    void create_invalidSlugRejected() {
+        ArticleSaveDTO dto = saveDto("标题", "正文", "DRAFT");
+        dto.setSlug("Hello_World");
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> articleService.create(dto, jwtOf(1L)));
+        assertEquals(StatusCode.ARTICLE_SLUG_INVALID.getCode(), e.getCode());
+        verify(articleService, never()).save(any(Article.class));
+    }
+
+    @Test
+    void create_conflictingSlugRejected() {
+        // 含回收站占位：selectIdBySlugAny 查到 deleted=1 的行同样冲突
+        when(articleMapper.selectIdBySlugAny("taken-slug")).thenReturn(99L);
+        ArticleSaveDTO dto = saveDto("标题", "正文", "DRAFT");
+        dto.setSlug("taken-slug");
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> articleService.create(dto, jwtOf(1L)));
+        assertEquals(StatusCode.ARTICLE_SLUG_EXISTS.getCode(), e.getCode());
+        verify(articleService, never()).save(any(Article.class));
+    }
+
+    @Test
+    void create_generatesSlugFromTitle() {
+        when(articleMapper.selectIdBySlugAny("hello-world-2024")).thenReturn(null);
+        doReturn(true).when(articleService).save(any(Article.class));
+
+        articleService.create(saveDto("Hello World 2024!", "正文", "DRAFT"), jwtOf(1L));
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleService).save(captor.capture());
+        assertEquals("hello-world-2024", captor.getValue().getSlug());
+    }
+
+    @Test
+    void create_generatedSlugConflictAppendsSuffix() {
+        when(articleMapper.selectIdBySlugAny("hello-world")).thenReturn(7L);
+        when(articleMapper.selectIdBySlugAny("hello-world-2")).thenReturn(null);
+        doReturn(true).when(articleService).save(any(Article.class));
+
+        articleService.create(saveDto("Hello World", "正文", "DRAFT"), jwtOf(1L));
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleService).save(captor.capture());
+        assertEquals("hello-world-2", captor.getValue().getSlug());
+    }
+
+    @Test
+    void create_pureCjkTitleFallsBackToPostId() {
+        // 纯中文标题清洗不出 ASCII 字母数字：先插入取 id，同事务回写 post-{id}
+        doAnswer(invocation -> {
+            Article saved = invocation.getArgument(0);
+            saved.setId(42L);
+            return true;
+        }).when(articleService).save(any(Article.class));
+        doReturn(true).when(articleService).updateById(any(Article.class));
+
+        articleService.create(saveDto("纯中文标题", "正文", "DRAFT"), jwtOf(1L));
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleService).updateById(captor.capture());
+        assertEquals("post-42", captor.getValue().getSlug());
+    }
+
+    @Test
+    void update_blankSlugKeepsExisting() {
+        Article old = draftArticle(10L, 1L);
+        old.setSlug("existing-slug");
+        doReturn(old).when(articleService).getById(10L);
+        doReturn(true).when(articleService).updateById(any(Article.class));
+
+        // slug 缺省（null）= 保持现状，不重新生成
+        articleService.update(10L, saveDto("新标题", "新正文", "DRAFT"), jwtOf(1L));
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleService).updateById(captor.capture());
+        assertEquals("existing-slug", captor.getValue().getSlug());
+    }
+
+    @Test
+    void update_sameSlugAsSelfAllowed() {
+        Article old = draftArticle(10L, 1L);
+        old.setSlug("my-slug");
+        doReturn(old).when(articleService).getById(10L);
+        doReturn(true).when(articleService).updateById(any(Article.class));
+        ArticleSaveDTO dto = saveDto("新标题", "新正文", "DRAFT");
+        dto.setSlug("my-slug");
+
+        articleService.update(10L, dto, jwtOf(1L));
+
+        // 与现值相同直接短路，不触发唯一性查询
+        verify(articleMapper, never()).selectIdBySlugAny(anyString());
+    }
+
+    @Test
+    void update_newSlugChecksUniquenessExcludingSelf() {
+        Article old = draftArticle(10L, 1L);
+        old.setSlug("old-slug");
+        doReturn(old).when(articleService).getById(10L);
+        doReturn(true).when(articleService).updateById(any(Article.class));
+        // 独占：查到的持有者就是自己（防御性场景），放行
+        when(articleMapper.selectIdBySlugAny("new-slug")).thenReturn(10L);
+        ArticleSaveDTO dto = saveDto("新标题", "新正文", "DRAFT");
+        dto.setSlug("new-slug");
+
+        articleService.update(10L, dto, jwtOf(1L));
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleService).updateById(captor.capture());
+        assertEquals("new-slug", captor.getValue().getSlug());
+    }
+
+    @Test
+    void update_conflictingSlugRejected() {
+        Article old = draftArticle(10L, 1L);
+        old.setSlug("old-slug");
+        doReturn(old).when(articleService).getById(10L);
+        when(articleMapper.selectIdBySlugAny("other-slug")).thenReturn(8L);
+        ArticleSaveDTO dto = saveDto("新标题", "新正文", "DRAFT");
+        dto.setSlug("other-slug");
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> articleService.update(10L, dto, jwtOf(1L)));
+        assertEquals(StatusCode.ARTICLE_SLUG_EXISTS.getCode(), e.getCode());
+    }
+
+    @Test
+    void update_invalidSlugRejected() {
+        Article old = draftArticle(10L, 1L);
+        old.setSlug("old-slug");
+        doReturn(old).when(articleService).getById(10L);
+        ArticleSaveDTO dto = saveDto("新标题", "新正文", "DRAFT");
+        dto.setSlug("Bad Slug");
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> articleService.update(10L, dto, jwtOf(1L)));
+        assertEquals(StatusCode.ARTICLE_SLUG_INVALID.getCode(), e.getCode());
+    }
+
+    @Test
+    void getDetailBySlug_visibleArticleReturnsAndIncrementsView() {
+        Article published = draftArticle(10L, 1L);
+        published.setSlug("hello-slug");
+        published.setStatus(ArticleStatus.PUBLISHED.name());
+        published.setPublishTime(LocalDateTime.now().minusDays(1));
+        published.setViewCount(5L);
+        doReturn(published).when(articleService).getOne(any(Wrapper.class));
+        when(converter.convert(published, ArticleDetailVO.class)).thenReturn(new ArticleDetailVO());
+        when(articleTagMapper.selectList(any())).thenReturn(List.of());
+        when(userService.listByIds(any())).thenReturn(List.of());
+        when(articleInteractionPort.statsOf(10L, null)).thenReturn(new ArticleInteractionStats(0, 0, false, false));
+        when(articleCommentStatsPort.countVisibleByArticleId(10L)).thenReturn(0L);
+
+        ArticleDetailVO vo = articleService.getDetailBySlug("hello-slug", null);
+
+        assertEquals(6L, vo.getViewCount(), "可见详情浏览量内存 +1 与库内自增对齐");
+        // 浏览量原子自增走 baseMapper.update
+        verify(articleMapper).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void getDetailBySlug_invisibleToAnonymousThrowsNotExist() {
+        Article draft = draftArticle(10L, 1L);
+        draft.setSlug("draft-slug");
+        doReturn(draft).when(articleService).getOne(any(Wrapper.class));
+
+        // 草稿对匿名不暴露存在性，统一报文章不存在；浏览量不自增
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> articleService.getDetailBySlug("draft-slug", null));
+        assertEquals(StatusCode.ARTICLE_NOT_EXIST.getCode(), e.getCode());
+        verify(articleMapper, never()).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void getDetailBySlug_unknownSlugThrowsNotExist() {
+        doReturn(null).when(articleService).getOne(any(Wrapper.class));
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> articleService.getDetailBySlug("no-such-slug", null));
+        assertEquals(StatusCode.ARTICLE_NOT_EXIST.getCode(), e.getCode());
+    }
+
+    @Test
+    void getDetailBySlug_blankSlugThrowsNotExist() {
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> articleService.getDetailBySlug("  ", null));
         assertEquals(StatusCode.ARTICLE_NOT_EXIST.getCode(), e.getCode());
     }
 }

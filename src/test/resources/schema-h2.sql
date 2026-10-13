@@ -56,11 +56,12 @@ CREATE TABLE IF NOT EXISTS `tag`
     CONSTRAINT `uk_tag_name` UNIQUE (`name`)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '文章标签表';
 
--- article 含 V4（view_count）与 V6（is_top / is_recommended）追加列
+-- article 含 V4（view_count）、V6（is_top / is_recommended）与 V11（slug）追加列
 CREATE TABLE IF NOT EXISTS `article`
 (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '文章id',
     `title`          VARCHAR(200) NOT NULL COMMENT '标题',
+    `slug`           VARCHAR(200) NULL COMMENT '固定链接 slug（唯一；V11）',
     `summary`        VARCHAR(500) NOT NULL DEFAULT '' COMMENT '摘要',
     `content`        LONGTEXT     NOT NULL COMMENT '正文（Markdown 或富文本 HTML）',
     `content_text`   LONGTEXT     NULL COMMENT '正文纯文本（全文搜索用，V7）',
@@ -77,6 +78,7 @@ CREATE TABLE IF NOT EXISTS `article`
     `update_time`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted`        TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除；1-删除',
     PRIMARY KEY (`id`),
+    CONSTRAINT `uk_article_slug` UNIQUE (`slug`),
     KEY `idx_article_status_publish` (`status`, `publish_time`),
     KEY `idx_article_author` (`author_id`),
     KEY `idx_article_category` (`category_id`)

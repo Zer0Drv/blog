@@ -80,6 +80,7 @@ class ArticleCatalogImplTest {
         article.setAuthorId(authorId);
         article.setTitle("标题" + id);
         article.setSummary("摘要" + id);
+        article.setSlug("slug-" + id);
         article.setStatus(status);
         article.setPublishTime(publishTime);
         article.setUpdateTime(LocalDateTime.now().minusHours(1));
@@ -242,6 +243,8 @@ class ArticleCatalogImplTest {
         assertEquals(7L, first.authorId());
         assertEquals("标题1", first.title());
         assertEquals("摘要1", first.summary());
+        // slug 固定链接投影（issue #14）：SEO 消费方据此生成 /article/{slug}
+        assertEquals("slug-1", first.slug());
         assertTrue(first.publishTime() != null && first.updateTime() != null);
     }
 

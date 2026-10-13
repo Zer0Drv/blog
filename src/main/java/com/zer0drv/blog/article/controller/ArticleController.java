@@ -97,6 +97,17 @@ public class ArticleController {
     }
 
     /**
+     * 按 slug 取文章详情（公开；issue #14 固定链接）。与 /{id} 并存——旧 id 链接继续可用，
+     * slug 为新增能力。字面量前缀 slug 两段式路径不与 /{id}（Long）产生路由歧义，
+     * SecurityConfig 的 /articles/** permitAll 已覆盖，无需改安全链
+     */
+    @GetMapping("/slug/{slug}")
+    public Result<ArticleDetailVO> getDetailBySlug(@PathVariable String slug,
+                                                   @AuthenticationPrincipal Jwt jwt) {
+        return Result.ok(articleService.getDetailBySlug(slug, jwt));
+    }
+
+    /**
      * 新建文章（允许直接发布）
      */
     @PostMapping

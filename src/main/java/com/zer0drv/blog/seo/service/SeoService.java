@@ -82,7 +82,7 @@ public class SeoService {
         xml.append("  <url><loc>").append(escapeXml(baseUrl + "/")).append("</loc></url>\n");
         for (ArticleFeedEntry article : articles) {
             xml.append("  <url>\n");
-            xml.append("    <loc>").append(escapeXml(articleLink(baseUrl, article.id()))).append("</loc>\n");
+            xml.append("    <loc>").append(escapeXml(articleLink(baseUrl, article))).append("</loc>\n");
             if (Objects.nonNull(article.updateTime())) {
                 xml.append("    <lastmod>")
                         .append(article.updateTime().format(SITEMAP_DATE_FORMATTER))
@@ -120,7 +120,7 @@ public class SeoService {
         for (ArticleFeedEntry article : articles) {
             SyndEntry entry = new SyndEntryImpl();
             entry.setTitle(article.title());
-            String link = articleLink(baseUrl, article.id());
+            String link = articleLink(baseUrl, article);
             entry.setLink(link);
             entry.setUri(link);
             User author = authors.get(article.authorId());
@@ -161,8 +161,14 @@ public class SeoService {
         return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
     }
 
-    private static String articleLink(String baseUrl, Long articleId) {
-        return baseUrl + "/article/" + articleId;
+    /**
+     * 文章链接（issue #14）：固定链接优先（/article/{slug}），slug 缺失的异常存量
+     * 回退 /article/{id}——两条路由前端都解析，旧链接不破坏
+     */
+    private static String articleLink(String baseUrl, ArticleFeedEntry article) {
+        String key = Objects.nonNull(article.slug()) && !article.slug().isBlank()
+                ? article.slug() : String.valueOf(article.id());
+        return baseUrl + "/article/" + key;
     }
 
     private static Date toDate(LocalDateTime time) {
