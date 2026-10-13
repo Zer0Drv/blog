@@ -51,6 +51,13 @@ public interface ArticleMapper extends BaseMapper<Article> {
     Article selectAnyById(@Param("id") Long id);
 
     /**
+     * 按 slug 查持有者 id（含已逻辑删除的行；slug 唯一性校验用——回收站文章仍占位，
+     * 见 V11 迁移注释）。MP 逻辑删除会拼 deleted=0，故手写 SQL 绕过
+     */
+    @Select("SELECT id FROM article WHERE slug = #{slug} LIMIT 1")
+    Long selectIdBySlugAny(@Param("slug") String slug);
+
+    /**
      * 从回收站恢复：置 deleted=0 且回草稿态（不直接上线）
      */
     @Update("UPDATE article SET deleted = 0, status = 'DRAFT' WHERE id = #{id} AND deleted = 1")

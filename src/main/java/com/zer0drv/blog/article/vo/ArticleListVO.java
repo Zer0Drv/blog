@@ -18,6 +18,11 @@ public class ArticleListVO {
 
     private String title;
 
+    /**
+     * 固定链接 slug（issue #14）：公众端 /article/{slug} 路由与 RSS/sitemap 链接使用
+     */
+    private String slug;
+
     private String summary;
 
     private String cover;

@@ -117,6 +117,6 @@ public class ArticleCatalogImpl implements ArticleCatalog {
 
     private static ArticleFeedEntry toFeedEntry(Article article) {
         return new ArticleFeedEntry(article.getId(), article.getAuthorId(), article.getTitle(),
-                article.getSummary(), article.getPublishTime(), article.getUpdateTime());
+                article.getSummary(), article.getSlug(), article.getPublishTime(), article.getUpdateTime());
     }
 }

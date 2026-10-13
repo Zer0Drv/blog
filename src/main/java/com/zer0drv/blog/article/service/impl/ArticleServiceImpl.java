@@ -11,6 +11,7 @@ import com.zer0drv.blog.article.api.ArticleInteractionStats;
 import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.api.ArticleStatus;
 import com.zer0drv.blog.article.domain.Article;
+import com.zer0drv.blog.article.domain.ArticleSlugger;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
 import com.zer0drv.blog.article.domain.ArticleVisibility;
@@ -102,6 +103,12 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
      */
     private static final String PSEUDO_STATUS_TRASH = "TRASH";
 
+    /**
+     * 自动生成 slug 的冲突追加序号上限（-2 … -9999）；撞满属理论极端，
+     * 并发/超界冲突最终由 uk_article_slug 唯一索引兜底
+     */
+    private static final int SLUG_SUFFIX_MAX = 9999;
+
     private final ArticleTagMapper articleTagMapper;
     private final TagMapper tagMapper;
     private final CategoryMapper categoryMapper;
@@ -167,8 +174,29 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (Objects.isNull(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
+        return detailView(article, jwt);
+    }
+
+    @Override
+    public ArticleDetailVO getDetailBySlug(String slug, Jwt jwt) {
+        if (Objects.isNull(slug) || slug.isBlank()) {
+            // 空 slug 不构成有效固定链接，统一按不存在处理
+            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+        }
+        // MP 逻辑删除自动拼 deleted=0：回收站文章的 slug 对详情不可见（但仍占唯一坑位）
+        Article article = getOne(Wrappers.lambdaQuery(Article.class).eq(Article::getSlug, slug.trim()));
+        if (Objects.isNull(article)) {
+            throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+        }
+        return detailView(article, jwt);
+    }
+
+    /**
+     * 详情视图装配（id / slug 两入口共用）：可见性判定、浏览量原子自增、关联与互动填充。
+     * 非可见状态仅作者本人 / ADMIN 可见；对匿名与非作者不暴露文章存在性，统一报不存在
+     */
+    private ArticleDetailVO detailView(Article article, Jwt jwt) {
         boolean visible = ArticleVisibility.isVisible(article);
-        // 非可见状态仅作者本人 / ADMIN 可见；对匿名与非作者不暴露文章存在性，统一报不存在
         if (!visible && !isAuthorOrAdmin(article, jwt)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
@@ -176,7 +204,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         if (visible) {
             baseMapper.update(null, Wrappers.lambdaUpdate(Article.class)
                     .setSql("view_count = view_count + 1")
-                    .eq(Article::getId, id));
+                    .eq(Article::getId, article.getId()));
         }
         ArticleDetailVO vo = converter.convert(article, ArticleDetailVO.class);
         fillAssociations(List.of(vo), List.of(article));
@@ -201,11 +229,19 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         article.setContentText(toPlainText(content));
         String status = resolveSaveStatus(dto.getStatus());
         article.setStatus(status);
+        // slug 固定链接（issue #14）：显式指定校验格式与唯一性；缺省按标题清洗生成，
+        // 清洗不出 ASCII 字母数字（如纯中文标题）时暂留 null，插入取 id 后回写 post-{id}
+        article.setSlug(resolveSlugForCreate(dto));
         // 新建直接发布：写首次发布时间（可定时；status=DRAFT 时忽略 publishTime）
         if (ArticleStatus.PUBLISHED.name().equals(status)) {
             article.setPublishTime(resolvePublishTimeOnPublish(dto.getPublishTime()));
         }
         save(article);
+        if (Objects.isNull(article.getSlug())) {
+            // id 兜底回写（同事务）：post-{id} 天然唯一，无需再查重
+            article.setSlug("post-" + article.getId());
+            updateById(article);
+        }
         replaceTagRelations(article.getId(), dto.getTagIds());
         return article.getId();
     }
@@ -227,6 +263,16 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         article.setSummary(resolveSummary(dto));
         article.setCover(Objects.isNull(dto.getCover()) ? "" : dto.getCover());
         article.setCategoryId(dto.getCategoryId());
+        // slug 固定链接（issue #14）：显式指定且与现值不同才校验唯一性并更新；
+        // 留空 = 保持现状（不重新生成，已分享出去的固定链接不因编辑正文而漂移）
+        if (Objects.nonNull(dto.getSlug()) && !dto.getSlug().isBlank()) {
+            String slug = dto.getSlug().trim();
+            assertSlugFormat(slug);
+            if (!slug.equals(article.getSlug())) {
+                assertSlugAvailable(slug, id);
+                article.setSlug(slug);
+            }
+        }
         if (Objects.nonNull(dto.getStatus()) && !dto.getStatus().isBlank()) {
             String status = resolveSaveStatus(dto.getStatus());
             article.setStatus(status);
@@ -433,9 +479,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Override
     public List<ArchiveMonthVO> archives() {
-        // 只取三列，Java 内存按月分组（个人博客量级，不用 SQL 分组方言）
+        // 只取四列，Java 内存按月分组（个人博客量级，不用 SQL 分组方言）
         List<Article> articles = list(ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class)
-                        .select(Article::getId, Article::getTitle, Article::getPublishTime))
+                        .select(Article::getId, Article::getTitle, Article::getSlug, Article::getPublishTime))
                 .orderByDesc(Article::getPublishTime));
         // LinkedHashMap 保持首见顺序：publish_time 倒序遍历 → 月份天然倒序，月内文章亦倒序
         Map<String, List<ArchiveMonthVO.Item>> grouped = new LinkedHashMap<>();
@@ -443,6 +489,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             ArchiveMonthVO.Item item = new ArchiveMonthVO.Item();
             item.setId(article.getId());
             item.setTitle(article.getTitle());
+            item.setSlug(article.getSlug());
             item.setPublishTime(article.getPublishTime());
             grouped.computeIfAbsent(article.getPublishTime().format(ARCHIVE_MONTH_FORMAT),
                     k -> new ArrayList<>()).add(item);
@@ -583,6 +630,65 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                 throw new BusinessException(StatusCode.TAG_NOT_EXIST);
             }
         }
+    }
+
+    /**
+     * 新建时的 slug（issue #14）：显式指定走格式 + 唯一性校验后原样采用；
+     * 缺省按标题清洗生成并消解冲突；清洗结果为空返回 null（调用方插入后回写 post-{id}）
+     */
+    private String resolveSlugForCreate(ArticleSaveDTO dto) {
+        if (Objects.nonNull(dto.getSlug()) && !dto.getSlug().isBlank()) {
+            String slug = dto.getSlug().trim();
+            assertSlugFormat(slug);
+            assertSlugAvailable(slug, null);
+            return slug;
+        }
+        String base = ArticleSlugger.clean(dto.getTitle());
+        if (base.isEmpty()) {
+            return null;
+        }
+        return uniqueSlugFor(base, null);
+    }
+
+    /**
+     * 显式 slug 的格式校验：小写字母/数字/连字符、≤200（口径与 article.slug 列一致）
+     */
+    private void assertSlugFormat(String slug) {
+        if (!ArticleSlugger.isValid(slug)) {
+            throw new BusinessException(StatusCode.ARTICLE_SLUG_INVALID);
+        }
+    }
+
+    /**
+     * slug 全局唯一校验（含回收站占位：selectIdBySlugAny 查 deleted=1 的行，
+     * 见 V11 迁移注释）；excludeId 为编辑场景排除自身，新建传 null
+     */
+    private void assertSlugAvailable(String slug, Long excludeId) {
+        Long holder = baseMapper.selectIdBySlugAny(slug);
+        if (Objects.nonNull(holder) && !holder.equals(excludeId)) {
+            throw new BusinessException(StatusCode.ARTICLE_SLUG_EXISTS);
+        }
+    }
+
+    /**
+     * 自动生成 slug 的冲突消解：基底按后缀长度截断（总量 ≤200），冲突依次追加 -2、-3…；
+     * 个人博客量级实际不会撞满上限，并发与超界冲突由 uk_article_slug 唯一索引兜底
+     */
+    private String uniqueSlugFor(String base, Long excludeId) {
+        String candidate = ArticleSlugger.truncateForSuffix(base, "");
+        Long holder = baseMapper.selectIdBySlugAny(candidate);
+        if (Objects.isNull(holder) || holder.equals(excludeId)) {
+            return candidate;
+        }
+        for (int i = 2; i <= SLUG_SUFFIX_MAX; i++) {
+            String suffix = "-" + i;
+            candidate = ArticleSlugger.truncateForSuffix(base, suffix) + suffix;
+            holder = baseMapper.selectIdBySlugAny(candidate);
+            if (Objects.isNull(holder) || holder.equals(excludeId)) {
+                return candidate;
+            }
+        }
+        throw new BusinessException(StatusCode.ARTICLE_SLUG_EXISTS);
     }
 
     /**
