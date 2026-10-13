@@ -4,7 +4,8 @@
  * <p>约束：
  * <ul>
  *   <li>本包只允许出现接口、record 与契约枚举（ArticleStatus 于 issue #34 第六步
- *       自 article.enums 上移，外模块状态校验 / 写操作的契约类型），禁止任何
+ *       自 article.enums 上移，外模块状态校验 / 写操作的契约类型；Visibility 于
+ *       issue #15 新增，口令保护 / 私密可见性级别的契约枚举），禁止任何
  *       MyBatis-Plus 类型——外模块单测
  *       只 mock {@link com.zer0drv.blog.article.api.ArticleCatalog}，不再需要
  *       TableInfoHelper 初始化样板；</li>

@@ -36,6 +36,12 @@ public interface CaptchaService {
     String SCENE_COMMENT = "comment";
 
     /**
+     * 场景：文章口令校验（issue #15，计数键：客户端 IP + 文章 id 双维度，
+     * 口令错误 +1，成功清零——登录同款编排，防爆破）
+     */
+    String SCENE_ARTICLE_PASSWORD = "article-password";
+
+    /**
      * 生成图形验证码：文本存 Redis（TTL 见配置），返回 captchaId 与 PNG data URI
      *
      * @return { "captchaId": "uuid", "imageBase64": "data:image/png;base64,..." }

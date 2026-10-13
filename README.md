@@ -11,7 +11,8 @@
 - 文章 CRUD：Markdown / 富文本双编辑器模式，草稿 / 发布 / 下架状态流转，置顶与推荐位
 - **版本历史**：每次保存自动快照（版本号递增），可查看任意版本并一键恢复（恢复也留痕）
 - **自动保存**：草稿自动保存到 Redis（TTL 2h），正式保存后自动清除
-- **定时发布**：`publishTime` 可选，公众可见性谓词（`status=PUBLISHED AND publish_time<=now`）单一出处在 `article/domain/ArticleVisibility`——内存判定 / MyBatis-Plus Wrapper 拼接 / 原生 SQL 常量三种消费形态同源，`Clock` 注入支持固定时钟单测
+- **定时发布**：`publishTime` 可选，公众可见性谓词单一出处在 `article/domain/ArticleVisibility`——内存判定 / MyBatis-Plus Wrapper 拼接 / 原生 SQL 常量三种消费形态同源，`Clock` 注入支持固定时钟单测
+- **密码保护 / 私密文章**：独立 `visibility` 字段（PUBLIC / PASSWORD / PRIVATE，V12），与 status 生命周期正交；公众可见性 = `status=PUBLISHED AND publish_time<=now AND visibility=PUBLIC`（同一谓词收口列表/Feed/归档/搜索/RSS/sitemap，口令与私密文章标题零泄露）；PASSWORD 文章详情先出「需口令」极简视图，口令 BCrypt 哈希落库，校验端点 `POST /articles/{id}/password` 限流防爆破（CaptchaGuard 登录同款 IP + 文章双维度），通过签发 2h 访问令牌（Redis，详情经 `X-Article-Access-Token` 头放行）；PRIVATE 对公众与「不存在」同语义
 - **回收站**：文章/评论删除仅逻辑删，可恢复（回草稿）或物理删除（级联）
 - **全文搜索**：`content_text` 纯文本冗余 + ngram FULLTEXT；`blog.search.fulltext-enabled=false` 时降级三路 LIKE
 - **归档**：按月分组的文章归档；标签 / 树形分类完整管理
@@ -52,7 +53,7 @@
 
 ### 导出：`GET /articles/{id}/export?format=md|html`
 
-- **可见性与文章详情完全一致**：已发布文章匿名可导出；草稿 / 下架仅作者本人或 ADMIN，其余调用方与「文章不存在」同错误码（`40030`）
+- **导出权限**：已发布且到点的 PUBLIC 文章匿名可导出；PASSWORD / PRIVATE / 草稿 / 下架仅作者本人或 ADMIN，其余调用方与「文章不存在」同错误码（`40030`）。详情访问令牌只用于阅读，不授予导出权限
 - `format` 省略时按文章 `editorType` 默认（MARKDOWN→`md`，RICHTEXT→`html`）；显式跨格式请求不渲染转换，直接给正文源文本
 - 响应为文件下载：`Content-Type: text/markdown; charset=UTF-8` 或 `text/html; charset=UTF-8`，`Content-Disposition: attachment; filename*=UTF-8''<URL编码标题>.<ext>`（标题为空时用 `article-<id>`）
 - 文件开头带 YAML front matter（空值字段不输出）：
@@ -258,7 +259,8 @@ src/main/java/com/zer0drv/blog/
 | GET | `/articles` | 已发布文章分页（置顶优先；keyword/tagId/categoryId 过滤） | 公开 |
 | GET | `/articles/search` | 全文搜索（ngram FULLTEXT / LIKE 兜底） | 公开 |
 | GET | `/articles/archives` | 按月归档 | 公开 |
-| GET | `/articles/{id}` | 详情（匿名仅可见已发布） | 公开 |
+| GET | `/articles/{id}` | 详情（匿名仅可见已发布的公开文章；PASSWORD 文章需口令令牌，见下行） | 公开 |
+| POST | `/articles/{id}/password` | 口令保护文章的口令校验（通过签发 2h 访问令牌；IP + 文章双维度限流） | 公开 |
 | GET | `/articles/mine` | 本人文章（支持伪状态 TRASH） | ADMIN/AUTHOR |
 | POST/PUT | `/articles` `/articles/{id}` | 新建 / 编辑（保存自动快照版本；支持定时发布；富文本入库前 XSS 清洗） | ADMIN/AUTHOR |
 | DELETE | `/articles/{id}` | 删除（逻辑删，进回收站） | 本人/ADMIN |
@@ -351,6 +353,9 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 | V7 `p0_article` | `article_version` 版本快照表；`article` 加 `content_text` + ngram FULLTEXT 索引 |
 | V8 `p0_comment` | `user` 加 `email_notify_enabled`（通知偏好，存量默认开） |
 | V9 `p0_infra` | `site_config`（7 个内置键）+ `attachment` / `attachment_group` 附件库两表 |
+| V10 `friend_link` | `friend_link` 友情链接表 |
+| V11 `article_slug` | `article` 加 `slug`（唯一索引含回收站占位，存量回填 `post-{id}`） |
+| V12 `article_visibility` | `article` 加 `visibility`（PUBLIC/PASSWORD/PRIVATE，默认 PUBLIC）+ `access_password_hash`（BCrypt 口令哈希） |
 
 逻辑删除约定：全局字段 `deleted`（`0` 未删 / `1` 已删）；`Article`/`ArticleVersion`/`Comment`/`Attachment`/`SiteConfig` 使用实体级 `@TableLogic`（原因见实战笔记）。点赞/收藏类关联实体不映射 `deleted`，取消走物理删除。
 
@@ -391,6 +396,6 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 
 已完成（架构深化与流程建设）：跨模块访问全部收口 `article/api` + `comment/api` 契约包（端口声明在 api 包、数据拥有方实现，外模块单测 mock 接口即可）；可见性谓词单一出处 `ArticleVisibility`；验证码编排 `CaptchaGuard` 与敏感词判定 `SensitiveWordChecker` 下沉 common；通知投递 `NotificationIntent` 值对象化 + 三通道隔离；ArchUnit 边界红线测试固化（豁免清单仅 2 项、只缩不扩）；Issue → PR → 审批合并全流程规范（CONTRIBUTING.md）、Dependabot 周更、CD 镜像 sha tag + `rollback_tag` 手动回滚。
 
-后续候选（P1）：文章 slug 固定链接、密码保护/私密文章、友情链接、自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、附件对象物理清理、首登强制改密标记（需前后端字段契约）。
+后续候选（P1）：自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、附件对象物理清理、首登强制改密标记（需前后端字段契约）。
 
 鉴权体系演进（方向已定，跟踪见 GitHub issue）：① 已完成——权限按 token `sub` 实时读库装配（`DatabaseRoleJwtAuthenticationConverter`），角色变更即时生效，提拔 ADMIN 已放开走 API（`PUT /admin/users/{id}/role`，变更即吊销目标全部 token）；② 双 token——短 TTL access token + HttpOnly refresh Cookie + rotation，缩小 token 泄露滥用窗口；③ 事件驱动失效——角色变更投递事件供多实例/网关消费；④ ②③ 落地后，鉴权可切回 claims 模式（`SecurityConfig` 一行），实时读库降级为刷新时的角色来源。

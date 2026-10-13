@@ -67,6 +67,10 @@ public enum StatusCode {
     // 40073 已被 FRIEND_LINK_NOT_EXIST 占用，取下一个空闲码
     ARTICLE_SLUG_INVALID("40074", "slug 格式不合法：仅允许小写字母、数字与连字符"),
     ARTICLE_SLUG_EXISTS("40075", "slug 已被其他文章占用"),
+    // 密码保护 / 私密文章（issue #15）：40073~40075 已占用，顺延取 40076 起
+    ARTICLE_VISIBILITY_INVALID("40076", "文章可见性不合法"),
+    ARTICLE_PASSWORD_REQUIRED("40077", "口令保护文章需设置访问口令"),
+    ARTICLE_PASSWORD_INVALID("40078", "访问口令错误"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 

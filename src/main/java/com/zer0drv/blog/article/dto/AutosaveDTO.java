@@ -40,4 +40,7 @@ public class AutosaveDTO {
      * 分类id（可空）
      */
     private Long categoryId;
+
+    /** 可见性选择随草稿恢复；明文访问口令不进入自动保存。 */
+    private String visibility;
 }

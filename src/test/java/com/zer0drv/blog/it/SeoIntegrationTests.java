@@ -100,6 +100,11 @@ class SeoIntegrationTests extends IntegrationTestSupport {
         long authorId = seedUser(unique("it_seo_sm_"), "Sitemap作者", "AUTHOR");
         long publishedId = seedVisibleArticle(authorId, unique("SM已发布"));
         long scheduledId = seedScheduledArticle(authorId, unique("SM定时中"));
+        // 共享测试库可能已有数字 slug，与新行 id 相同；使用独有 slug 避免误命中他人 URL。
+        String publishedSlug = "seo-sitemap-visible-" + publishedId;
+        String scheduledSlug = "seo-sitemap-scheduled-" + scheduledId;
+        jdbcTemplate.update("UPDATE article SET slug = ? WHERE id = ?", publishedSlug, publishedId);
+        jdbcTemplate.update("UPDATE article SET slug = ? WHERE id = ?", scheduledSlug, scheduledId);
 
         MvcResult sitemap = mockMvc.perform(get("/sitemap.xml"))
                 .andExpect(status().isOk())
@@ -108,9 +113,9 @@ class SeoIntegrationTests extends IntegrationTestSupport {
         String body = sitemap.getResponse().getContentAsString();
         assertTrue(body.contains("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">"));
         assertTrue(body.contains("<loc>http://localhost:5173/</loc>"), "sitemap 应含首页");
-        assertTrue(body.contains("/article/" + publishedId + "</loc>"),
+        assertTrue(body.contains("/article/" + publishedSlug + "</loc>"),
                 () -> "sitemap 应含可见文章 URL, publishedId=" + publishedId + ", body=" + esc(body));
-        assertFalse(body.contains("/article/" + scheduledId + "</loc>"), "sitemap 不应含定时中文章");
+        assertFalse(body.contains("/article/" + scheduledSlug + "</loc>"), "sitemap 不应含定时中文章");
     }
 
     @Test

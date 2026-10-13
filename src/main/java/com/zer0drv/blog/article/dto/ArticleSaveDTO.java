@@ -68,6 +68,19 @@ public class ArticleSaveDTO {
     private String status;
 
     /**
+     * 可见性（issue #15，可空）：PUBLIC / PASSWORD / PRIVATE；新建缺省 PUBLIC，
+     * 编辑留空表示保持现状。PASSWORD 时 accessPassword 必填（编辑且已有口令时留空 = 保持不变）
+     */
+    private String visibility;
+
+    /**
+     * 访问口令明文（可空；仅 visibility=PASSWORD 有意义）：服务端只落 BCrypt 哈希，
+     * 口令策略独立于账号密码（4~64 位，供分享的弱口令由作者自担，后端 BCrypt + 限流兜底）
+     */
+    @Size(max = 64, message = "访问口令不能超过 64 个字符")
+    private String accessPassword;
+
+    /**
      * 定时发布时间（P0，可空）：仅 status=PUBLISHED 时生效，须晚于当前时间至少 60 秒；
      * 文章已上线（publish_time ≤ now）时该字段忽略，不可改档期
      */

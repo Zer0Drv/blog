@@ -88,3 +88,7 @@ blog:
       comment:
         threshold: 10
         window-seconds: 600
+      # 文章口令校验（issue #15）：口令错误 +1、成功清零（计数键：客户端 IP + 文章 id 双维度）
+      article-password:
+        threshold: 5
+        window-seconds: 600

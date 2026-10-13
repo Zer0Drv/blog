@@ -15,6 +15,13 @@ public class ArticleDetailVO extends ArticleListVO {
     private String content;
 
     /**
+     * 是否需要先校验访问口令（issue #15）：true 表示这是一篇已到点的 PASSWORD 文章且
+     * 当前请求未持有效访问令牌——此时本 VO 仅回填 id / slug / visibility / 本标记，
+     * 标题 / 摘要 / 正文等一律不下发（避免口令页泄露内容）；正常详情恒为 false
+     */
+    private Boolean passwordRequired;
+
+    /**
      * 浏览量（M3）
      */
     private Long viewCount;
