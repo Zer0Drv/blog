@@ -16,7 +16,7 @@
 - **全文搜索**：`content_text` 纯文本冗余 + ngram FULLTEXT；`blog.search.fulltext-enabled=false` 时降级三路 LIKE
 - **归档**：按月分组的文章归档；标签 / 树形分类完整管理
 - **存储型 XSS 防线**：富文本（RICHTEXT）内容入库前经 jsoup `Safelist.relaxed()` 白名单清洗；Markdown 源码不清洗（渲染侧由前端 DOMPurify 兜底），配合 CSP 响应头构成纵深防御
-- **文章导入导出**：单篇文章导出为 `.md` / `.html` 文件（含 YAML front matter）；从 `.md/.markdown/.txt/.html` 文件导入为草稿（见「文章导入导出」一节）
+- **文章导入导出**：单篇导出 `.md` / `.html`（YAML front matter 含标题/发布时间/标签/分类等元数据）；批量勾选导出 zip 打包；从 `.md/.markdown/.txt/.html` 单文件或 `.zip` 批量导入为草稿，front matter 白名单自动填充元数据（见「文章导入导出」一节）
 
 ### 互动
 - 评论两层楼中楼：时间正/倒序 + 热度排序、@ 提及、主评论内嵌前 3 条回复
@@ -48,20 +48,45 @@
 
 ## 文章导入导出
 
+实现收口在 article 模块 `transfer` 包（`FrontMatterParser` + `ArticleTransferService`），front matter 解析复用 spring-boot-starter 传递的 snakeyaml（SafeConstructor 只构造标准 YAML 类型），zip 用 JDK 自带 `java.util.zip`，未引入新依赖。
+
 ### 导出：`GET /articles/{id}/export?format=md|html`
 
 - **可见性与文章详情完全一致**：已发布文章匿名可导出；草稿 / 下架仅作者本人或 ADMIN，其余调用方与「文章不存在」同错误码（`40030`）
 - `format` 省略时按文章 `editorType` 默认（MARKDOWN→`md`，RICHTEXT→`html`）；显式跨格式请求不渲染转换，直接给正文源文本
 - 响应为文件下载：`Content-Type: text/markdown; charset=UTF-8` 或 `text/html; charset=UTF-8`，`Content-Disposition: attachment; filename*=UTF-8''<URL编码标题>.<ext>`（标题为空时用 `article-<id>`）
-- 文件开头带 YAML front matter：`---\ntitle: <标题>\ndate: <创建时间 ISO>\n---\n\n`
+- 文件开头带 YAML front matter（空值字段不输出）：
+
+  ```yaml
+  ---
+  title: 标题
+  slug: my-post                    # 固定链接 slug（issue #14 协同）
+  date: '2026-10-01T12:00:00'      # publishTime ?? createTime
+  updated: '2026-10-02T09:00:00'   # updateTime
+  status: PUBLISHED                # DRAFT / PUBLISHED / OFFLINE
+  tags: [标签A, 标签B]              # 标签名列表
+  category: 分类名
+  summary: 摘要
+  cover: https://example.com/cover.png
+  ---
+  ```
+
+### 批量导出：`GET /articles/export?ids=1,2,3`
+
+- **权限沿用文章操作鉴权**：须登录（该路径已在安全链单独要求认证，匿名 401）；AUTHOR 只能导自己的，ADMIN 全部；对 AUTHOR 而言他人文章与不存在同语义（`40030`）；普通 USER `40300`
+- 单次最多 200 篇；条目为各文章默认格式文件（front matter + 正文原文），文件名非法字符替换为 `_`，同名冲突追加 `-<id>`；响应 `Content-Type: application/zip`，文件名 `articles-export.zip`
 
 ### 导入：`POST /articles/import`（`multipart/form-data`，字段名 `file`）
 
 - **权限**：仅 ADMIN / AUTHOR（其余角色 `40300`，匿名 `401`）；作为 mutating 请求需携带 `X-Requested-With: XMLHttpRequest`
-- **白名单**：`.md` / `.markdown` / `.txt` → 建 MARKDOWN 草稿；`.html` / `.htm` → 建 RICHTEXT 草稿（入库前走与正文保存相同的 jsoup `Safelist.relaxed()` 清洗）；其他扩展名 → `40023`「仅支持 .md/.markdown/.txt/.html 文件」
-- **限制**：非空、≤2MB（超过 → `40023`「文件过大，最大 2MB」），UTF-8 解码
-- **标题**：Markdown 取正文首个一级标题（`# 标题`，该行从正文移除）；否则用文件名去扩展名；超长截断至 200 字符
-- 一律创建为 **DRAFT 草稿**（作者 = 当前用户），响应结构与创建文章一致（`Result<ArticleDetailVO>`）；属文章操作，**不计入附件上传日配额**
+- **白名单**：`.md` / `.markdown` / `.txt` → 建 MARKDOWN 草稿；`.html` / `.htm` → 建 RICHTEXT 草稿（入库前走与正文保存相同的 jsoup `Safelist.relaxed()` 清洗）；`.zip` → 批量导入（见下）；其他扩展名 → `40023`「仅支持 .md/.markdown/.txt/.html 文件」
+- **限制**：单文件非空、≤2MB（超过 → `40023`「文件过大，最大 2MB」），UTF-8 解码（自动剥离 BOM）
+- **front matter 解析**：白名单字段自动填充——`title`（优先于首个 H1 / 文件名）、`slug`（固定链接，格式与全局唯一校验同编辑器保存，冲突或非法即该条失败）、`date`（回填 `publish_time`，发布时沿用原日期）、`tags`（按名匹配，缺失自动创建）、`category`（按名匹配，不存在则跳过并记警告，不自动创建）、`summary`、`cover`；`status` 明确忽略（**导入一律创建 DRAFT 草稿**）并记警告，其余未知字段忽略并汇总一条警告；分隔线完整但 YAML 非法 / 非键值对 → `40023`「front matter 解析失败」
+- **标题**：front matter `title` > Markdown 首个一级标题（`# 标题`，该行从正文移除）> 文件名去扩展名；超长截断至 200 字符。front matter 已提供标题时正文 H1 保留，保证导出→导入 round-trip 保真
+- **zip 批量导入**：zip ≤5MB（与 multipart 上限对齐）、文件数 ≤50、解压总量 ≤20MB（防 zip bomb）；条目路径穿越校验（Zip Slip，含 `..` 段或绝对路径整包拒绝）；逐条容错——单条失败进 `failed` 明细不影响其他条目
+- **响应**：统一 `Result<ArticleImportResultVO>`——`imported: [{id, title, warnings[], externalImages[]}]` + `failed: [{name, message}]`；单文件硬性失败仍抛业务异常不进 `failed`
+- **图片引用**：外链图片（Markdown `![](http…)` 与 HTML `<img src="http…">`）保留原样，URL 去重后随 `externalImages` 返回作「待转存附件库」清单；导入链路不做远程拉取转存
+- 作者 = 当前用户；响应不含正文（可凭 id 进草稿编辑页查看）；属文章操作，**不计入附件上传日配额**
 
 ## 技术栈
 
@@ -243,8 +268,9 @@ src/main/java/com/zer0drv/blog/
 | PUT/GET | `/articles/{id}/autosave` | 自动保存草稿写入 / 读取（Redis，TTL 2h） | 本人/ADMIN |
 | POST | `/articles/{id}/restore` | 回收站恢复（回草稿） | 本人/ADMIN |
 | DELETE | `/articles/{id}/force` | 物理删除（级联） | 本人/ADMIN |
-| GET | `/articles/{id}/export?format=md\|html` | 导出为文件（front matter + 正文原文；可见性同详情） | 同详情 |
-| POST | `/articles/import` | 导入 .md/.markdown/.txt/.html 为 DRAFT 草稿（≤2MB，详见「文章导入导出」） | ADMIN/AUTHOR |
+| GET | `/articles/{id}/export?format=md\|html` | 导出为文件（front matter 元数据 + 正文原文；可见性同详情） | 同详情 |
+| GET | `/articles/export?ids=` | 批量导出 zip（≤200 篇；AUTHOR 仅本人，ADMIN 全部） | ADMIN/AUTHOR |
+| POST | `/articles/import` | 导入 .md/.markdown/.txt/.html 单文件或 .zip 批量为 DRAFT 草稿（front matter 白名单填充元数据，详见「文章导入导出」） | ADMIN/AUTHOR |
 | GET/POST/PUT/DELETE | `/tags` `/tags/{id}` | 标签管理（name 唯一） | 读公开 / 写 ADMIN·AUTHOR |
 | GET/POST/PUT/DELETE | `/categories` `/categories/{id}` | 分类树管理 | 读公开 / 写仅 ADMIN |
 | POST | `/upload/image` | 上传图片（jpg/png/gif/webp ≤5MB，返回 `{url, id}` 并落附件库；每用户每日限 100 次） | 登录 |
@@ -330,7 +356,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 
 ## 测试与 CI/CD
 
-- **46 个测试类、299 例（全绿）**：服务层单测 + MockMvc 接口级集成测试（H2 内存库替代 MySQL，全文搜索自动降级 LIKE 兜底）+ ArchUnit 架构红线测试（`arch/ArticleBoundaryArchTest`，见「项目结构」模块边界规则）
+- **48 个测试类、354 例（全绿）**：服务层单测 + MockMvc 接口级集成测试（H2 内存库替代 MySQL，全文搜索自动降级 LIKE 兜底）+ ArchUnit 架构红线测试（`arch/ArticleBoundaryArchTest`，见「项目结构」模块边界规则）
 - 本地执行：`mvn verify`
 - CI（`.github/workflows/ci.yml`）双 job：
   - `build`：JDK 25 下 `mvn -B verify`（编译 + 全部测试）

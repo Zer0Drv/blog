@@ -4,9 +4,11 @@ import com.zer0drv.blog.article.dto.ArticleSaveDTO;
 import com.zer0drv.blog.article.dto.ArticleStatusDTO;
 import com.zer0drv.blog.article.dto.AutosaveDTO;
 import com.zer0drv.blog.article.service.ArticleService;
+import com.zer0drv.blog.article.transfer.ArticleTransferService;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleExportVO;
+import com.zer0drv.blog.article.vo.ArticleImportResultVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
 import com.zer0drv.blog.article.vo.ArticleVersionVO;
@@ -45,6 +47,8 @@ import java.util.Map;
 public class ArticleController {
 
     private final ArticleService articleService;
+
+    private final ArticleTransferService articleTransferService;
 
     /**
      * 已发布文章分页列表（公开）
@@ -119,17 +123,53 @@ public class ArticleController {
     /**
      * 导出文章为文件（md / html）。可见性与详情完全一致（已发布=公开；
      * 草稿/下架=本人或 ADMIN，其余报文章不存在）。format 省略时按 editorType 默认；
-     * 内容为正文原文 + YAML front matter，不做 Markdown 渲染转换。
+     * 内容为 YAML front matter（标题/发布时间/标签/分类等元数据）+ 正文原文，
+     * 不做 Markdown 渲染转换。
      */
     @GetMapping("/{id}/export")
     public ResponseEntity<byte[]> export(@PathVariable Long id,
                                          @RequestParam(required = false) String format,
                                          @AuthenticationPrincipal Jwt jwt) {
-        ArticleExportVO export = articleService.exportArticle(id, format, jwt);
-        MediaType mediaType = "html".equals(export.extension())
-                ? MediaType.parseMediaType("text/html;charset=UTF-8")
-                : MediaType.parseMediaType("text/markdown;charset=UTF-8");
-        // RFC 5987 编码文件名：filename*=UTF-8''<URL编码标题>.<ext>
+        return downloadResponse(articleTransferService.exportArticle(id, format, jwt));
+    }
+
+    /**
+     * 批量导出打包 zip（issue #16，ADMIN / AUTHOR）：ids 逗号分隔或重复传参；
+     * AUTHOR 只能导自己的（他人文章与不存在同语义），ADMIN 全部。
+     * 字面量路径优先于 /{id}，无需改 SecurityConfig 的公开匹配（该路径已单独要求登录）。
+     */
+    @GetMapping("/export")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public ResponseEntity<byte[]> exportBatch(@RequestParam List<Long> ids,
+                                              @AuthenticationPrincipal Jwt jwt) {
+        return downloadResponse(articleTransferService.exportArticlesZip(ids, jwt));
+    }
+
+    /**
+     * 导入文章文件（issue #16，ADMIN / AUTHOR）：.md/.markdown/.txt → MARKDOWN 草稿，
+     * .html/.htm → RICHTEXT 草稿（入库前 jsoup 白名单清洗），单文件 ≤2MB；
+     * 或 .zip 批量导入（≤5MB，≤50 个文件，防 Zip Slip 与解压炸弹）。
+     * YAML front matter 白名单字段（title/date/tags/category/summary/cover）自动填充，
+     * 一律创建 DRAFT 草稿；响应为成功草稿清单（含警告与外链图片待转存清单）+ 失败明细。
+     * 属文章操作，不计入附件上传日配额。
+     */
+    @PostMapping("/import")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<ArticleImportResultVO> importArticle(@AuthenticationPrincipal Jwt jwt,
+                                                       @RequestParam("file") MultipartFile file) {
+        return Result.ok(articleTransferService.importArticles(file, jwt));
+    }
+
+    /**
+     * 组装文件下载响应：按扩展名映射 Content-Type（zip / html / markdown），
+     * RFC 5987 编码文件名（filename*=UTF-8''<URL编码名>.<ext>）
+     */
+    private ResponseEntity<byte[]> downloadResponse(ArticleExportVO export) {
+        MediaType mediaType = switch (export.extension()) {
+            case "zip" -> MediaType.parseMediaType("application/zip");
+            case "html" -> MediaType.parseMediaType("text/html;charset=UTF-8");
+            default -> MediaType.parseMediaType("text/markdown;charset=UTF-8");
+        };
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(export.fileName() + "." + export.extension(), StandardCharsets.UTF_8)
                 .build();
@@ -137,18 +177,6 @@ public class ArticleController {
                 .contentType(mediaType)
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                 .body(export.body());
-    }
-
-    /**
-     * 导入文章文件（ADMIN / AUTHOR）：.md/.markdown/.txt → MARKDOWN 草稿，
-     * .html/.htm → RICHTEXT 草稿（入库前 jsoup 白名单清洗）；≤2MB，UTF-8；
-     * Markdown 取首个一级标题作标题。不计入附件上传日配额。
-     */
-    @PostMapping("/import")
-    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
-    public Result<ArticleDetailVO> importArticle(@AuthenticationPrincipal Jwt jwt,
-                                                 @RequestParam("file") MultipartFile file) {
-        return Result.ok(articleService.importArticle(file, jwt));
     }
 
     /**

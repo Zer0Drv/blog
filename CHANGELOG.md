@@ -8,6 +8,7 @@
 
 - 文章 slug 固定链接（#14）：article 表新增 slug 列（V11；唯一索引含回收站占位，存量回填 `post-{id}`）；发布/保存校验格式与唯一性，未指定按标题清洗自动生成（纯中文标题 `post-{id}` 兜底，冲突追加序号）；新增公开详情 `GET /articles/slug/{slug}`（旧 `/{id}` 继续可用）；RSS/sitemap 文章链接改用 slug；列表/详情/归档 VO 带出 slug
 - 友情链接：`friend_link` 表 + 公众端只读列表（仅启用、排序升序）+ 管理端 CRUD/启停；新增 `site.friend_links_enabled` 配置键联动站点设置展示位（#17）
+- 文章 Markdown 导入导出增强（#16）：导出 front matter 扩展为标题/slug/发布时间/更新时间/状态/标签/分类/摘要/封面；新增批量导出 zip（`GET /articles/export?ids=`，作者仅本人、管理员全部）；导入支持解析 front matter 自动填充元数据（slug 透传创建链路校验、标签按名匹配缺失自动创建、分类按名匹配不自动创建、date 回填 publish_time、status 忽略一律草稿），新增 zip 批量导入（逐条容错返回失败明细，防 Zip Slip 与解压炸弹），外链图片保留并随响应返回待转存清单
 - CD 回滚能力：`workflow_dispatch` 填 `rollback_tag` 直部 GHCR 历史镜像，image 构建自动跳过（#43）
 - 开发流程建设：CONTRIBUTING 规范、Issue/PR 模板、main 分支保护（必过 CI、禁直推/强推）、Dependabot 周更 + 安全扫描、优先级标签与 Projects 看板（#37、#38）
 
