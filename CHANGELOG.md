@@ -6,6 +6,8 @@
 
 ### Added
 
+- 自定义页面（#18）：独立页面表与管理员 CRUD、Markdown/富文本内容、发布/下架、slug 唯一校验；站点导航配置与公开读取按发布状态过滤，sitemap 收录已发布页面
+
 - 密码保护 / 私密文章（#15）：`article` 表新增 `visibility`（PUBLIC/PASSWORD/PRIVATE）与 `access_password_hash` 列（V12，BCrypt 哈希）；公众可见性谓词 `ArticleVisibility` 收紧为仅 PUBLIC 出公众出口（列表/Feed/归档/搜索/RSS/sitemap 口径一致，标题零泄露）；PASSWORD 文章详情（id/slug 双路由）出「需口令」极简视图，新增公开端点 `POST /articles/{id}/password` 校验口令（CaptchaGuard 双维度限流防爆破）并签发 2h 访问令牌（Redis），详情经 `X-Article-Access-Token` 头放行；PRIVATE 对公众与「不存在」同语义；编辑器保存支持可见性与口令设置（口令留空保持现状，切出 PASSWORD 自动清哈希）
 - 文章 slug 固定链接（#14）：article 表新增 slug 列（V11；唯一索引含回收站占位，存量回填 `post-{id}`）；发布/保存校验格式与唯一性，未指定按标题清洗自动生成（纯中文标题 `post-{id}` 兜底，冲突追加序号）；新增公开详情 `GET /articles/slug/{slug}`（旧 `/{id}` 继续可用）；RSS/sitemap 文章链接改用 slug；列表/详情/归档 VO 带出 slug
 - 友情链接：`friend_link` 表 + 公众端只读列表（仅启用、排序升序）+ 管理端 CRUD/启停；新增 `site.friend_links_enabled` 配置键联动站点设置展示位（#17）
