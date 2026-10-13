@@ -69,6 +69,10 @@ public class SecurityConfig {
                         .requestMatchers("/oauth2/authorization/**", "/login/oauth2/code/**").permitAll()
                         .requestMatchers("/ws").permitAll()
                         // 公开浏览：文章/评论/标签/分类的只读接口
+                        // （/articles/export 批量导出须登录，先于 /articles/** 放行匹配；
+                        // 单篇 /articles/{id}/export 保持公开，可见性由服务层按详情口径判定）
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/articles/export").authenticated()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/articles/**", "/comments/**", "/tags/**", "/categories/**").permitAll()
                         // 用户公开主页（#6-5：不再整段放行 /users/**，仅放行确需匿名的 4 条；
