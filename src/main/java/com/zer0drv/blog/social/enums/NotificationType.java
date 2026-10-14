@@ -48,7 +48,9 @@ public enum NotificationType {
     /**
      * 系统通知
      */
-    SYSTEM;
+    SYSTEM,
+    /** 订阅的新公开文章。 */
+    ARTICLE_PUBLISHED;
 
     /**
      * 是否为合法类型名（用于通知列表的 type 过滤入参校验）

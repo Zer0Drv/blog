@@ -60,6 +60,8 @@ public interface ArticleCatalog {
      * 最新可见文章投影（publish_time 倒序，至多 limit 条）。SEO sitemap / RSS 专用。
      */
     List<ArticleFeedEntry> listVisibleLatest(int limit);
+    /** 订阅发送前读取完整公开投影，避免标题/slug 在任务入队后变为私密仍泄露。 */
+    Optional<ArticleFeedEntry> findVisibleFeedEntry(Long id);
 
     /**
      * 按 id 集合取文章列表 VO（含装配），保持入参 id 顺序。

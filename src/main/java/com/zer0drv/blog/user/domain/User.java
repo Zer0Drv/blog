@@ -87,6 +87,15 @@ public class User {
      */
     @TableField(value = "email_notify_enabled")
     private Short emailNotifyEnabled;
+    // 由订阅服务显式更新，防资料/改密等整行更新覆盖并发退订。
+    @TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.NEVER)
+    private Short articleNotifyEnabled;
+    @TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.NEVER)
+    private Short articleEmailNotifyEnabled;
+    @TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.NEVER)
+    private LocalDateTime articleSubscribedAt;
+    @TableField(updateStrategy = com.baomidou.mybatisplus.annotation.FieldStrategy.NEVER)
+    private String articleUnsubscribeToken;
 
     /**
      * 创建时间

@@ -53,7 +53,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Override
     public Map<String, Boolean> getPreferences(Long userId) {
         User user = requireUser(userId);
-        return Map.of(PREF_EMAIL_NOTIFY_ENABLED, isEmailNotifyEnabled(user));
+        return Map.of(PREF_EMAIL_NOTIFY_ENABLED, isEmailNotifyEnabled(user),
+                "articleNotifyEnabled", Short.valueOf((short) 1).equals(user.getArticleNotifyEnabled()),
+                "articleEmailNotifyEnabled", Short.valueOf((short) 1).equals(user.getArticleEmailNotifyEnabled()));
     }
 
     @Override

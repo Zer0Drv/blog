@@ -1,4 +1,16 @@
 -- 测试库（H2 MySQL 兼容模式）建表脚本。
+CREATE TABLE IF NOT EXISTS subscription_publication (
+ article_id BIGINT PRIMARY KEY, due_at DATETIME NOT NULL, state VARCHAR(16) DEFAULT 'PENDING',
+ lease_until DATETIME NULL, lease_token VARCHAR(32) DEFAULT '', create_time DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS subscription_delivery (
+ article_id BIGINT NOT NULL, user_id BIGINT NOT NULL, state VARCHAR(16) DEFAULT 'PENDING',
+ mail_state VARCHAR(16) DEFAULT 'PENDING', attempts INT DEFAULT 0, mail_sent_at DATETIME NULL, create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+ PRIMARY KEY(article_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS subscription_mail_budget (
+ user_id BIGINT PRIMARY KEY, window_started DATETIME NOT NULL, attempts INT DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS custom_page (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     slug VARCHAR(200) NOT NULL UNIQUE,
@@ -28,6 +40,10 @@ CREATE TABLE IF NOT EXISTS `user`
     `status`      TINYINT      NOT NULL DEFAULT 0 COMMENT '状态：0-正常；1-封禁',
     `github_id`   BIGINT       NULL COMMENT 'GitHub账号id（OAuth绑定）',
     `email_notify_enabled` TINYINT NOT NULL DEFAULT 1 COMMENT '评论邮件通知开关：0-关；1-开',
+    article_notify_enabled TINYINT NOT NULL DEFAULT 0,
+    article_email_notify_enabled TINYINT NOT NULL DEFAULT 0,
+    article_subscribed_at DATETIME NULL,
+    article_unsubscribe_token VARCHAR(64) NOT NULL DEFAULT '',
     `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted`     TINYINT      NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除；1-删除',
