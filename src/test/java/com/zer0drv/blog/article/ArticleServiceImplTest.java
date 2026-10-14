@@ -112,6 +112,8 @@ class ArticleServiceImplTest {
     private ArticleNotificationPort articleNotificationPort;
     @Mock
     private PasswordEncoder passwordEncoder;
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -137,7 +139,7 @@ class ArticleServiceImplTest {
                 articleInteractionPort, articleCommentStatsPort,
                 articleVersionMapper, stringRedisTemplate, objectMapper,
                 List.of(commentCascade, interactionCascade), articleNotificationPort,
-                passwordEncoder));
+                passwordEncoder, eventPublisher));
         ReflectionTestUtils.setField(articleService, "baseMapper", articleMapper);
         ReflectionTestUtils.setField(articleService, "fulltextEnabled", false);
     }

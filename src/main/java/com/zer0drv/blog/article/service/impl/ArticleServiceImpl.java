@@ -141,6 +141,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private final List<ArticleCascade> articleCascades;
     private final ArticleNotificationPort articleNotificationPort;
     private final PasswordEncoder passwordEncoder;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     /**
      * 全文搜索开关（P0）：true 走 ngram FULLTEXT（仅 MySQL）；false 走 LIKE 兜底（H2 测试环境）
@@ -342,6 +343,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             updateById(article);
         }
         replaceTagRelations(article.getId(), dto.getTagIds());
+        queuePublication(article);
         return article.getId();
     }
 
@@ -407,6 +409,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
                     .eq(Article::getId, id));
         }
         replaceTagRelations(article.getId(), dto.getTagIds());
+        queuePublication(article);
         // P0 自动保存：正式保存成功后删除该操作者的草稿
         deleteAutosave(id, JwtSubjects.userIdOf(jwt));
     }
@@ -464,6 +467,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateStatus(Long id, ArticleStatusDTO dto, Jwt jwt) {
         Article article = requireArticle(id);
         assertAuthorOrAdmin(article, jwt);
@@ -476,6 +480,15 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             article.setPublishTime(LocalDateTime.now().withNano(0));
         }
         updateById(article);
+        queuePublication(article);
+    }
+
+    private void queuePublication(Article article) {
+        if (ArticleStatus.PUBLISHED.name().equals(article.getStatus())
+                && Visibility.PUBLIC.name().equals(article.getVisibility()) && article.getPublishTime() != null) {
+            eventPublisher.publishEvent(new com.zer0drv.blog.article.api.ArticlePublicationCandidate(
+                    article.getId(), article.getPublishTime()));
+        }
     }
 
     @Override

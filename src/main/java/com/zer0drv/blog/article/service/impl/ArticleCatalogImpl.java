@@ -97,6 +97,12 @@ public class ArticleCatalogImpl implements ArticleCatalog {
     }
 
     @Override
+    public Optional<ArticleFeedEntry> findVisibleFeedEntry(Long id) {
+        Article article = articleMapper.selectById(id);
+        return ArticleVisibility.isVisible(article) ? Optional.of(toFeedEntry(article)) : Optional.empty();
+    }
+
+    @Override
     public List<ArticleListVO> listByIdsPreserveOrder(Collection<Long> ids) {
         if (Objects.isNull(ids) || ids.isEmpty()) {
             return List.of();

@@ -40,6 +40,8 @@ spring:
       # 见 DatabaseRoleJwtAuthenticationConverter），无需在此重复声明 roles 声明映射
 
 blog:
+  subscription:
+    worker-enabled: false
   minio:
     enabled: false
   search:

@@ -77,6 +77,7 @@ public class SecurityConfig {
                         // 服务层 CaptchaGuard 限流防爆破；单段路径参数，不与 /articles 新建冲突
                         .requestMatchers(org.springframework.http.HttpMethod.POST,
                                 "/articles/*/password").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/subscriptions/unsubscribe").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/articles/**", "/comments/**", "/tags/**", "/categories/**").permitAll()
                         // 用户公开主页（#6-5：不再整段放行 /users/**，仅放行确需匿名的 4 条；

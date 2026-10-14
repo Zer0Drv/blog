@@ -6,6 +6,8 @@
 
 ### Added
 
+- 新文章订阅（#20）：站内订阅、邮箱确认与匿名退订、持久推送队列与定时文章支持、失败重试/邮件频率限制、管理员推送统计；发送前复核公开可见性
+
 - 自定义页面（#18）：独立页面表与管理员 CRUD、Markdown/富文本内容、发布/下架、slug 唯一校验；站点导航配置与公开读取按发布状态过滤，sitemap 收录已发布页面
 
 - 密码保护 / 私密文章（#15）：`article` 表新增 `visibility`（PUBLIC/PASSWORD/PRIVATE）与 `access_password_hash` 列（V12，BCrypt 哈希）；公众可见性谓词 `ArticleVisibility` 收紧为仅 PUBLIC 出公众出口（列表/Feed/归档/搜索/RSS/sitemap 口径一致，标题零泄露）；PASSWORD 文章详情（id/slug 双路由）出「需口令」极简视图，新增公开端点 `POST /articles/{id}/password` 校验口令（CaptchaGuard 双维度限流防爆破）并签发 2h 访问令牌（Redis），详情经 `X-Article-Access-Token` 头放行；PRIVATE 对公众与「不存在」同语义；编辑器保存支持可见性与口令设置（口令留空保持现状，切出 PASSWORD 自动清哈希）
