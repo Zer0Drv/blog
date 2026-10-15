@@ -403,9 +403,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             }
         }
         updateById(article);
-        if (clearPasswordHash) {
+        // 完整保存的 null 分类表示清空；与口令清理共用显式 NULL 更新，
+        // 保留实体默认 NOT_NULL 策略，避免其他局部更新意外清空分类。
+        boolean clearCategory = Objects.isNull(article.getCategoryId());
+        if (clearPasswordHash || clearCategory) {
             baseMapper.update(null, Wrappers.lambdaUpdate(Article.class)
-                    .set(Article::getAccessPasswordHash, null)
+                    .set(clearPasswordHash, Article::getAccessPasswordHash, null)
+                    .set(clearCategory, Article::getCategoryId, null)
                     .eq(Article::getId, id));
         }
         replaceTagRelations(article.getId(), dto.getTagIds());
@@ -548,6 +552,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         article.setCategoryId(snapshot.getCategoryId());
         // status / publishTime 不动（SPEC：恢复不回改发布状态与档期）
         updateById(article);
+        if (Objects.isNull(snapshot.getCategoryId())) {
+            baseMapper.update(null, Wrappers.lambdaUpdate(Article.class)
+                    .set(Article::getCategoryId, null)
+                    .eq(Article::getId, id));
+        }
     }
 
     @Override

@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- 文章完整保存支持清空分类（`categoryId` 为 null 或省略），恢复未分类历史版本时正确写入 NULL；保留其他局部更新的字段策略（#57）
 - minio 8.6.0 编译失败：okhttp 5 KMP 根模块空壳 jar，显式声明 okhttp-jvm（#39）
 - minio 9.0.3 API 变更适配：`PutObjectArgs.stream` partSize 改 Long（#90）
 - 消除测试代码两处 javac varargs 警告（#42）

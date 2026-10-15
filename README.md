@@ -280,6 +280,10 @@ src/main/java/com/zer0drv/blog/
 | POST | `/upload/image` | 上传图片（jpg/png/gif/webp ≤5MB，返回 `{url, id}` 并落附件库；每用户每日限 100 次） | 登录 |
 | GET | `/uploads/**` | 本地存储文件的静态访问（MinIO 模式下不经过此路径） | 公开 |
 
+文章完整保存接口 `PUT /articles/{id}` 中，`categoryId` 为 `null` 或省略均表示清空分类；
+传入分类 ID 表示设置分类。版本恢复忠实恢复快照中的空分类，恢复前仍会生成当前文章快照；
+局部状态更新不采用完整保存的分类替换语义。
+
 ### 互动
 
 | 方法 | 路径 | 说明 | 鉴权 |
