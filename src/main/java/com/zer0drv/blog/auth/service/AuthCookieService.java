@@ -19,6 +19,11 @@ import java.time.Duration;
  */
 @Component
 public class AuthCookieService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+
+    private long lifetimeMs() { return sysConfig == null ? expirationMs : sysConfig.getLong("jwt.expiration-ms"); }
+    private String activeSameSite() { return sysConfig == null ? sameSite : sysConfig.getString("blog.auth.cookie.same-site"); }
 
     @Value("${blog.auth.cookie.name:AUTH_TOKEN}")
     private String cookieName;
@@ -40,7 +45,7 @@ public class AuthCookieService {
      * token 有效期（秒）：即 Cookie 的 Max-Age，也是 /auth/oauth/exchange 响应的 expiresIn
      */
     public long getExpiresInSeconds() {
-        return expirationMs / 1000;
+        return lifetimeMs() / 1000;
     }
 
     /**
@@ -51,8 +56,8 @@ public class AuthCookieService {
                 .httpOnly(true)
                 .secure(secure)
                 .path("/")
-                .maxAge(Duration.ofMillis(expirationMs))
-                .sameSite(sameSite)
+                .maxAge(Duration.ofMillis(lifetimeMs()))
+                .sameSite(activeSameSite())
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
@@ -66,7 +71,7 @@ public class AuthCookieService {
                 .secure(secure)
                 .path("/")
                 .maxAge(Duration.ZERO)
-                .sameSite(sameSite)
+                .sameSite(activeSameSite())
                 .build();
         response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }

@@ -19,4 +19,7 @@ public interface UploadService {
      * 存储清理不得阻塞用户可见的删除。
      */
     void deleteObject(String objectKey);
+
+    /** 按附件记录中的存储后端删除，默认上传策略切换不影响存量附件。 */
+    void deleteObject(String storage, String objectKey);
 }

@@ -175,7 +175,7 @@ public class AttachmentServiceImpl implements AttachmentService {
      */
     private void doDelete(Attachment attachment) {
         attachmentMapper.deleteById(attachment.getId());
-        uploadService.deleteObject(attachment.getObjectKey());
+        uploadService.deleteObject(attachment.getStorage(), attachment.getObjectKey());
     }
 
     /**

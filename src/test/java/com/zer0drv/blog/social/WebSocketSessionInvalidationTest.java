@@ -253,4 +253,24 @@ class WebSocketSessionInvalidationTest {
         verify(first, never()).sendMessage(any());
         verify(second, never()).sendMessage(any());
     }
+
+    @Test
+    void shorterConfiguredTokenLifetimeKeepsLongerExistingUserIndexAndRevokesHistoricalTokens() {
+        var config = mock(com.zer0drv.blog.sysconfig.service.SysConfigService.class);
+        when(config.getLong("jwt.expiration-ms")).thenReturn(300000L);
+        var encoder = mock(JwtEncoder.class);
+        var jwt = org.springframework.security.oauth2.jwt.Jwt.withTokenValue("test-issued-token")
+                .header("alg", "HS256").subject("1").issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300)).build();
+        when(encoder.encode(any())).thenReturn(jwt);
+        var service = new TokenServiceImpl(encoder, redis, event -> {});
+        ReflectionTestUtils.setField(service, "sysConfig", config);
+        when(redis.getExpire("blog:user-tokens:1")).thenReturn(7200L);
+        service.generateToken(1L, java.util.List.of("ROLE_USER"));
+        verify(redis, never()).expire(eq("blog:user-tokens:1"), any(Duration.class));
+        when(redis.opsForSet().members("blog:user-tokens:1")).thenReturn(Set.of("historical"));
+        service.blackUserTokens(1L);
+        var ttl = org.mockito.ArgumentCaptor.forClass(Duration.class);
+        verify(values).set(eq(BlacklistJwtValidator.BLACKLIST_PREFIX + "historical"), eq("1"), ttl.capture());
+        assertTrue(ttl.getValue().compareTo(Duration.ofDays(6)) > 0);
+    }
 }

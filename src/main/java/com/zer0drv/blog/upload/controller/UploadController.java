@@ -29,6 +29,8 @@ import java.util.Map;
 @RequestMapping("/upload")
 @RequiredArgsConstructor
 public class UploadController {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
 
     /**
      * 每用户每日上传计数键（#6-4）：blog:upload:daily:{userId}:{yyyy-MM-dd}
@@ -73,7 +75,7 @@ public class UploadController {
         if (count == 1L) {
             stringRedisTemplate.expire(key, Duration.ofDays(1));
         }
-        if (count > dailyLimit) {
+        if (count > (sysConfig == null ? dailyLimit : sysConfig.getLong("blog.upload-daily-limit"))) {
             throw new BusinessException(StatusCode.UPLOAD_DAILY_LIMIT_EXCEEDED);
         }
     }

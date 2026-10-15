@@ -61,6 +61,24 @@ class UploadServiceImplTest {
 
     // ---------- 本地磁盘 ----------
 
+    @Test
+    void storedLocalAttachmentIsDeletedLocallyEvenWhenDefaultUsesMinio() throws Exception {
+        Path stored = tempDir.resolve("202501").resolve("old.png");
+        Files.createDirectories(stored.getParent());
+        Files.write(stored, new byte[]{1});
+        @SuppressWarnings("unchecked")
+        ObjectProvider<MinioClient> provider = mock(ObjectProvider.class);
+        service(provider, true).deleteObject("LOCAL", "202501/old.png");
+        assertFalse(Files.exists(stored));
+        verify(provider, never()).getIfAvailable();
+    }
+
+    @Test
+    void storedMinioAttachmentUsesItsBackendEvenWhenDefaultUsesLocal() throws Exception {
+        service(providerReturning(minioClient), false).deleteObject("MINIO", "202501/old.png");
+        verify(minioClient).removeObject(any(RemoveObjectArgs.class));
+    }
+
     @SuppressWarnings("unchecked")
     @Test
     void deleteObjectRemovesLocalFile() throws Exception {
