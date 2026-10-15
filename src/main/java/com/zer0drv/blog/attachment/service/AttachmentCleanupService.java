@@ -170,7 +170,14 @@ public class AttachmentCleanupService {
     }
 
     private Map<String, Object> require(long id) {
-        var rows = jdbc.queryForList("SELECT * FROM attachment_cleanup WHERE id=?", id);
+        var columns = new org.springframework.jdbc.core.ColumnMapRowMapper();
+        var rows = jdbc.query("SELECT * FROM attachment_cleanup WHERE id=?", (result, rowNumber) -> {
+            var row = columns.mapRow(result, rowNumber);
+            // Connector/J getObject(DATETIME) returns LocalDateTime; H2 returns Timestamp.
+            // Explicit JDBC conversion preserves the connection's time zone in both drivers.
+            row.put("eligible_at", result.getTimestamp("eligible_at"));
+            return row;
+        }, id);
         if (rows.isEmpty()) throw invalid("清理记录不存在");
         return rows.getFirst();
     }

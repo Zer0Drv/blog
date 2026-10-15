@@ -1,0 +1,39 @@
+# Dedicated disposable infrastructure. Never uses .env, production ports, named volumes or container names.
+name: blog-real-it
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: blog-it-password
+      MYSQL_DATABASE: blog_it
+      TZ: UTC
+    ports: ["127.0.0.1:23307:3306"]
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--innodb-buffer-pool-size=134217728"]
+    tmpfs: ["/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pblog-it-password"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:26379:6379"]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+  minio:
+    image: alpine/minio:RELEASE.2025-10-15T17-29-55Z
+    environment:
+      MINIO_ROOT_USER: blog-it-user
+      MINIO_ROOT_PASSWORD: blog-it-minio-password
+    ports: ["127.0.0.1:29000:9000"]
+    command: server /data
+    tmpfs: ["/data:uid=100,gid=101,mode=0770"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9000/minio/health/ready || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 40

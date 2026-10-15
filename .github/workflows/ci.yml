@@ -51,3 +51,40 @@ jobs:
           -user=root -password=blog123
           -connectRetries=60
           migrate
+
+  # Isolated app-level regressions against the actual drivers/services; no H2 or Redis/MinIO stubs.
+  real-dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up JDK 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Start disposable MySQL, Redis and MinIO
+        run: docker compose -f compose.real-it.yaml up -d --wait --wait-timeout 150
+      - name: Real HTTP flows and retained-data migration upgrades
+        run: |
+          mkdir -p target/real-it-reports
+          set -o pipefail
+          mvn -B -Preal-it verify 2>&1 | tee target/real-it-reports/maven.log
+      - name: Collect infrastructure diagnostics
+        if: always()
+        run: |
+          mkdir -p target/real-it-reports
+          docker compose -f compose.real-it.yaml ps -a > target/real-it-reports/containers.txt
+          docker compose -f compose.real-it.yaml logs --no-color > target/real-it-reports/services.log 2>&1
+      - name: Upload real dependency reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: real-dependencies-${{ github.sha }}
+          path: target/real-it-reports/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Stop only disposable test services
+        if: always()
+        run: docker compose -f compose.real-it.yaml down --remove-orphans
