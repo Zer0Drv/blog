@@ -37,7 +37,7 @@
 ### 站点与 SEO
 - RSS / Atom 订阅（Rome，最近 20 篇可见文章）、sitemap.xml（≤1000 条）、robots.txt
 - 站点设置中心：7 个内置配置键，公开接口只出白名单 5 键，管理端读写全量
-- 附件库：上传即落库，支持分组、搜索、换组；删除逻辑记录后尽力清理原存储后端的对象，孤儿扫描与观察期继续由 #22 跟踪
+- 附件库：上传即落库，支持分组、搜索、换组；删除先移出库，管理端扫描本地/MinIO 孤儿对象，完整引用保护、7 天观察期、恢复保留与物理清理/回收统计，见 [附件清理](docs/attachment-cleanup.md)（#22）
 - 系统参数配置中心：独立 `sys_config`、强类型校验、分组管理、部署配置继承/重置、热生效与重启生效标记、变更审计；详见 [系统参数说明](docs/system-config.md)
 
 ### 基础设施
@@ -403,6 +403,6 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 
 已完成（架构深化与流程建设）：跨模块访问全部收口 `article/api` + `comment/api` 契约包（端口声明在 api 包、数据拥有方实现，外模块单测 mock 接口即可）；可见性谓词单一出处 `ArticleVisibility`；验证码编排 `CaptchaGuard` 与敏感词判定 `SensitiveWordChecker` 下沉 common；通知投递 `NotificationIntent` 值对象化 + 三通道隔离；ArchUnit 边界红线测试固化（豁免清单仅 2 项、只缩不扩）；Issue → PR → 审批合并全流程规范（CONTRIBUTING.md）、Dependabot 周更、CD 镜像 sha tag + `rollback_tag` 手动回滚。
 
-后续候选（P1）：自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、附件对象物理清理、首登强制改密标记（需前后端字段契约）。
+后续候选（P1）：自定义页面、TOTP 两步验证、订阅推送、AI 摘要/评论审核增强、首登强制改密标记（需前后端字段契约）。
 
 鉴权体系演进（方向已定，跟踪见 GitHub issue）：① 已完成——权限按 token `sub` 实时读库装配（`DatabaseRoleJwtAuthenticationConverter`），角色变更即时生效，提拔 ADMIN 已放开走 API（`PUT /admin/users/{id}/role`，变更即吊销目标全部 token）；② 双 token——短 TTL access token + HttpOnly refresh Cookie + rotation，缩小 token 泄露滥用窗口；③ 事件驱动失效——角色变更投递事件供多实例/网关消费；④ ②③ 落地后，鉴权可切回 claims 模式（`SecurityConfig` 一行），实时读库降级为刷新时的角色来源。

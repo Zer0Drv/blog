@@ -66,6 +66,7 @@ class MessageServiceImplTest {
     void setUp() {
         messageService = spy(new MessageServiceImpl(
                 userService, notificationService, sensitiveWordChecker, realtimePushService));
+        org.springframework.test.util.ReflectionTestUtils.setField(messageService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     private static Jwt jwtOf(long userId) {

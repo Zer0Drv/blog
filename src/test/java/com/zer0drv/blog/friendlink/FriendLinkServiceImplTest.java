@@ -48,6 +48,7 @@ class FriendLinkServiceImplTest {
     @BeforeEach
     void setUp() {
         friendLinkService = spy(new FriendLinkServiceImpl());
+        org.springframework.test.util.ReflectionTestUtils.setField(friendLinkService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     private static FriendLink link(Long id, String name, short status) {

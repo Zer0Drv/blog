@@ -48,6 +48,7 @@ class UserServiceImplTest {
         userService = new UserServiceImpl(converter);
         // ServiceImpl 的 baseMapper 在父类 CrudRepository 上声明，手动注入 mock
         ReflectionTestUtils.setField(userService, "baseMapper", userMapper);
+        org.springframework.test.util.ReflectionTestUtils.setField(userService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     private static User user(long id) {

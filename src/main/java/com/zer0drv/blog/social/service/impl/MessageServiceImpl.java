@@ -42,6 +42,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, PrivateMessage>
         implements MessageService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
      * 私信内容最大长度
@@ -127,7 +129,9 @@ public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, Privat
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public Long send(MessageSendDTO dto, Jwt jwt) {
+        attachmentReferences.protect(dto.getContent());
         Long userId = JwtSubjects.userIdOf(jwt);
         Long receiverId = dto.getReceiverId();
         assertPeerValid(receiverId, userId);

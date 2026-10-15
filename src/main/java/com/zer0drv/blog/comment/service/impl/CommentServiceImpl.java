@@ -54,6 +54,8 @@ import java.util.stream.Stream;
 @Service
 @RequiredArgsConstructor
 public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements CommentService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
      * 主评论内嵌的回复预览条数
@@ -115,7 +117,9 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public CommentCreateResult create(CommentCreateDTO dto, Jwt jwt) {
+        attachmentReferences.protect(dto.getContent());
         String content = dto.getContent();
         if (Objects.isNull(content) || content.isBlank() || content.length() > CONTENT_MAX_LENGTH) {
             throw new BusinessException(StatusCode.COMMENT_CONTENT_INVALID);

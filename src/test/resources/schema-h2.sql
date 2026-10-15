@@ -344,3 +344,42 @@ CREATE TABLE IF NOT EXISTS sys_config_audit (
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     KEY idx_sys_config_audit_time (create_time, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS attachment_cleanup_lock (
+    id INT NOT NULL PRIMARY KEY
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+INSERT INTO attachment_cleanup_lock(id) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM attachment_cleanup_lock WHERE id=1);
+
+CREATE TABLE IF NOT EXISTS attachment_cleanup (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    storage VARCHAR(16) NOT NULL,
+    object_key VARCHAR(255) NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    fingerprint VARCHAR(255) NOT NULL,
+    state VARCHAR(16) NOT NULL DEFAULT 'OBSERVING',
+    marked_at DATETIME NOT NULL,
+    eligible_at DATETIME NOT NULL,
+    completed_at DATETIME NULL,
+    reclaimed_bytes BIGINT NOT NULL DEFAULT 0,
+    operator_id BIGINT NOT NULL,
+    last_error VARCHAR(255) NOT NULL DEFAULT '',
+    UNIQUE KEY uk_attachment_cleanup_object(storage, object_key),
+    KEY idx_attachment_cleanup_state(state, eligible_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- P1：友情链接（issue #17）
+-- 对标 WordPress Links / Halo 友链插件：名称/URL/Logo/描述/排序/启停状态
+CREATE TABLE IF NOT EXISTS `friend_link` (
+  `id` BIGINT NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL COMMENT '站点名称',
+  `url` VARCHAR(512) NOT NULL COMMENT '链接地址',
+  `logo` VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Logo 图片 URL',
+  `description` VARCHAR(255) NOT NULL DEFAULT '' COMMENT '一句话描述',
+  `sort` INT NOT NULL DEFAULT 0 COMMENT '排序值（升序，越小越靠前）',
+  `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：1-启用 0-停用',
+  `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `deleted` TINYINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_friend_link_status_sort` (`status`, `sort`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='友情链接表';

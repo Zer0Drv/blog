@@ -13,7 +13,7 @@ import com.zer0drv.blog.attachment.vo.AttachmentVO;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.PageResult;
 import com.zer0drv.blog.common.response.StatusCode;
-import com.zer0drv.blog.upload.service.UploadService;
+import com.zer0drv.blog.attachment.service.AttachmentCleanupService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -23,7 +23,7 @@ import java.util.Objects;
 
 /**
  * 附件库实现。越权语义：他人数据一律按「不存在」处理（不暴露存在性）。
- * 删除附件 = 逻辑删记录 + 物理删存储对象（best-effort，失败只告警不回滚）。
+ * 删除附件先移出库，存储对象由引用检查与观察期清理流程回收。
  *
  * @author Yoruhaki
  */
@@ -33,7 +33,7 @@ public class AttachmentServiceImpl implements AttachmentService {
 
     private final AttachmentMapper attachmentMapper;
     private final AttachmentGroupMapper attachmentGroupMapper;
-    private final UploadService uploadService;
+    private final AttachmentCleanupService cleanup;
 
     @Override
     public Attachment recordUpload(Long userId, MultipartFile file, String url) {
@@ -136,6 +136,7 @@ public class AttachmentServiceImpl implements AttachmentService {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public void deleteMine(Long userId, Long attachmentId) {
         Attachment attachment = getOwnAttachment(userId, attachmentId);
         doDelete(attachment);
@@ -158,6 +159,7 @@ public class AttachmentServiceImpl implements AttachmentService {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public void deleteByAdmin(Long attachmentId) {
         Attachment attachment = attachmentMapper.selectById(attachmentId);
         if (Objects.isNull(attachment)) {
@@ -167,15 +169,11 @@ public class AttachmentServiceImpl implements AttachmentService {
     }
 
     /**
-     * 删除附件：先逻辑删记录，再物理删存储对象。
-     * 物理删除 best-effort（UploadService.deleteObject 失败只告警不抛异常），
-     * 存储清理不阻塞用户可见的删除，失败遗留的对象最多退回为「逻辑删」的旧行为。
-     * 对象名为每次上传随机生成的 yyyyMM/uuid.ext，当前数据模型不存在多附件共享
-     * 同一对象的情形，无需引用计数。
+     * 移出附件库并解除显式保留；物理回收另经引用检查与观察期。
      */
     private void doDelete(Attachment attachment) {
+        cleanup.releaseRestored(attachment.getStorage(), attachment.getObjectKey());
         attachmentMapper.deleteById(attachment.getId());
-        uploadService.deleteObject(attachment.getStorage(), attachment.getObjectKey());
     }
 
     /**

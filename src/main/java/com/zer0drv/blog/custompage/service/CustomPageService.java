@@ -30,6 +30,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class CustomPageService extends ServiceImpl<CustomPageMapper, CustomPage> implements PageCatalog {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
     private final SiteConfigService siteConfigService;
 
     public PageResult<PageVO> adminList(long page, long size) {
@@ -51,6 +53,7 @@ public class CustomPageService extends ServiceImpl<CustomPageMapper, CustomPage>
 
     @Transactional(rollbackFor = Exception.class)
     public Long savePage(Long id, PageSaveDTO dto) {
+        attachmentReferences.protect(dto.getContent());
         CustomPage page = id == null ? new CustomPage() : requirePage(id);
         Long owner = baseMapper.findSlugOwner(dto.getSlug());
         if (owner != null && !owner.equals(id)) throw new BusinessException(StatusCode.PAGE_SLUG_EXISTS);

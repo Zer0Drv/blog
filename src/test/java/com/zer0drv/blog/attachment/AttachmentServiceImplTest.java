@@ -7,7 +7,7 @@ import com.zer0drv.blog.attachment.mapper.AttachmentMapper;
 import com.zer0drv.blog.attachment.service.impl.AttachmentServiceImpl;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
-import com.zer0drv.blog.upload.service.UploadService;
+import com.zer0drv.blog.attachment.service.AttachmentCleanupService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -40,7 +40,7 @@ class AttachmentServiceImplTest {
     private AttachmentGroupMapper attachmentGroupMapper;
 
     @Mock
-    private UploadService uploadService;
+    private AttachmentCleanupService cleanup;
 
     @InjectMocks
     private AttachmentServiceImpl attachmentService;
@@ -111,10 +111,10 @@ class AttachmentServiceImplTest {
         assertEquals("202501/uuid.png", captor.getValue().getObjectKey());
     }
 
-    // ---------- 附件删除（逻辑删 + 物理删存储对象） ----------
+    // ---------- 附件删除（先移出库，解除手动保留，后续经观察期清理） ----------
 
     @Test
-    void deleteMineRemovesStorageObject() {
+    void deleteMineDefersStorageRemoval() {
         Attachment attachment = attachment(1L, 7L);
         attachment.setObjectKey("202501/uuid.png");
         attachment.setStorage(Attachment.STORAGE_LOCAL);
@@ -123,12 +123,12 @@ class AttachmentServiceImplTest {
         attachmentService.deleteMine(7L, 1L);
 
         verify(attachmentMapper).deleteById(1L);
-        // 逻辑删后物理删存储对象（失败容忍由 UploadService.deleteObject 保证）
-        verify(uploadService).deleteObject(Attachment.STORAGE_LOCAL, "202501/uuid.png");
+        // 此处只解除显式保留，物理删除必须通过清理队列。
+        verify(cleanup).releaseRestored(Attachment.STORAGE_LOCAL, "202501/uuid.png");
     }
 
     @Test
-    void deleteByAdminRemovesStorageObject() {
+    void deleteByAdminDefersStorageRemoval() {
         Attachment attachment = attachment(1L, 99L);
         attachment.setObjectKey("202502/uuid2.png");
         attachment.setStorage(Attachment.STORAGE_MINIO);
@@ -137,7 +137,7 @@ class AttachmentServiceImplTest {
         attachmentService.deleteByAdmin(1L);
 
         verify(attachmentMapper).deleteById(1L);
-        verify(uploadService).deleteObject(Attachment.STORAGE_MINIO, "202502/uuid2.png");
+        verify(cleanup).releaseRestored(Attachment.STORAGE_MINIO, "202502/uuid2.png");
     }
 
     @Test
@@ -147,7 +147,7 @@ class AttachmentServiceImplTest {
         assertCode(StatusCode.ATTACHMENT_NOT_EXIST, assertThrows(BusinessException.class,
                 () -> attachmentService.deleteByAdmin(1L)));
         verify(attachmentMapper, never()).deleteById(any(Long.class));
-        verify(uploadService, never()).deleteObject(any(), any());
+        verify(cleanup, never()).releaseRestored(any(), any());
     }
 
     // ---------- 分组删除保护 ----------
@@ -184,7 +184,7 @@ class AttachmentServiceImplTest {
                 () -> attachmentService.moveToGroup(7L, 1L, null)));
         verify(attachmentMapper, never()).deleteById(any(Long.class));
         // 越权拒绝时不得触碰存储对象
-        verify(uploadService, never()).deleteObject(any(), any());
+        verify(cleanup, never()).releaseRestored(any(), any());
     }
 
     @Test

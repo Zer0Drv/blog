@@ -81,6 +81,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> implements ArticleService {
     @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
+    @org.springframework.beans.factory.annotation.Autowired
     private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
 
     /**
@@ -314,6 +316,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public Long create(ArticleSaveDTO dto, Jwt jwt) {
+        attachmentReferences.protect(dto.getContent(), dto.getCover(), dto.getSummary());
         validateSaveDTO(dto);
         Article article = new Article();
         article.setTitle(dto.getTitle());
@@ -352,6 +355,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void update(Long id, ArticleSaveDTO dto, Jwt jwt) {
+        // Saving also creates an old-content version, even when the incoming body has no images.
+        attachmentReferences.lock();
+        attachmentReferences.protect(dto.getContent(), dto.getCover(), dto.getSummary());
         Article article = requireArticle(id);
         assertAuthorOrAdmin(article, jwt);
         validateSaveDTO(dto);
@@ -538,9 +544,11 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void restoreVersion(Long id, Integer version, Jwt jwt) {
+        attachmentReferences.lock();
         Article article = requireArticle(id);
         assertAuthorOrAdmin(article, jwt);
         ArticleVersion snapshot = requireVersion(id, version);
+        attachmentReferences.protect(snapshot.getContent(), snapshot.getCover(), snapshot.getSummary());
         // 恢复也留痕：覆盖前先对当前行产一个新快照
         snapshotVersion(article);
         article.setTitle(snapshot.getTitle());
@@ -562,7 +570,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> saveAutosave(Long id, AutosaveDTO dto, Jwt jwt) {
+        attachmentReferences.protect(dto.getContent(), dto.getCover(), dto.getSummary());
         Article article = requireArticle(id);
         assertAuthorOrAdmin(article, jwt);
         Long userId = JwtSubjects.userIdOf(jwt);

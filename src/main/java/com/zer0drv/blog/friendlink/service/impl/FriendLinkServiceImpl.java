@@ -28,6 +28,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @Service
 public class FriendLinkServiceImpl extends ServiceImpl<FriendLinkMapper, FriendLink>
         implements FriendLinkService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
      * 启用列表缓存 TTL 兜底：即使存在绕过本服务的改库路径，也最多滞后 5 分钟生效
@@ -77,7 +79,9 @@ public class FriendLinkServiceImpl extends ServiceImpl<FriendLinkMapper, FriendL
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public Long add(FriendLinkSaveDTO dto) {
+        attachmentReferences.protect(dto.getUrl(), dto.getLogo());
         FriendLink link = new FriendLink();
         applyDto(link, dto);
         link.setStatus(FriendLink.STATUS_ENABLED);
@@ -87,7 +91,9 @@ public class FriendLinkServiceImpl extends ServiceImpl<FriendLinkMapper, FriendL
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public void update(Long id, FriendLinkSaveDTO dto) {
+        attachmentReferences.protect(dto.getUrl(), dto.getLogo());
         FriendLink link = requireExists(id);
         applyDto(link, dto);
         updateById(link);
@@ -132,6 +138,15 @@ public class FriendLinkServiceImpl extends ServiceImpl<FriendLinkMapper, FriendL
     }
 
     private void invalidatePublicCache() {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCommit() { clearPublicCache(); }
+                    });
+        } else clearPublicCache();
+    }
+
+    private void clearPublicCache() {
         publicCache.set(null);
         publicCacheExpiresAt = 0L;
     }
