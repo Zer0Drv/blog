@@ -117,25 +117,27 @@ class AttachmentServiceImplTest {
     void deleteMineRemovesStorageObject() {
         Attachment attachment = attachment(1L, 7L);
         attachment.setObjectKey("202501/uuid.png");
+        attachment.setStorage(Attachment.STORAGE_LOCAL);
         when(attachmentMapper.selectById(1L)).thenReturn(attachment);
 
         attachmentService.deleteMine(7L, 1L);
 
         verify(attachmentMapper).deleteById(1L);
         // 逻辑删后物理删存储对象（失败容忍由 UploadService.deleteObject 保证）
-        verify(uploadService).deleteObject("202501/uuid.png");
+        verify(uploadService).deleteObject(Attachment.STORAGE_LOCAL, "202501/uuid.png");
     }
 
     @Test
     void deleteByAdminRemovesStorageObject() {
         Attachment attachment = attachment(1L, 99L);
         attachment.setObjectKey("202502/uuid2.png");
+        attachment.setStorage(Attachment.STORAGE_MINIO);
         when(attachmentMapper.selectById(1L)).thenReturn(attachment);
 
         attachmentService.deleteByAdmin(1L);
 
         verify(attachmentMapper).deleteById(1L);
-        verify(uploadService).deleteObject("202502/uuid2.png");
+        verify(uploadService).deleteObject(Attachment.STORAGE_MINIO, "202502/uuid2.png");
     }
 
     @Test
@@ -145,7 +147,7 @@ class AttachmentServiceImplTest {
         assertCode(StatusCode.ATTACHMENT_NOT_EXIST, assertThrows(BusinessException.class,
                 () -> attachmentService.deleteByAdmin(1L)));
         verify(attachmentMapper, never()).deleteById(any(Long.class));
-        verify(uploadService, never()).deleteObject(any());
+        verify(uploadService, never()).deleteObject(any(), any());
     }
 
     // ---------- 分组删除保护 ----------
@@ -182,7 +184,7 @@ class AttachmentServiceImplTest {
                 () -> attachmentService.moveToGroup(7L, 1L, null)));
         verify(attachmentMapper, never()).deleteById(any(Long.class));
         // 越权拒绝时不得触碰存储对象
-        verify(uploadService, never()).deleteObject(any());
+        verify(uploadService, never()).deleteObject(any(), any());
     }
 
     @Test

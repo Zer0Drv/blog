@@ -80,6 +80,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> implements ArticleService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
 
     /**
      * 摘要缺省长度：取 content 纯文本前 200 字
@@ -604,7 +606,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         }
         String kw = keyword.trim();
         Page<Article> result;
-        if (fulltextEnabled) {
+        if (sysConfig == null ? fulltextEnabled : sysConfig.getBool("blog.search.fulltext-enabled")) {
             // 生产（MySQL）：ngram FULLTEXT，MATCH...AGAINST 仅 MySQL 可跑
             result = baseMapper.searchByFulltext(new Page<>(page, size), kw);
         } else {

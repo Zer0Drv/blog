@@ -29,6 +29,8 @@ import java.util.UUID;
 @Slf4j
 @Service
 public class UploadServiceImpl implements UploadService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
 
     /**
      * 单文件大小上限：5MB（另有 spring.servlet.multipart 配置兜底）
@@ -74,8 +76,9 @@ public class UploadServiceImpl implements UploadService {
         if (Objects.isNull(file) || file.isEmpty()) {
             throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "上传文件不能为空");
         }
-        if (file.getSize() > MAX_FILE_SIZE) {
-            throw new BusinessException(StatusCode.FILE_TOO_LARGE);
+        long maxBytes = sysConfig == null ? MAX_FILE_SIZE : sysConfig.getLong("blog.upload.max-bytes");
+        if (file.getSize() > maxBytes) {
+            throw new BusinessException(StatusCode.FILE_TOO_LARGE.getCode(), "文件大小不能超过 " + maxBytes + " 字节");
         }
         String contentType = file.getContentType();
         if (Objects.nonNull(contentType) && !contentType.startsWith("image/")) {
@@ -94,7 +97,25 @@ public class UploadServiceImpl implements UploadService {
      * MinIO 客户端解析：enabled=false 或 Bean 不存在（未装配/装配失败）时为 null，走本地磁盘 fallback
      */
     private MinioClient minioClientOrNull() {
-        return minioEnabled ? minioClientProvider.getIfAvailable() : null;
+        if (sysConfig == null) return minioEnabled ? minioClientProvider.getIfAvailable() : null;
+        if (sysConfig.getString("blog.upload.storage").equals("LOCAL")) return null;
+        MinioClient client = minioClientProvider.getIfAvailable();
+        if (client == null) throw new BusinessException(StatusCode.FILE_UPLOAD_FAILED.getCode(), "MinIO 客户端未启用");
+        return client;
+    }
+
+    @Override
+    public void deleteObject(String storage, String objectKey) {
+        // 存量附件按自身存储类型删除，不能跟随新上传的默认策略切换。
+        if (objectKey == null || objectKey.isBlank()) return;
+        try {
+            if ("LOCAL".equals(storage)) deleteFromLocal(objectKey);
+            else if ("MINIO".equals(storage)) {
+                MinioClient client = minioClientProvider.getIfAvailable();
+                if (client == null) { log.warn("MinIO 客户端不可用，保留待清理对象"); return; }
+                deleteFromMinio(client, objectKey);
+            } else log.warn("未知附件存储类型，保留待清理对象");
+        } catch (Exception e) { log.warn("附件物理清理失败，保留待清理对象"); }
     }
 
     @Override
@@ -210,7 +231,8 @@ public class UploadServiceImpl implements UploadService {
             throw new BusinessException(StatusCode.FILE_TYPE_NOT_ALLOWED);
         }
         String extension = originalFilename.substring(dotIndex + 1).toLowerCase();
-        if (!ALLOWED_EXTENSIONS.contains(extension)) {
+        if (!ALLOWED_EXTENSIONS.contains(extension)
+                || (sysConfig != null && !sysConfig.getList("blog.upload.allowed-extensions").contains(extension))) {
             throw new BusinessException(StatusCode.FILE_TYPE_NOT_ALLOWED);
         }
         return extension;

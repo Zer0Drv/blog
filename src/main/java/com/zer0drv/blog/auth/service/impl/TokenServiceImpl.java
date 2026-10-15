@@ -27,6 +27,10 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class TokenServiceImpl implements TokenService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+
+    private long lifetimeMs() { return sysConfig == null ? expirationMs : sysConfig.getLong("jwt.expiration-ms"); }
 
     /**
      * 用户活跃 token 集合键（#9）：blog:user-tokens:{userId}，成员为 jti
@@ -43,13 +47,14 @@ public class TokenServiceImpl implements TokenService {
     @Override
     public String generateToken(Long userId, List<String> roles) {
         Instant now = Instant.now();
+        long lifetime = lifetimeMs();
         String jti = UUID.randomUUID().toString().replace("-", "");
         JwtClaimsSet claims = JwtClaimsSet.builder()
                 .id(jti)
                 .issuer("blog-dev")
                 .subject(String.valueOf(userId))
                 .issuedAt(now)
-                .expiresAt(now.plusMillis(expirationMs))
+                .expiresAt(now.plusMillis(lifetime))
                 .claim("roles", roles)
                 .build();
 
@@ -59,7 +64,10 @@ public class TokenServiceImpl implements TokenService {
         // 集合 TTL 随签发滚动续期，用户长期不登录后自动清理
         String userTokensKey = USER_TOKENS_KEY.formatted(userId);
         stringRedisTemplate.opsForSet().add(userTokensKey, jti);
-        stringRedisTemplate.expire(userTokensKey, Duration.ofMillis(expirationMs));
+        // 缩短新 token 有效期时不能提前清理仍持有旧长 token 的用户索引。
+        Long remaining = stringRedisTemplate.getExpire(userTokensKey);
+        if (remaining == null || remaining < (lifetime + 999) / 1000)
+            stringRedisTemplate.expire(userTokensKey, Duration.ofMillis(lifetime));
         return token;
     }
 
@@ -78,8 +86,8 @@ public class TokenServiceImpl implements TokenService {
         String userTokensKey = USER_TOKENS_KEY.formatted(userId);
         Set<String> jtis = stringRedisTemplate.opsForSet().members(userTokensKey);
         if (jtis != null && !jtis.isEmpty()) {
-            // 黑名单 TTL 取完整签发有效期（个别 token 会略超其实际过期时间，到期自清，无副作用）
-            Instant revokeUntil = Instant.now().plusMillis(expirationMs);
+            // 配置缩短并重启后仍须覆盖历史长 token；配置中心约束最长有效期为 7 天。
+            Instant revokeUntil = Instant.now().plusMillis(sysConfig == null ? expirationMs : 604800000L);
             jtis.forEach(jti -> blackToken(jti, revokeUntil));
         }
         stringRedisTemplate.delete(userTokensKey);

@@ -17,6 +17,8 @@ import java.util.Map;
 @Component
 @ConfigurationProperties(prefix = "blog.captcha")
 public class CaptchaProperties {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
 
     /**
      * 未配置场景的兜底阈值（次数）
@@ -42,7 +44,14 @@ public class CaptchaProperties {
      * 取场景阈值，未配置时返回兜底值
      */
     public Scene sceneOf(String scene) {
-        return scenes.getOrDefault(scene, new Scene(DEFAULT_THRESHOLD, DEFAULT_WINDOW_SECONDS));
+        Scene fallback = scenes.getOrDefault(scene, new Scene(DEFAULT_THRESHOLD, DEFAULT_WINDOW_SECONDS));
+        String prefix = "blog.captcha.scenes." + scene;
+        if (sysConfig == null || !sysConfig.contains(prefix + ".threshold")) return fallback;
+        return new Scene((int) sysConfig.getLong(prefix + ".threshold"), sysConfig.getLong(prefix + ".window-seconds"));
+    }
+
+    public long getCodeTtlSeconds() {
+        return sysConfig == null ? codeTtlSeconds : sysConfig.getLong("blog.captcha.code-ttl-seconds");
     }
 
     /**
