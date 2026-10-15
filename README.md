@@ -31,7 +31,7 @@
 - 关注 / 取关、粉丝与关注列表、用户主页、关注作者的文章 Feed
 - 一对一私信：会话列表、消息分页、已读回执
 - 通知中心：评论回复 / @提及 / 文章点赞 / 评论点赞 / 关注 / 私信 / 违规强删告知七类触发（`NotificationType` 另预留 SYSTEM），未读数、单条与全部已读；投递以 `social/service/NotificationIntent` 不可变值对象收口（静态工厂内建去重策略），落库 / WebSocket / 邮件三通道各自独立 try/catch 互不连坐
-- **WebSocket 实时推送**：`/ws` 推送私信与通知，握手从 Cookie 读 `AUTH_TOKEN` 鉴权（不再接受 query 参数 token），前端断线自动回退轮询
+- **WebSocket 实时推送**：`/ws` 推送私信与通知，握手从 Cookie 读 `AUTH_TOKEN` 鉴权（不再接受 query 参数 token）；已建立会话逐帧校验到期/黑名单，登出或用户级吊销同步关闭对应连接，空闲连接定期复检；前端断线自动回退轮询，详见 [会话有效性与多实例边界](docs/websocket-sessions.md)
 - 评论邮件通知：异步发送，用户在通知偏好中可关闭；未配 SMTP 走 dev 日志兜底
 
 ### 站点与 SEO

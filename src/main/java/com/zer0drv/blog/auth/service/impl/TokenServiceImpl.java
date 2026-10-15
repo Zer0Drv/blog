@@ -1,9 +1,12 @@
 package com.zer0drv.blog.auth.service.impl;
 
 import com.zer0drv.blog.auth.service.TokenService;
+import com.zer0drv.blog.auth.event.TokenRevoked;
+import com.zer0drv.blog.auth.event.UserTokensRevoked;
 import com.zer0drv.blog.auth.validator.BlacklistJwtValidator;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -35,6 +38,7 @@ public class TokenServiceImpl implements TokenService {
 
     private final JwtEncoder jwtEncoder;
     private final StringRedisTemplate stringRedisTemplate;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     public String generateToken(Long userId, List<String> roles) {
@@ -61,11 +65,12 @@ public class TokenServiceImpl implements TokenService {
 
     @Override
     public void blackToken(String jti, Instant expiresAt) {
-        long ttl = Duration.between(Instant.now(), expiresAt).getSeconds();
-        if (ttl > 0) {
+        Duration ttl = Duration.between(Instant.now(), expiresAt);
+        if (!ttl.isNegative() && !ttl.isZero()) {
             // Spring Data Redis 4.1 起 set(K,V,long,TimeUnit) 已弃用，改用 Duration 重载
-            stringRedisTemplate.opsForValue().set(BlacklistJwtValidator.BLACKLIST_PREFIX + jti, "1", Duration.ofSeconds(ttl));
+            stringRedisTemplate.opsForValue().set(BlacklistJwtValidator.BLACKLIST_PREFIX + jti, "1", ttl);
         }
+        eventPublisher.publishEvent(new TokenRevoked(jti));
     }
 
     @Override
@@ -78,5 +83,13 @@ public class TokenServiceImpl implements TokenService {
             jtis.forEach(jti -> blackToken(jti, revokeUntil));
         }
         stringRedisTemplate.delete(userTokensKey);
+        eventPublisher.publishEvent(new UserTokensRevoked(userId));
+    }
+
+    @Override
+    public boolean isTokenActive(String jti, Instant expiresAt) {
+        return jti != null && !jti.isBlank() && expiresAt != null && Instant.now().isBefore(expiresAt)
+                && !Boolean.TRUE.equals(stringRedisTemplate.hasKey(BlacklistJwtValidator.BLACKLIST_PREFIX + jti))
+                && Instant.now().isBefore(expiresAt);
     }
 }

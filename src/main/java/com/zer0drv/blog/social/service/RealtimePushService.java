@@ -26,4 +26,7 @@ public interface RealtimePushService {
      * 发送失败的死 session 会被移除。
      */
     void pushToUser(Long userId, String type, Object payload);
+
+    /** 心跳也经过持续鉴权与同一发送锁，禁止无效连接继续收帧。 */
+    void pong(Long userId, WebSocketSession session);
 }

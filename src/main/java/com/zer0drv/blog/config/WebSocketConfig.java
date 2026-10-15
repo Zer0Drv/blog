@@ -19,13 +19,15 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 
 /**
  * WebSocket 配置：把 NotifyWebSocketHandler 注册到 /ws（私信+通知实时推送）。
  * 握手鉴权（blog-ui#13 契约第 4 条）：从握手请求的 Cookie 头读取 AUTH_TOKEN 校验
  * （浏览器 WS 自动携带同源/同站点 Cookie），不再接受 query 参数 token。
  * 用资源服务器同款 JwtDecoder 解码（含黑名单校验），sub 即用户 id 字符串，
- * 解析出的 Long 型 userId 放入 session attributes；解码失败返回 false 拒绝握手。
+ * 只把 userId / jti / expiresAt 放入 session attributes，不保留原始 token；
+ * 缺少 jti/exp 或严格到期均拒绝握手（不沿用 JWT 默认的时钟偏差宽限）。
  * allowedOrigins("*")：认证 Cookie 为 SameSite=Strict，跨站握手不携带 Cookie，天然防 CSWSH。
  *
  * @author Yoruhaki
@@ -40,6 +42,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
      * session attributes 中用户 id 的键
      */
     public static final String ATTR_USER_ID = "userId";
+    public static final String ATTR_TOKEN_ID = "tokenId";
+    public static final String ATTR_EXPIRES_AT = "expiresAt";
 
     private final NotifyWebSocketHandler notifyWebSocketHandler;
     private final JwtDecoder jwtDecoder;
@@ -53,7 +57,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
     }
 
     /**
-     * JWT 握手拦截器：从握手 Cookie 头读取 AUTH_TOKEN 解码，userId 写入 attributes，
+     * JWT 握手拦截器：从握手 Cookie 头读取 AUTH_TOKEN 解码，认证元数据写入 attributes，
      * 任何失败（缺 Cookie / 过期 / 黑名单 / sub 非数字）都拒绝握手。
      */
     @Slf4j
@@ -73,11 +77,17 @@ public class WebSocketConfig implements WebSocketConfigurer {
             }
             try {
                 Jwt jwt = jwtDecoder.decode(token);
+                if (jwt.getId() == null || jwt.getId().isBlank() || jwt.getExpiresAt() == null
+                        || !Instant.now().isBefore(jwt.getExpiresAt())) {
+                    return false;
+                }
                 // 与 JwtSubjects 约定一致：签发时 sub = 用户 id 字符串
                 attributes.put(ATTR_USER_ID, Long.valueOf(jwt.getSubject()));
+                attributes.put(ATTR_TOKEN_ID, jwt.getId());
+                attributes.put(ATTR_EXPIRES_AT, jwt.getExpiresAt());
                 return true;
             } catch (Exception e) {
-                log.debug("WebSocket 握手拒绝：token 校验失败（{}）", e.getMessage());
+                log.debug("WebSocket 握手拒绝：token 校验失败");
                 return false;
             }
         }
