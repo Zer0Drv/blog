@@ -53,7 +53,8 @@ public class ArticleSaveDTO {
     private String cover;
 
     /**
-     * 分类id
+     * 分类id；完整保存时显式 null 或省略均表示未分类（编辑时清空原分类），
+     * 不适用「省略即保留」的局部更新语义。
      */
     private Long categoryId;
 
