@@ -32,4 +32,7 @@ public interface TokenService {
      * @param userId 用户id
      */
     void blackUserTokens(Long userId);
+
+    /** 已建立连接的持续鉴权：严格到期时间 + 共享黑名单，不需要保留原始 token。 */
+    boolean isTokenActive(String jti, Instant expiresAt);
 }

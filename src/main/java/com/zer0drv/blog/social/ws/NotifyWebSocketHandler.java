@@ -15,7 +15,7 @@ import java.util.Objects;
 
 /**
  * 私信+通知推送的 WebSocket 端点（/ws）。
- * 只负责连接生命周期：建立时按握手拦截器写入 attributes 的 userId 注册 session，
+ * 只负责连接生命周期：建立时按握手拦截器写入 attributes 的身份注册 session，
  * 关闭时清理。客户端帧内容忽略（预留 "ping" → "pong" 心跳应答），不做频道订阅。
  *
  * @author Yoruhaki
@@ -32,6 +32,8 @@ public class NotifyWebSocketHandler extends TextWebSocketHandler {
         Long userId = userIdOf(session);
         if (Objects.nonNull(userId)) {
             realtimePushService.register(userId, session);
+        } else {
+            try { session.close(CloseStatus.POLICY_VIOLATION); } catch (Exception ignored) { }
         }
     }
 
@@ -40,7 +42,7 @@ public class NotifyWebSocketHandler extends TextWebSocketHandler {
             throws Exception {
         // 客户端帧内容忽略；预留文本心跳："ping" → "pong"
         if ("ping".equalsIgnoreCase(message.getPayload().trim())) {
-            session.sendMessage(new TextMessage("pong"));
+            realtimePushService.pong(userIdOf(session), session);
         }
     }
 

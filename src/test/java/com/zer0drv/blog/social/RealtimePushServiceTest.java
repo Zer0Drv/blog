@@ -1,6 +1,8 @@
 package com.zer0drv.blog.social;
 
 import com.zer0drv.blog.social.service.impl.RealtimePushServiceImpl;
+import com.zer0drv.blog.auth.service.TokenService;
+import com.zer0drv.blog.config.WebSocketConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -11,6 +13,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.util.Map;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -38,7 +41,9 @@ class RealtimePushServiceTest {
 
     @BeforeEach
     void setUp() {
-        pushService = new RealtimePushServiceImpl(objectMapper);
+        TokenService tokens = mock(TokenService.class);
+        lenient().when(tokens.isTokenActive(any(), any())).thenReturn(true);
+        pushService = new RealtimePushServiceImpl(objectMapper, tokens);
     }
 
     /**
@@ -48,6 +53,8 @@ class RealtimePushServiceTest {
         WebSocketSession session = mock(WebSocketSession.class);
         lenient().when(session.getId()).thenReturn(id);
         lenient().when(session.isOpen()).thenReturn(true);
+        lenient().when(session.getAttributes()).thenReturn(Map.of(
+                WebSocketConfig.ATTR_TOKEN_ID, id, WebSocketConfig.ATTR_EXPIRES_AT, Instant.now().plusSeconds(3600)));
         return session;
     }
 

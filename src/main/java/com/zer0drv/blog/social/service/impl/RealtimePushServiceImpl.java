@@ -1,100 +1,168 @@
 package com.zer0drv.blog.social.service.impl;
 
+import com.zer0drv.blog.auth.event.TokenRevoked;
+import com.zer0drv.blog.auth.event.UserTokensRevoked;
+import com.zer0drv.blog.auth.service.TokenService;
+import com.zer0drv.blog.config.WebSocketConfig;
 import com.zer0drv.blog.social.service.RealtimePushService;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
- * RealtimePushService 默认实现：内存 session 表（单机部署足够；
- * 若未来多实例部署需换成 Redis pub/sub 广播）。
- *
- * @author Yoruhaki
+ * 本机连接表；每帧检查共享黑名单，空闲连接每秒复检。
+ * 发送、检查和吊销关闭共用 session 锁：本机吊销返回时，已进入的发送已结束。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RealtimePushServiceImpl implements RealtimePushService {
 
-    /**
-     * 在线连接表：userId → 该用户的全部 WebSocket session（同一用户可多端在线）
-     */
     private final Map<Long, CopyOnWriteArraySet<WebSocketSession>> sessions = new ConcurrentHashMap<>();
-
     private final ObjectMapper objectMapper;
+    private final TokenService tokenService;
 
     @Override
     public void register(Long userId, WebSocketSession session) {
-        if (Objects.isNull(userId) || Objects.isNull(session)) {
+        if (session == null) return;
+        if (userId == null) {
+            close(session, CloseStatus.POLICY_VIOLATION);
             return;
         }
-        sessions.computeIfAbsent(userId, _ -> new CopyOnWriteArraySet<>()).add(session);
-        log.debug("WebSocket session 上线：userId={}, sessionId={}", userId, session.getId());
+        // 先入表再复检，收口握手校验与注册之间的吊销竞态。
+        sessions.compute(userId, (_, bucket) -> {
+            if (bucket == null) bucket = new CopyOnWriteArraySet<>();
+            bucket.add(session);
+            return bucket;
+        });
+        synchronized (session) {
+            validateOrEvict(userId, session);
+        }
     }
 
     @Override
     public void unregister(Long userId, WebSocketSession session) {
-        if (Objects.isNull(userId) || Objects.isNull(session)) {
-            return;
-        }
-        CopyOnWriteArraySet<WebSocketSession> userSessions = sessions.get(userId);
-        if (Objects.nonNull(userSessions)) {
-            userSessions.remove(session);
-            if (userSessions.isEmpty()) {
-                // 空桶顺手摘除（值相等才删，避免误删并发新注册产生的桶）
-                sessions.remove(userId, userSessions);
-            }
-            log.debug("WebSocket session 下线：userId={}, sessionId={}", userId, session.getId());
-        }
+        if (userId == null || session == null) return;
+        sessions.computeIfPresent(userId, (_, bucket) -> {
+            bucket.remove(session);
+            return bucket.isEmpty() ? null : bucket;
+        });
     }
 
     @Override
     public void pushToUser(Long userId, String type, Object payload) {
+        if (userId == null) return;
         try {
-            CopyOnWriteArraySet<WebSocketSession> userSessions = sessions.get(userId);
-            if (Objects.isNull(userSessions) || userSessions.isEmpty()) {
-                return;
-            }
-            // LinkedHashMap 保证帧字段顺序固定为 {"type": ..., "data": ...}
+            var bucket = sessions.get(userId);
+            if (bucket == null || bucket.isEmpty()) return;
             Map<String, Object> frame = new LinkedHashMap<>();
             frame.put("type", type);
             frame.put("data", payload);
             TextMessage message = new TextMessage(objectMapper.writeValueAsString(frame));
-            for (WebSocketSession session : userSessions) {
-                sendOrEvict(userId, session, message);
-            }
+            for (WebSocketSession session : bucket) sendOrEvict(userId, session, message);
         } catch (Exception e) {
-            // 推送是旁路能力：任何失败仅记日志，绝不抛给主业务
-            log.warn("实时推送失败：userId={}, type={}, reason={}", userId, type, e.getMessage());
+            // 不记录异常消息，避免第三方异常带入原始凭据或消息正文。
+            log.warn("实时推送失败：userId={}, type={}", userId, type);
         }
     }
 
-    /**
-     * 发送单帧；session 已关闭或发送异常时从表中移除（死 session 清理）。
-     * WebSocketSession 非线程安全，同一 session 的并发发送需串行化。
-     */
+    @Override
+    public void pong(Long userId, WebSocketSession session) {
+        if (userId != null && session != null) sendOrEvict(userId, session, new TextMessage("pong"));
+    }
+
     private void sendOrEvict(Long userId, WebSocketSession session, TextMessage message) {
-        try {
-            if (!session.isOpen()) {
-                unregister(userId, session);
-                return;
-            }
-            synchronized (session) {
+        synchronized (session) {
+            if (!validateOrEvict(userId, session)) return;
+            try {
                 session.sendMessage(message);
+            } catch (Exception e) {
+                evict(userId, session, CloseStatus.SERVER_ERROR);
             }
-        } catch (Exception e) {
-            log.warn("WebSocket 发送失败，移除死 session：userId={}, sessionId={}, reason={}",
-                    userId, session.getId(), e.getMessage());
-            unregister(userId, session);
         }
+    }
+
+    // 调用方持有 session 锁。即使发送拿到了旧 bucket 快照，移除后也不能继续发送。
+    private boolean validateOrEvict(Long userId, WebSocketSession session) {
+        var bucket = sessions.get(userId);
+        if (bucket == null || !bucket.contains(session)) return false;
+        if (!session.isOpen()) {
+            unregister(userId, session);
+            return false;
+        }
+        Object jti = session.getAttributes().get(WebSocketConfig.ATTR_TOKEN_ID);
+        Object expiry = session.getAttributes().get(WebSocketConfig.ATTR_EXPIRES_AT);
+        try {
+            if (jti instanceof String tokenId && expiry instanceof Instant expiresAt
+                    && tokenService.isTokenActive(tokenId, expiresAt)) return true;
+        } catch (Exception e) {
+            // Redis 不可用时关闭连接，禁止继续发送未经确认授权的帧。
+        }
+        evict(userId, session, CloseStatus.POLICY_VIOLATION);
+        return false;
+    }
+
+    @EventListener
+    public void onTokenRevoked(TokenRevoked event) {
+        sessions.forEach((userId, bucket) -> {
+            for (WebSocketSession session : bucket) {
+                if (event.jti() != null && event.jti().equals(session.getAttributes().get(WebSocketConfig.ATTR_TOKEN_ID))) {
+                    synchronized (session) { evict(userId, session, CloseStatus.POLICY_VIOLATION); }
+                }
+            }
+        });
+    }
+
+    @EventListener
+    public void onUserTokensRevoked(UserTokensRevoked event) {
+        var bucket = sessions.get(event.userId());
+        if (bucket == null) return;
+        for (WebSocketSession session : bucket) {
+            synchronized (session) { evict(event.userId(), session, CloseStatus.POLICY_VIOLATION); }
+        }
+    }
+
+    @Scheduled(fixedDelay = 1000, initialDelay = 1000)
+    public void sweepSessions() {
+        sessions.forEach((userId, bucket) -> {
+            for (WebSocketSession session : bucket) {
+                synchronized (session) { validateOrEvict(userId, session); }
+            }
+        });
+    }
+
+    private void evict(Long userId, WebSocketSession session, CloseStatus status) {
+        unregister(userId, session);
+        close(session, status);
+    }
+
+    private void close(WebSocketSession session, CloseStatus status) {
+        try {
+            if (session.isOpen()) session.close(status);
+        } catch (Exception e) {
+            log.debug("WebSocket 关闭失败：sessionId={}", session.getId());
+        }
+    }
+
+    @PreDestroy
+    public void shutdown() {
+        sessions.forEach((userId, bucket) -> {
+            for (WebSocketSession session : bucket) {
+                synchronized (session) { evict(userId, session, CloseStatus.GOING_AWAY); }
+            }
+        });
     }
 }
