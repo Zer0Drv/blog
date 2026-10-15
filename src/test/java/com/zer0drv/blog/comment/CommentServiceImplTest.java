@@ -89,6 +89,7 @@ class CommentServiceImplTest {
         // 默认：SiteConfigService 可用但审核开关关闭（非 create 路径的测试不触达该桩，lenient 防误报）
         lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(siteConfigService);
         lenient().when(siteConfigService.getBool(anyString(), anyBoolean())).thenReturn(false);
+        org.springframework.test.util.ReflectionTestUtils.setField(commentService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     @AfterEach

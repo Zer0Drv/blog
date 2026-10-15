@@ -26,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 @RequiredArgsConstructor
 public class SiteConfigServiceImpl implements SiteConfigService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
      * 已知配置键（与 V9 种子一致），setAll 只接受这些键
@@ -92,10 +94,12 @@ public class SiteConfigServiceImpl implements SiteConfigService {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public synchronized void setAll(Map<String, String> values) {
         if (Objects.isNull(values) || values.isEmpty()) {
             return;
         }
+        attachmentReferences.protect(values.values().toArray(String[]::new));
         // 在任何写操作前校验，避免导航非法时其他配置被部分更新。
         if (values.containsKey(PageNavigationSlugs.CONFIG_KEY)) {
             PageNavigationSlugs.parse(values.get(PageNavigationSlugs.CONFIG_KEY));
@@ -119,8 +123,13 @@ public class SiteConfigServiceImpl implements SiteConfigService {
                 siteConfigMapper.insert(created);
             }
         }
-        // 写后刷新缓存，保证读立即一致
-        refresh();
+        // Publish only after commit so rollback / concurrent reads cannot cache uncommitted values.
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCommit() { refresh(); }
+                    });
+        } else refresh();
     }
 
     /**

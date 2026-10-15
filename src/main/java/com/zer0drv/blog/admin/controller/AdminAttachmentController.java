@@ -36,7 +36,7 @@ public class AdminAttachmentController {
     }
 
     /**
-     * 删除附件（不限属主；逻辑删记录 + 物理删存储对象，物理删失败只告警）
+     * 移出附件库；对象由带引用检查和观察期的清理队列回收。
      */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {

@@ -57,6 +57,7 @@ class SiteConfigServiceImplTest {
                 row("comment.review_required", "false"),
                 row("site.friend_links_enabled", "true")));
         ReflectionTestUtils.invokeMethod(service, "init");
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     @Test

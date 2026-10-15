@@ -27,6 +27,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
      * 通知偏好键：评论邮件通知开关
@@ -36,7 +38,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     private final Converter converter;
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public UserVO updateProfile(Long userId, ProfileUpdateDTO dto) {
+        attachmentReferences.protect(dto.getAvatar(), dto.getBio());
         User user = requireUser(userId);
         // 仅更新资料三字段与更新时间，密码/角色/状态等其余字段保持原值
         user.setNickname(dto.getNickname());

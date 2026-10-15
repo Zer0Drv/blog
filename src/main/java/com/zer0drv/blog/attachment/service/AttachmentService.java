@@ -52,7 +52,7 @@ public interface AttachmentService {
     void moveToGroup(Long userId, Long attachmentId, Long groupId);
 
     /**
-     * 删除本人附件（逻辑删记录 + 物理删存储对象，物理删失败只告警）
+     * 删除本人附件（移出附件库；存储对象经引用检查与观察期后清理）
      */
     void deleteMine(Long userId, Long attachmentId);
 
@@ -62,7 +62,7 @@ public interface AttachmentService {
     PageResult<AdminAttachmentVO> pageAll(long page, long size, Long userId, String keyword);
 
     /**
-     * 管理端删除（不限属主；逻辑删记录 + 物理删存储对象，物理删失败只告警）
+     * 管理端删除（不限属主；移出附件库；存储对象经引用检查与观察期后清理）
      */
     void deleteByAdmin(Long attachmentId);
 }

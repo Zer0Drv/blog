@@ -142,6 +142,7 @@ class ArticleServiceImplTest {
                 passwordEncoder, eventPublisher));
         ReflectionTestUtils.setField(articleService, "baseMapper", articleMapper);
         ReflectionTestUtils.setField(articleService, "fulltextEnabled", false);
+        org.springframework.test.util.ReflectionTestUtils.setField(articleService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     @AfterEach

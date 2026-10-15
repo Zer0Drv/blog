@@ -159,7 +159,7 @@ class AttachmentIntegrationTests extends IntegrationTestSupport {
     }
 
     @Test
-    void deleteAttachmentPhysicallyRemovesLocalFile() throws Exception {
+    void deleteAttachmentRetainsFileForObservation() throws Exception {
         String username = unique("it_att_del_");
         long userId = seedUser(username, "删除者", "AUTHOR");
         String bearer = bearerOf(username);
@@ -180,13 +180,14 @@ class AttachmentIntegrationTests extends IntegrationTestSupport {
                 .resolve(url.substring("/uploads/".length()));
         assertTrue(Files.exists(stored), "上传后本地文件应存在");
 
-        // 用户侧删除：记录逻辑删 + 本地文件物理删
+        // 用户侧删除：先移出库，文件保留供引用检查与观察期恢复。
         mockMvc.perform(delete("/attachments/{id}", attachmentId)
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("200"));
 
-        assertTrue(Files.notExists(stored), "删除附件后本地文件应被物理删除");
+        assertTrue(Files.exists(stored), "观察期之前不能删除文件");
+        Files.delete(stored); // isolated fixture cleanup
         var row = jdbcTemplate.queryForMap("SELECT deleted FROM attachment WHERE id = ?", attachmentId);
         assertEquals(1, ((Number) row.get("deleted")).intValue());
     }
