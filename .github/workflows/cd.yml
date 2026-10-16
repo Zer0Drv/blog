@@ -1,6 +1,6 @@
 name: CD
 
-# 后端 CD：构建镜像 → 推 GHCR → 自托管 runner 拉取并更新本机容器
+# 后端 CD：同 SHA 全量 CI → 构建镜像 → 推 GHCR → production 审批 → 部署
 # 前置（一次性，由仓库管理员完成）：
 #   1) 仓库 Settings → Actions → Runners → New self-hosted runner，注册本机（label: self-hosted）
 #   2) GHCR 首推后，Packages 里把 ghcr.io/zer0drv/blog-backend 可见性设为 private（默认可推）
@@ -19,6 +19,8 @@ on:
       - 'docker-compose*.yml'
       - 'deploy/**'
       - '.github/workflows/cd.yml'
+      - '.github/workflows/ci.yml'
+      - 'compose.real-it.yaml'
       - '.env.example'
   workflow_dispatch:
     inputs:
@@ -31,30 +33,55 @@ concurrency:
   group: cd-backend
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  # ---- 门控：解析 [skip cd] 提交标记 ----
+  # ---- 门控：限定 main，解析跳过标记与回滚输入 ----
   gate:
     runs-on: ubuntu-latest
     outputs:
       deploy: ${{ steps.flag.outputs.deploy }}
+      rollback: ${{ steps.flag.outputs.rollback }}
     steps:
-      - name: 检查 [skip cd] 标记
+      - name: 校验发布来源和输入
         id: flag
         env:
-          MSG: ${{ toJSON(github.event.head_commit.message) }}
+          RELEASE_REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+          MSG: ${{ github.event.head_commit.message }}
+          ROLLBACK_TAG: ${{ inputs.rollback_tag }}
         run: |
-          if echo "$MSG" | grep -qi '\[skip cd\]'; then
+          if [[ "$RELEASE_REF" != refs/heads/main ]]; then
+            echo '::error::只能从 main 运行发布或回滚'; exit 1
+          fi
+          if [[ -n "$ROLLBACK_TAG" ]]; then
+            if [[ ! "$ROLLBACK_TAG" =~ ^sha-[0-9a-f]{8}$ ]]; then
+              echo '::error::rollback_tag 必须为 sha- 加 8 位小写十六进制提交标识'; exit 1
+            fi
+            echo 'rollback=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'rollback=false' >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$EVENT_NAME" == push ]] && echo "$MSG" | grep -qi '\[skip cd\]'; then
             echo "deploy=false" >> "$GITHUB_OUTPUT"
             echo "检测到 [skip cd]：本次提交跳过部署"
           else
             echo "deploy=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # 复用整个 CI，而非轮询某几个检查名。新增 CI job 会自动加入发布门禁。
+  # 本地 reusable workflow 与 checkout 均使用调用方的精确 github.sha。
+  ci:
+    needs: gate
+    if: needs.gate.outputs.deploy == 'true' && needs.gate.outputs.rollback == 'false'
+    uses: ./.github/workflows/ci.yml
+
   # ---- 阶段 1：GitHub 托管 runner 构建并推送镜像 ----
   image:
-    needs: gate
+    needs: [gate, ci]
     # 回滚模式（填了 rollback_tag）跳过构建
-    if: needs.gate.outputs.deploy == 'true' && (github.event_name == 'push' || inputs.rollback_tag == '')
+    if: needs.gate.outputs.deploy == 'true' && needs.gate.outputs.rollback == 'false' && needs.ci.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -64,6 +91,13 @@ jobs:
       image: ${{ steps.meta.outputs.image }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+
+      - name: 核对构建提交
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
       - name: 计算镜像坐标
         # GHCR 要求仓库名全小写，owner 含大写（Zer0Drv）时 docker 会拒绝 tag
@@ -81,23 +115,51 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 构建并推送
+        env:
+          RELEASE_SHA: ${{ github.sha }}
         run: |
           docker build \
+            --label "org.opencontainers.image.revision=$RELEASE_SHA" \
             -t "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" \
             -t "${{ steps.meta.outputs.image }}:latest" \
             .
           docker push "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
           docker push "${{ steps.meta.outputs.image }}:latest"
 
+      - name: 记录构建与 CI 证据
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          IMAGE: ${{ steps.meta.outputs.image }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          mkdir -p target/release-evidence
+          jq -n --arg sha "$RELEASE_SHA" --arg image "$IMAGE:$TAG" \
+            --arg run "$RUN_URL" --arg attempt "$RUN_ATTEMPT" \
+            '{sha: $sha, image: $image, ciWorkflow: ".github/workflows/ci.yml", run: $run, attempt: $attempt}' \
+            > target/release-evidence/build.json
+          cat target/release-evidence/build.json >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: backend-build-${{ github.sha }}
+          path: target/release-evidence/build.json
+          retention-days: 90
+          if-no-files-found: error
+
   # ---- 阶段 2：自托管 runner（部署机）拉镜像并更新容器 ----
   # 部署机为 Windows：脚本统一 bash（Git for Windows 提供）；
   # compose 用 Docker Desktop 自带的 docker-compose.exe（本机未注册 compose 插件）；
   # 直接操作部署机上的工程目录（.env 不入库，compose 必需的口令只在部署机存在），不做 checkout
   deploy:
-    needs: [gate, image]
+    needs: [gate, ci, image]
     # 回滚模式 image 被跳过：needs 跳过上会连带跳过本 job，需 always() 兜底；
     # 正常推送取新构建 tag，回滚取 rollback_tag
-    if: ${{ always() && needs.gate.outputs.deploy == 'true' && (inputs.rollback_tag != '' || needs.image.outputs.tag != '') }}
+    if: >-
+      ${{ always() && !cancelled() && needs.gate.result == 'success' && needs.gate.outputs.deploy == 'true' &&
+          ((needs.gate.outputs.rollback == 'true' && needs.ci.result == 'skipped' && needs.image.result == 'skipped') ||
+           (needs.gate.outputs.rollback == 'false' && needs.ci.result == 'success' && needs.image.result == 'success' && needs.image.outputs.tag != '')) }}
     runs-on: self-hosted
     environment: production
     defaults:
@@ -110,8 +172,21 @@ jobs:
       - name: 拉取镜像并更新后端容器（正常部署取新 tag，回滚取指定 tag）
         env:
           BACKEND_TAG: ${{ inputs.rollback_tag || needs.image.outputs.tag }}
+          RELEASE_SHA: ${{ github.sha }}
+          ROLLBACK: ${{ needs.gate.outputs.rollback }}
         run: |
           docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
+          image="ghcr.io/zer0drv/blog-backend:$BACKEND_TAG"
+          revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
+          if [[ "$ROLLBACK" == false && "$revision" != "$RELEASE_SHA" ]]; then
+            echo '::error::镜像提交标记与通过 CI 的提交不一致，拒绝更新容器'; exit 1
+          fi
+          {
+            echo "### 后端发布"
+            echo "镜像：\`$image\`"
+            echo "构建提交：\`$revision\`；本次工作流提交：\`$RELEASE_SHA\`；回滚：$ROLLBACK"
+            docker image inspect --format '{{json .RepoDigests}}' "$image"
+          } >> "$GITHUB_STEP_SUMMARY"
           docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
 
       - name: 等待健康检查
