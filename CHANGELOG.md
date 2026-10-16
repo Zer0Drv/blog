@@ -4,35 +4,33 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-16
+
 ### Added
 
-- 后端发布门禁（#58）：CD 复用同 SHA 的完整 CI，全部成功后才构建镜像；部署前核对镜像提交标记，保存构建证据并保留 production 审批与历史镜像回滚
+- 文章 slug 固定链接：保留 ID 路由，新增 slug 访问、唯一校验及 RSS/sitemap 固定链接（[#14](https://github.com/Zer0Drv/blog/issues/14)，[PR #52](https://github.com/Zer0Drv/blog/pull/52)）。
+- 密码保护与私密文章：统一公众可见性、口令限流和短期访问令牌，保护列表、搜索、Feed 与详情出口（[#15](https://github.com/Zer0Drv/blog/issues/15)，[PR #54](https://github.com/Zer0Drv/blog/pull/54)）。
+- Markdown 导入导出增强：front matter 元数据、批量 zip、逐条失败明细及外链图片转存提示（[#16](https://github.com/Zer0Drv/blog/issues/16)，[PR #53](https://github.com/Zer0Drv/blog/pull/53)）。
+- 友情链接、自定义页面与导航管理；已发布自定义页面可公开访问并收录 sitemap（[#17](https://github.com/Zer0Drv/blog/issues/17)、[#18](https://github.com/Zer0Drv/blog/issues/18)，[PR #51](https://github.com/Zer0Drv/blog/pull/51)、[PR #55](https://github.com/Zer0Drv/blog/pull/55)）。
+- 新文章订阅：站内订阅、邮箱确认、公开退订、持久推送、失败重试、邮件额度与管理统计（[#20](https://github.com/Zer0Drv/blog/issues/20)，[PR #59](https://github.com/Zer0Drv/blog/pull/59)）。
+- 系统参数配置中心：20 项参数白名单、校验、重置、缓存与跨实例刷新、变更审计及消费侧接入（[#23](https://github.com/Zer0Drv/blog/issues/23)，[PR #64](https://github.com/Zer0Drv/blog/pull/64)）。
+- 附件孤儿清理：本地/MinIO 扫描、完整引用保护、7 天观察期、恢复保留、物理删除重试与回收统计；普通删除先移出附件库（[#22](https://github.com/Zer0Drv/blog/issues/22)，[PR #65](https://github.com/Zer0Drv/blog/pull/65)）。
+- 隔离 MySQL/Redis/MinIO 的真实依赖回归，覆盖 HTTP/Cookie/吊销、验证码 TTL、对象与草稿引用保护、全文搜索、WebSocket，以及 V13/V15 代表性数据升级与幂等检查（[#58](https://github.com/Zer0Drv/blog/issues/58)，[PR #67](https://github.com/Zer0Drv/blog/pull/67)）。
 
-- 真实依赖回归（#58）：新增隔离 MySQL/Redis/MinIO profile 与 CI job，验证 HTTP/Cookie/吊销、验证码 TTL、对象上传读取清理、Redis 草稿保护、全文搜索可见性和 WebSocket；V13/V15 代表性数据升级与幂等检查，保存版本证据和诊断日志
+### Changed
 
-- 附件孤儿清理（#22）：本地/MinIO 扫描、文章/历史版本/草稿/回收站引用保护、7 天观察期、恢复保留、跨实例引用互斥、持久化删除重试与确认回收字节；普通删除改为先移出附件库
-
-- 系统参数配置中心（#23）：独立配置/审计表、20 项参数白名单、类型与范围校验、缓存和跨实例刷新、重置与配置优先级；接入验证码、认证、上传、搜索消费者，存储切换后按附件原后端清理
-- 新文章订阅（#20）：站内订阅、邮箱确认与匿名退订、持久推送队列与定时文章支持、失败重试/邮件频率限制、管理员推送统计；发送前复核公开可见性
-
-- 自定义页面（#18）：独立页面表与管理员 CRUD、Markdown/富文本内容、发布/下架、slug 唯一校验；站点导航配置与公开读取按发布状态过滤，sitemap 收录已发布页面
-
-- 密码保护 / 私密文章（#15）：`article` 表新增 `visibility`（PUBLIC/PASSWORD/PRIVATE）与 `access_password_hash` 列（V12，BCrypt 哈希）；公众可见性谓词 `ArticleVisibility` 收紧为仅 PUBLIC 出公众出口（列表/Feed/归档/搜索/RSS/sitemap 口径一致，标题零泄露）；PASSWORD 文章详情（id/slug 双路由）出「需口令」极简视图，新增公开端点 `POST /articles/{id}/password` 校验口令（CaptchaGuard 双维度限流防爆破）并签发 2h 访问令牌（Redis），详情经 `X-Article-Access-Token` 头放行；PRIVATE 对公众与「不存在」同语义；编辑器保存支持可见性与口令设置（口令留空保持现状，切出 PASSWORD 自动清哈希）
-- 文章 slug 固定链接（#14）：article 表新增 slug 列（V11；唯一索引含回收站占位，存量回填 `post-{id}`）；发布/保存校验格式与唯一性，未指定按标题清洗自动生成（纯中文标题 `post-{id}` 兜底，冲突追加序号）；新增公开详情 `GET /articles/slug/{slug}`（旧 `/{id}` 继续可用）；RSS/sitemap 文章链接改用 slug；列表/详情/归档 VO 带出 slug
-- 友情链接：`friend_link` 表 + 公众端只读列表（仅启用、排序升序）+ 管理端 CRUD/启停；新增 `site.friend_links_enabled` 配置键联动站点设置展示位（#17）
-- 文章 Markdown 导入导出增强（#16）：导出 front matter 扩展为标题/slug/发布时间/更新时间/状态/标签/分类/摘要/封面；新增批量导出 zip（`GET /articles/export?ids=`，作者仅本人、管理员全部）；导入支持解析 front matter 自动填充元数据（slug 透传创建链路校验、标签按名匹配缺失自动创建、分类按名匹配不自动创建、date 回填 publish_time、status 忽略一律草稿），新增 zip 批量导入（逐条容错返回失败明细，防 Zip Slip 与解压炸弹），外链图片保留并随响应返回待转存清单
-- CD 回滚能力：`workflow_dispatch` 填 `rollback_tag` 直部 GHCR 历史镜像，image 构建自动跳过（#43）
-- 开发流程建设：CONTRIBUTING 规范、Issue/PR 模板、main 分支保护（必过 CI、禁直推/强推）、Dependabot 周更 + 安全扫描、优先级标签与 Projects 看板（#37、#38）
+- 发布前复用同 SHA 完整 CI；构建、部署前核对镜像身份并保存证据，保留 production 审批。支持通过 `sha-<8位>` 历史镜像回滚（[PR #43](https://github.com/Zer0Drv/blog/pull/43)、[PR #68](https://github.com/Zer0Drv/blog/pull/68)）。
+- MinIO 升级至 9.0.3，适配 `PutObjectArgs.stream` 的 Long 参数；同步升级 okhttp-jvm 5.5.0、MapStruct Plus 1.5.3、Hutool Core/Captcha 5.8.48（[PR #44](https://github.com/Zer0Drv/blog/pull/44)–[PR #48](https://github.com/Zer0Drv/blog/pull/48)）。
+- 完善架构、发布回滚、Dependabot 与提交规范文档；固化 Issue 阶段/结项评论、六类元数据维护规则与 PR 清单（[#69](https://github.com/Zer0Drv/blog/issues/69)，[PR #70](https://github.com/Zer0Drv/blog/pull/70)、[PR #71](https://github.com/Zer0Drv/blog/pull/71)）。
 
 ### Fixed
 
-- 附件清理显式使用 JDBC 时间读取，兼容 MySQL DATETIME 的 LocalDateTime 返回类型，修复到期删除时强转 Timestamp 导致服务器错误（#66）
+- WebSocket 已建立连接随 token 到期、登出及用户级吊销失效，补齐发送/心跳复检和并发回归（[#56](https://github.com/Zer0Drv/blog/issues/56)，[PR #63](https://github.com/Zer0Drv/blog/pull/63)）。
+- 完整保存支持清空文章分类，恢复未分类历史版本时正确写入 NULL（[#57](https://github.com/Zer0Drv/blog/issues/57)，[PR #62](https://github.com/Zer0Drv/blog/pull/62)）。
+- 附件清理显式使用 JDBC 时间读取，兼容 MySQL DATETIME 返回 LocalDateTime，修复到期删除服务器错误（[#66](https://github.com/Zer0Drv/blog/issues/66)，[PR #67](https://github.com/Zer0Drv/blog/pull/67)）。
+- 修复部署机 Git Bash 路径失效导致的 CD 故障（[#60](https://github.com/Zer0Drv/blog/issues/60)，[PR #61](https://github.com/Zer0Drv/blog/pull/61)）。
 
-- WebSocket 已建立连接随 token 到期、登出及用户级吊销失效；发送与心跳前复检共享黑名单，同步吊销关闭对应连接，补充真实 WS 与并发回归（#56）
-- 文章完整保存支持清空分类（`categoryId` 为 null 或省略），恢复未分类历史版本时正确写入 NULL；保留其他局部更新的字段策略（#57）
-- minio 8.6.0 编译失败：okhttp 5 KMP 根模块空壳 jar，显式声明 okhttp-jvm（#39）
-- minio 9.0.3 API 变更适配：`PutObjectArgs.stream` partSize 改 Long（#90）
-- 消除测试代码两处 javac varargs 警告（#42）
+升级顺序、验证依据与尚未交付范围见 [v1.1.0 发布说明](docs/releases/v1.1.0.md)。
 
 ## [1.0.0] - 2026-10-12
 
@@ -60,5 +58,6 @@
 - Issue → 审核 → 分支 → CI 门禁 → PR → 审批合并全流程；commit 规范（Conventional Commits 中文摘要）
 - CI：build（编译+299 例测试）+ flyway-migration 双 job；CD：GHCR 镜像 + 自托管 runner 部署 + 环境审批
 
-[Unreleased]: https://github.com/Zer0Drv/blog/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/Zer0Drv/blog/releases/tag/v1.0.0
+[Unreleased]: https://github.com/Zer0Drv/blog/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Zer0Drv/blog/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/Zer0Drv/blog/tree/v1.0.0
