@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 补齐 README 的 V13–V16 迁移清单与 v1.1.0 交付范围，区分顺延需求、质量验证和业务数据恢复边界（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。
+
 ## [1.1.0] - 2026-10-16
 
 ### Added
