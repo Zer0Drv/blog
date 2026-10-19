@@ -44,7 +44,7 @@ class ReleaseWorkflowTest {
     @Test
     void allRequiredChecksMustRunAndUseTheSameImmutableCommit() throws IOException {
         Map<?, ?> jobs = map(workflow("ci").get("jobs"));
-        assertTrue(jobs.keySet().containsAll(List.of("build", "flyway-migration", "real-dependencies")));
+        assertTrue(jobs.keySet().containsAll(List.of("build", "flyway-migration", "real-dependencies", "browser-e2e")));
         for (Object value : jobs.values()) {
             Map<?, ?> job = map(value);
             assertFalse(job.containsKey("if"), "Required CI jobs must not be conditionally skipped");
@@ -151,9 +151,20 @@ class ReleaseWorkflowTest {
                 .filter(step -> step.get("uses") != null && step.get("uses").toString().startsWith("actions/checkout@"))
                 .toList();
         assertFalse(checkouts.isEmpty());
+        boolean currentCommit = false;
         for (Object value : checkouts) {
-            assertEquals("${{ github.sha }}", map(map(value).get("with")).get("ref"));
+            Map<?,?> settings = map(map(value).get("with"));
+            if (settings.containsKey("repository")) {
+                assertEquals("Zer0Drv/blog-ui", settings.get("repository"));
+                assertTrue(settings.get("ref").toString().matches("[a-f0-9]{40}"), "External browser suite must use a full immutable SHA");
+                assertEquals("browser-ui", settings.get("path"));
+                assertEquals(false, settings.get("persist-credentials"));
+            } else {
+                assertEquals("${{ github.sha }}", settings.get("ref"));
+                currentCommit = true;
+            }
         }
+        assertTrue(currentCommit, "Every build/test job must check out the current backend commit");
     }
 
     private static Map<?, ?> job(String name) throws IOException {

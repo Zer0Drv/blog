@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- 新增仅位于测试源码的浏览器 E2E 后端启动器，复用真实服务和基础设施保护，固定隔离端口并生成测试账号/文章；没有新增后端依赖、生产端点或鉴权绕过（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。
+
 ### Changed
 
 - 补齐 README 的 V13–V16 迁移清单与 v1.1.0 交付范围，区分顺延需求、质量验证和业务数据恢复边界（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。

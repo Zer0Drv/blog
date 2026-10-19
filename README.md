@@ -375,10 +375,11 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 - 快速测试：服务层单测 + MockMvc 接口级集成测试（H2 / Redis 桩）+ ArchUnit 架构红线；用例数量与结果以对应提交的 [CI 日志](https://github.com/Zer0Drv/blog/actions/workflows/ci.yml) 为准
 - 本地执行：`mvn verify`
 - 真实依赖回归：`mvn -B -Preal-it verify`，使用专用 MySQL / Redis / MinIO 和真实 HTTP / WebSocket；配置、覆盖与隔离规程见 [真实依赖测试](docs/real-dependency-tests.md)
-- CI（`.github/workflows/ci.yml`）三个独立 job：
+- CI（`.github/workflows/ci.yml`）四个独立 job：
   - `build`：JDK 25 下 `mvn -B verify`（编译 + 全部测试）
   - `flyway-migration`：真实 MySQL 8.4 service 容器，用 `flyway/flyway:10` 镜像跑全部迁移，校验 `db/migration` 的 SQL 可执行
   - `real-dependencies`：隔离服务下的业务回归与 V13/V15 带数据升级检查，保存精确 SHA 的诊断 artifact
+  - `browser-e2e`：当前后端提交配套固定完整 SHA 的前端，真实 Chromium 运行隔离登录/编辑/自动保存/导入/附件/权限与断网保护；完整可复用 CI 包含该 job，独立后端发布也必须等待其成功，见 [夹具与范围](docs/browser-e2e-fixture.md)
 - CD（`.github/workflows/cd.yml`）：main push（按后端产物路径过滤）或手动触发 → 复用同一 SHA 的完整 CI → 成功后构建镜像推 GHCR（tag 为 `sha-<8位>`，同时更新 `latest`）→ 自托管 runner 拉取并核对镜像提交标记后更新容器、等待 `/actuator/health` 健康检查；main push 的 commit message 含 `[skip cd]` 可跳过一次部署（CI 照跑）。发布专用 CI 会重复执行完整检查，证据与回滚边界见 [发布门禁](docs/release-gate.md)
   - **回滚**：Actions → CD → Run workflow 填 `rollback_tag`（如 `sha-1a2b3c4d`，见 GHCR 镜像列表），跳过构建直接部署指定镜像
   - deploy job 挂 GitHub `production` 环境：配置了 required reviewers 时合并后需在 Actions 页面批准才执行——**合并 ≠ 自动发布**（见实战笔记）

@@ -87,5 +87,7 @@ Redis PONG、随机桶名和迁移版本；`upgrade-v13.txt` / `upgrade-v15.txt`
 现场备份恢复演练和前端性能/分享 metadata 仍由 #58 后续跟踪，不能据此关闭整个 issue。
 当前测试不是生产恢复演练，也不验证真实 SMTP、GitHub OAuth 提供商或跨实例消息广播。
 
+真实浏览器使用同一隔离基础设施，后端测试启动器和生产包边界见 [浏览器 E2E 夹具](browser-e2e-fixture.md)；它不改变默认快速测试或 `real-it` 用例选择。
+
 实现参照 [Spring Boot 真实端口测试](https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html)
 和 [Surefire 测试选择](https://maven.apache.org/surefire/maven-surefire-plugin/examples/inclusion-exclusion.html)。

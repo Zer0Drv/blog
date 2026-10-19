@@ -98,3 +98,55 @@ jobs:
       - name: Stop only disposable test services
         if: always()
         run: docker compose -f compose.real-it.yaml down --remove-orphans
+
+  browser-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BACKEND_E2E_DIR: ${{ github.workspace }}
+    defaults:
+      run:
+        working-directory: browser-ui
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Checkout exact frontend browser suite
+        uses: actions/checkout@v7
+        with:
+          repository: Zer0Drv/blog-ui
+          ref: 71ee5c8c6a43df6a7a47b78ab2566318c589eeb8
+          path: browser-ui
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: browser-ui/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Compile current backend fixture
+        working-directory: .
+        run: mvn -B -DskipTests package
+      - name: Browser end-to-end flows
+        run: pnpm test:e2e
+      - name: Clean only this run's test infrastructure
+        if: always()
+        run: node e2e/cleanup.mjs
+      - name: Save browser diagnostics and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-e2e-${{ github.sha }}-${{ github.run_attempt }}
+          path: browser-ui/e2e-artifacts/
+          retention-days: 7
+          if-no-files-found: warn
