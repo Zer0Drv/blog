@@ -9,3 +9,5 @@
 应用启动后在隔离数据库种入 ADMIN/AUTHOR/USER 账号及独立文章，真实登录密码仅为公开的测试夹具密码。`target/browser-e2e/fixture.json` 输出账号名、文章 ID 和本轮 ID，不含会话或生产凭据。前端管理随机名称的独立 compose 项目，所有数据使用 tmpfs；测试结束仅停止自身 Java/Vite 子进程和本轮 compose 项目，不调用默认 compose，不读取部署 `.env`，不触碰已有博客容器或卷。
 
 前端完整执行命令、浏览器范围、失败日志/截图/trace 和精确提交记录见配套前端 `docs/browser-e2e.md`。后端自身仍执行 `mvn -B verify` 和现有真实依赖 CI；`-DskipTests package` 仅是浏览器 job 中对已固定后端提交的夹具编译步骤，不能代替后端完整 CI。
+
+后端完整可复用 CI 另有必需的 `browser-e2e` job：编译当前 `github.sha`，checkout 固定完整 SHA 的前端套件，执行真实浏览器用例并保存 7 天证据。后端独立 CD 等待整个 CI，不因前端未发布而跳过浏览器验证。前端配套 PR 为 [blog-ui#72](https://github.com/Zer0Drv/blog-ui/pull/72)；前端 CI 固定的夹具提交 `995cc6e` 是本 PR 的祖先，该提交后的后端变更仅扩展 CI/文档/门禁回归。
