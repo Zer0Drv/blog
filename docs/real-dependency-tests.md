@@ -82,8 +82,9 @@ MinIO 临时目录的 uid/gid 与既有镜像用户匹配，不需要修改开�
 Redis PONG、随机桶名和迁移版本；`upgrade-v13.txt` / `upgrade-v15.txt` 记录升级与幂等结果。
 日志只来自测试实例，不收集宿主应用 `.env` 或生产日志。
 
-这完成 #58 中真实依赖 profile/job 与带数据升级检查的增量。浏览器 E2E、精确 SHA 发布门禁、
-网关发布冒烟、现场备份恢复演练和前端性能/分享 metadata 仍由 #58 后续跟踪，不能据此关闭整个 issue。
+这完成 #58 中真实依赖 profile/job 与带数据升级检查的增量。两仓精确 SHA 发布门禁现已合并，见
+[发布门禁](release-gate.md)。浏览器 E2E、网关现场验收、跨仓兼容记录、历史回滚认证、
+现场备份恢复演练和前端性能/分享 metadata 仍由 #58 后续跟踪，不能据此关闭整个 issue。
 当前测试不是生产恢复演练，也不验证真实 SMTP、GitHub OAuth 提供商或跨实例消息广播。
 
 实现参照 [Spring Boot 真实端口测试](https://docs.spring.io/spring-boot/reference/testing/spring-boot-applications.html)
