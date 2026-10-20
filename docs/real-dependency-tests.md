@@ -23,11 +23,13 @@ docker compose -f compose.real-it.yaml down --remove-orphans
 MySQL/MinIO 使用 tmpfs；Redis 不落盘。停止并移除容器后测试数据消失。
 这些服务的公开固定口令仅用于隔离测试，不读取生产凭据，也不供生产部署。
 
-测试有两个独立阶段：
+测试有三个独立阶段：
 
 - `InfrastructureRealIT`：Flyway 从空库建立当前 schema，真实 HTTP / Cookie / 安全链 / Redis / 对象存储。
 - `MigrationUpgradeRealIT`：每个案例新建 `blog_it_upgrade_<随机 UUID>`，先迁移到 V13 或 V15，
   插入代表性数据，再升级到当前版本，校验数据保留、校验和与重复迁移无变更。最后仅删除该随机 schema。
+- `BackupRestoreRealIT`：真实 SQL 导出/重载和本地/MinIO 附件恢复；移除源数据后验证全表逻辑摘要、
+  Flyway 和恢复应用的 HTTP 登录/文章/附件，见 [隔离恢复演练](backup-restore-drill.md)。
 
 ## 隔离与启动保护
 
@@ -45,6 +47,7 @@ MySQL/MinIO 使用 tmpfs；Redis 不落盘。停止并移除容器后测试数�
 默认无需环境变量；如需在自己的隔离环境调整端口/密码，可设置
 `REAL_IT_MYSQL_URL`、`REAL_IT_DB_PASSWORD`、`REAL_IT_REDIS_PORT`、`REAL_IT_MINIO_ENDPOINT`。
 必须同时调整对应 compose 映射/测试服务，并保持 loopback、高端口、`blog_it` 数据库与 UTC。
+新增恢复用例固定使用本文件的默认端口、公开测试凭据和 `blog-real-it` 项目，不接受上述覆盖。
 切勿把这些变量指向现有业务数据实例。测试不会跳过不可用服务，连不上或配置不安全会失败。
 
 每个业务测试创建独立用户，清理只按该用户删除其文章/版本/引用/附件/队列和已知 Redis 键，
@@ -80,11 +83,12 @@ MinIO 临时目录的 uid/gid 与既有镜像用户匹配，不需要修改开�
 
 本地同样可检查 `target/real-it-reports/`。其中 `infrastructure.json` 记录真实 JDBC 驱动、MySQL 版本、
 Redis PONG、随机桶名和迁移版本；`upgrade-v13.txt` / `upgrade-v15.txt` 记录升级与幂等结果。
+`restore-drill.json` 记录合成数据恢复的完整性摘要、实测耗时与应用验收，不上传原始 SQL 或文件快照。
 日志只来自测试实例，不收集宿主应用 `.env` 或生产日志。
 
 这完成 #58 中真实依赖 profile/job 与带数据升级检查的增量。两仓精确 SHA 发布门禁现已合并，见
-[发布门禁](release-gate.md)。浏览器 E2E、网关现场验收、跨仓兼容记录、历史回滚认证、
-现场备份恢复演练和前端性能/分享 metadata 仍由 #58 后续跟踪，不能据此关闭整个 issue。
+[发布门禁](release-gate.md)。两仓浏览器 E2E 和前端发布后网关冒烟已合并；其他跨仓兼容记录、历史回滚认证、
+现场备份策略/真实数据恢复演练和前端性能/分享 metadata 仍由 #58 后续跟踪，不能据此关闭整个 issue。
 当前测试不是生产恢复演练，也不验证真实 SMTP、GitHub OAuth 提供商或跨实例消息广播。
 
 真实浏览器使用同一隔离基础设施，后端测试启动器和生产包边界见 [浏览器 E2E 夹具](browser-e2e-fixture.md)；它不改变默认快速测试或 `real-it` 用例选择。

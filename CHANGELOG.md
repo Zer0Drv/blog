@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增合成数据的隔离恢复演练：真实 MySQL dump/reload、本地与 MinIO 附件完整性校验，删除源数据后恢复并通过真实应用 HTTP 验收；复用 real-it CI 保存证据，现场策略与 RPO/RTO 仍待确认（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。
 - 新增仅位于测试源码的浏览器 E2E 后端启动器，复用真实服务和基础设施保护，固定隔离端口并生成测试账号/文章；没有新增后端依赖、生产端点或鉴权绕过（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。
 
 ### Changed

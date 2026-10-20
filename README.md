@@ -375,6 +375,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 - 快速测试：服务层单测 + MockMvc 接口级集成测试（H2 / Redis 桩）+ ArchUnit 架构红线；用例数量与结果以对应提交的 [CI 日志](https://github.com/Zer0Drv/blog/actions/workflows/ci.yml) 为准
 - 本地执行：`mvn verify`
 - 真实依赖回归：`mvn -B -Preal-it verify`，使用专用 MySQL / Redis / MinIO 和真实 HTTP / WebSocket；配置、覆盖与隔离规程见 [真实依赖测试](docs/real-dependency-tests.md)
+- 隔离恢复演练：同一 profile 包含真实 SQL 导出/重载、本地/MinIO 附件恢复及恢复应用 HTTP 验收；[复现与现场策略待确认项](docs/backup-restore-drill.md)。合成测试耗时不代表业务 RPO/RTO
 - CI（`.github/workflows/ci.yml`）四个独立 job：
   - `build`：JDK 25 下 `mvn -B verify`（编译 + 全部测试）
   - `flyway-migration`：真实 MySQL 8.4 service 容器，用 `flyway/flyway:10` 镜像跑全部迁移，校验 `db/migration` 的 SQL 可执行
@@ -414,6 +415,6 @@ v1.1.0 已交付：slug 固定链接、密码/私密文章、front matter 与批
 
 后续已登记需求：[TOTP 两步验证（#19）](https://github.com/Zer0Drv/blog/issues/19)、[AI 摘要/评论审核增强（#21）](https://github.com/Zer0Drv/blog/issues/21)，按 v1.1.0 决定顺延；后续版本与日期尚未指定。首登强制改密仍为候选，需先确认前后端字段契约。
 
-质量与运维由 [#58](https://github.com/Zer0Drv/blog/issues/58) 继续跟踪：已合并真实 MySQL/Redis/MinIO 回归、V13/V15 带数据迁移和两仓同 SHA 发布门禁；浏览器 E2E、跨仓 SHA/schema 兼容记录、历史回滚认证、现场备份恢复与性能基线尚待完成。前端正常发布后的网关冒烟见配套 [blog-ui#70](https://github.com/Zer0Drv/blog-ui/pull/70)，现场证据以合并后的对应 CD 为准。应用镜像/dist 回滚不恢复数据库或附件数据。
+质量与运维由 [#58](https://github.com/Zer0Drv/blog/issues/58) 继续跟踪：真实 MySQL/Redis/MinIO 回归、V13/V15 带数据迁移、两仓同 SHA 发布门禁、浏览器 E2E 和当前 SHA/schema 记录已合并；隔离恢复演练见上文。其他跨仓组合、历史回滚认证、现场备份策略/真实数据恢复与性能基线仍待完成。前端发布后的网关冒烟见配套 [blog-ui#70](https://github.com/Zer0Drv/blog-ui/pull/70)，现场证据以对应 CD 为准。应用镜像/dist 回滚不恢复数据库或附件数据。
 
 鉴权体系演进（方向已定，跟踪见 GitHub issue）：① 已完成——权限按 token `sub` 实时读库装配（`DatabaseRoleJwtAuthenticationConverter`），角色变更即时生效，提拔 ADMIN 已放开走 API（`PUT /admin/users/{id}/role`，变更即吊销目标全部 token）；② 双 token——短 TTL access token + HttpOnly refresh Cookie + rotation，缩小 token 泄露滥用窗口；③ 事件驱动失效——角色变更投递事件供多实例/网关消费；④ ②③ 落地后，鉴权可切回 claims 模式（`SecurityConfig` 一行），实时读库降级为刷新时的角色来源。
