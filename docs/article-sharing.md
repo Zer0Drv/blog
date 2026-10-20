@@ -26,7 +26,7 @@ canonical 只使用站点配置 `site.base_url` 的 HTTP(S) origin 和规范 slu
 
 发布顺序：先部署后端镜像和新增入口环境变量，再更新并验证 Nginx 配置，最后部署前端。
 旧前端可使用新 HTML，原有 `/api/articles` 契约不变；新前端在旧后端上退化为通用 metadata。
-回滚后端到不支持 HTML 的版本前，必须同步恢复旧网关配置，否则文章深链接会返回错误。
+旧后端没有 HTML 路由时，网关将 401/404 回退为静态 SPA；文章仍可阅读，但分享 metadata 退化为站点通用信息。
 数据 schema 无变更。尚未执行生产网关切换与外部分享平台缓存刷新。
 
 自动验收包括原始 HTML 的 id/slug canonical、恶意标题/摘要、Host 注入、所有非公开状态，

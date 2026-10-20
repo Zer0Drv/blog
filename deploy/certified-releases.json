@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "releases": [
+    {
+      "tag": "sha-edaac9bf",
+      "sha": "edaac9bf49d547f8bd38e9b781df5ff2b81921f3",
+      "digest": "sha256:0bd1384db9ac0beddf1031f4f03b7945470d303727a8b9810968c794a9d088a9",
+      "runId": "39361798536",
+      "schema": "17",
+      "schemaChecksum": 1723020122,
+      "frontendShas": [
+        "42185de65f161a484188818cca2e1079e0d72a73",
+        "0c7d424abcfb2c67ddcb9850fdad9d7046ff5e16"
+      ],
+      "evidence": "Original successful CD push log binds this tag to the digest. Frontend CD 39361834457 browser E2E used backend ba612d7, whose tree 4fad13d43ef0d57e70e0c0741a824426c7c39e2a equals edaac9bf. Current pair observed on V17; no V16 or pre-TOTP rollback is permitted."
+    }
+  ]
+}

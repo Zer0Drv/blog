@@ -97,13 +97,16 @@ class ReleaseWorkflowTest {
             "false|0123456789abcdef0123456789abcdef01234567|0|true",
             "false|ffffffffffffffffffffffffffffffffffffffff|1|false",
             "false||1|false",
-            "true||0|true"
+            "true||1|false",
+            "true|0123456789abcdef0123456789abcdef01234567|0|true"
     }, delimiter = '|', nullValues = "")
     void wrongOrUnmarkedImagesCannotUpdateContainers(String rollback, String imageRevision,
             int expectedExit, boolean shouldUpdate) throws Exception {
         Path calls = temporary.resolve("compose-calls");
         Path summary = temporary.resolve("summary");
-        String script = map(((List<?>) job("deploy").get("steps")).getFirst()).get("run").toString();
+        String script = ((List<?>) job("deploy").get("steps")).stream().map(ReleaseWorkflowTest::map)
+                .filter(step -> step.get("run") != null && step.get("run").toString().contains("pull backend"))
+                .findFirst().orElseThrow().get("run").toString();
         // No Docker daemon or production service is used: only the real shell's ordering/guard is exercised.
         String stubs = """
                 docker() {

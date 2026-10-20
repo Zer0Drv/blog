@@ -15,6 +15,7 @@ Thumbs.db
 # Logs
 logs/
 *.log
+__pycache__/
 
 # 本地运行状态
 .run/

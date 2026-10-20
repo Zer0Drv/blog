@@ -6,6 +6,9 @@
 
 ### Added
 
+- 新增本机隔离冷备份、校验、健康恢复与任务安装脚本，按 RPO 24 小时/RTO 2 小时记录现场目标；异地存储和外部通知尚未配置，首次现场恢复验收仍待执行（Refs #58）。
+- 发布回滚核对原始 CI、镜像摘要、前后端兼容矩阵和数据库版本；发布与备份共享现场互斥锁（Refs #58）。
+
 - 文章深链接的原始 HTML 提供公开标题、摘要、Open Graph 与 canonical；复用既有公开可见性，受限内容使用通用 noindex，网关与响应禁止缓存（Refs #58，见 `docs/article-sharing.md`）。
 
 - 新增 TOTP 绑定、密码/GitHub 登录第二因子、一次性恢复码及会话吊销；V17、独立环境加密密钥和部署回滚边界见 `docs/totp.md`（Refs #19）。
@@ -14,6 +17,8 @@
 - 新增仅位于测试源码的浏览器 E2E 后端启动器，复用真实服务和基础设施保护，固定隔离端口并生成测试账号/文章；没有新增后端依赖、生产端点或鉴权绕过（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。
 
 ### Changed
+
+- 修复文章 HTML 网关代理的 Host，避免上游名称中的下划线触发 HTTP 400；旧后端缺少文章 HTML 路由时回退 SPA。
 
 - 补齐 README 的 V13–V16 迁移清单与 v1.1.0 交付范围，区分顺延需求、质量验证和业务数据恢复边界（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。
 
