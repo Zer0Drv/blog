@@ -35,6 +35,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   # ---- 门控：限定 main，解析跳过标记与回滚输入 ----
@@ -169,16 +170,54 @@ jobs:
         shell: 'D:\Git\bin\bash.exe --noprofile --norc -eo pipefail {0}'
         working-directory: 'E:\dev\zer0drv\blog'
     steps:
+      - name: 获取当前审核版本的回滚工具
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          sparse-checkout: deploy
+
+      - name: 获取固定版本的网关验证工具
+        uses: actions/checkout@v7
+        with:
+          repository: Zer0Drv/blog-ui
+          ref: 0c7d424abcfb2c67ddcb9850fdad9d7046ff5e16
+          path: frontend-tools
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: 串行化现场发布与备份
+        id: deployment_lock
+        run: node "$GITHUB_WORKSPACE/release-tools/deploy/deployment-lock.mjs" acquire "blog-${{ github.run_id }}-${{ github.run_attempt }}"
+
+      - name: 认证回滚目标与当前兼容组合
+        id: certified
+        if: needs.gate.outputs.rollback == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMPATIBILITY_JSON: ${{ vars.BACKEND_ROLLBACK_CERTIFICATES }}
+          ROLLBACK_TAG: ${{ inputs.rollback_tag }}
+          GATEWAY_URL: ${{ vars.GATEWAY_URL || 'http://localhost' }}
+        run: |
+          node "$GITHUB_WORKSPACE/release-tools/deploy/certify-rollback.mjs" \
+            "$GITHUB_WORKSPACE/release-tools/deploy/certified-releases.json" "$ROLLBACK_TAG" \
+            "$GITHUB_WORKSPACE/frontend-tools/.github/scripts" "$GATEWAY_URL"
+
       - name: 拉取镜像并更新后端容器（正常部署取新 tag，回滚取指定 tag）
         env:
-          BACKEND_TAG: ${{ inputs.rollback_tag || needs.image.outputs.tag }}
-          RELEASE_SHA: ${{ github.sha }}
+          BACKEND_TAG: ${{ steps.certified.outputs.tag || needs.image.outputs.tag }}
+          RELEASE_SHA: ${{ steps.certified.outputs.sha || github.sha }}
           ROLLBACK: ${{ needs.gate.outputs.rollback }}
         run: |
+          : "${BACKEND_TAG:?Certified image tag is required}"
           docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
           image="ghcr.io/zer0drv/blog-backend:$BACKEND_TAG"
           revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
-          if [[ "$ROLLBACK" == false && "$revision" != "$RELEASE_SHA" ]]; then
+          if [[ "$revision" != "$RELEASE_SHA" ]]; then
             echo '::error::镜像提交标记与通过 CI 的提交不一致，拒绝更新容器'; exit 1
           fi
           {
@@ -198,3 +237,26 @@ jobs:
             sleep 2
           done
           echo "backend health check timeout"; exit 1
+
+      - name: 发布或回滚后的实际网关验证
+        env:
+          GATEWAY_URL: ${{ vars.GATEWAY_URL || 'http://localhost' }}
+          RELEASE_SHA: ${{ steps.certified.outputs.sha || github.sha }}
+        run: |
+          frontend_sha=$(curl -fsS "$GATEWAY_URL/release.json" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).sha')
+          node "$GITHUB_WORKSPACE/frontend-tools/.github/scripts/deployment-evidence.mjs" \
+            "$GATEWAY_URL" "$frontend_sha" > "$RUNNER_TEMP/backend-gateway-$GITHUB_RUN_ID.json"
+          node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); if(r.backend.revision!==process.env.RELEASE_SHA) process.exit(1)' "$RUNNER_TEMP/backend-gateway-$GITHUB_RUN_ID.json"
+          cat "$RUNNER_TEMP/backend-gateway-$GITHUB_RUN_ID.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: backend-gateway-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backend-gateway-${{ github.run_id }}.json
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: 释放现场操作锁
+        if: always() && steps.deployment_lock.outcome == 'success'
+        run: node "$GITHUB_WORKSPACE/release-tools/deploy/deployment-lock.mjs" release "blog-${{ github.run_id }}-${{ github.run_attempt }}"
