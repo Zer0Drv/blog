@@ -18,6 +18,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * @author Yoruhaki
  */
+// A feed returns only the latest 20 articles. Other integration classes populate the shared
+// database and can crowd this fixture out on fast CI hosts; keep this contract test isolated.
+@org.springframework.test.context.TestPropertySource(properties =
+        "spring.datasource.url=jdbc:h2:mem:blog_seo_test;MODE=MySQL;NON_KEYWORDS=USER;DB_CLOSE_DELAY=-1")
 class SeoIntegrationTests extends IntegrationTestSupport {
 
     /**
