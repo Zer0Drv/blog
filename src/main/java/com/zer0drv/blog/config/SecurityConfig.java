@@ -62,7 +62,7 @@ public class SecurityConfig {
                         .requestMatchers("/error", "/actuator/health").permitAll()
                         .requestMatchers("/auth/login", "/auth/register", "/auth/email-code",
                                 "/auth/password-reset-code", "/auth/password-reset",
-                                "/auth/oauth/exchange").permitAll()
+                                "/auth/oauth/exchange", "/auth/totp/login").permitAll()
                         // 图形验证码端点（频率触发，匿名可获取/预检）
                         .requestMatchers("/auth/captcha", "/auth/captcha/required").permitAll()
                         // GitHub OAuth2 登录端点与回调

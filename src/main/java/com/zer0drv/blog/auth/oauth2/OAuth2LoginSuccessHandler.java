@@ -60,11 +60,19 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
                     strAttr(attributes.get("avatar_url")),
                     strAttr(attributes.get("email")));
             // 一次性换码：token 不再经 URL 传递
-            String code = oAuthCodeStore.store(token.get("access_token"));
+            String code = oAuthCodeStore.store(token.containsKey("challenge")
+                    ? "mfa:" + token.get("challenge") : token.get("access_token"));
+            // OAuth authenticates the first factor only. Never retain an authenticated HTTP session.
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            var session = request.getSession(false);
+            if (session != null) session.invalidate();
             String target = successRedirect + "?code="
                     + URLEncoder.encode(code, StandardCharsets.UTF_8);
             response.sendRedirect(target);
         } catch (Exception e) {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            var session = request.getSession(false);
+            if (session != null) session.invalidate();
             // 封禁/撞键等业务异常：不能走 @RestControllerAdvice（此处不在 MVC 流程），回跳前端提示
             log.warn("GitHub OAuth 登录失败: {}", e.getMessage());
             response.sendRedirect(failureRedirect);

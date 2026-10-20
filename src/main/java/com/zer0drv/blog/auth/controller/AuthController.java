@@ -91,7 +91,8 @@ public class AuthController {
         Map<String, String> tokens = captchaGuard.guarded(CaptchaService.SCENE_LOGIN, ip, userKey,
                 dto.getCaptchaId(), dto.getCaptchaCode(), () -> authService.userLogin(dto));
         // blog-ui#13 契约第 1 条：登录成功统一下发 HttpOnly Cookie（响应体 access_token 过渡期保留）
-        authCookieService.writeTokenCookie(response, tokens.get("access_token"));
+        if (tokens.containsKey("access_token")) authCookieService.writeTokenCookie(response, tokens.get("access_token"));
+        else authCookieService.clearTokenCookie(response);
         return Result.ok(tokens);
     }
 
@@ -159,11 +160,15 @@ public class AuthController {
      * 响应体仅含 expiresIn，不含 token
      */
     @PostMapping("/oauth/exchange")
-    public Result<Map<String, Long>> exchangeOAuthCode(@RequestBody @Valid OAuthExchangeDTO dto,
+    public Result<Map<String, Object>> exchangeOAuthCode(@RequestBody @Valid OAuthExchangeDTO dto,
                                                        HttpServletResponse response) {
         String token = oAuthCodeStore.consume(dto.getCode());
         if (Objects.isNull(token)) {
             throw new BusinessException(StatusCode.OAUTH_CODE_INVALID);
+        }
+        if (token.startsWith("mfa:")) {
+            authCookieService.clearTokenCookie(response);
+            return Result.ok(Map.of("mfa_required", "true", "challenge", token.substring(4)));
         }
         authCookieService.writeTokenCookie(response, token);
         return Result.ok(Map.of("expiresIn", authCookieService.getExpiresInSeconds()));

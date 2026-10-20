@@ -64,6 +64,7 @@ class InfrastructureRealIT {
 
     @DynamicPropertySource
     static void isolate(DynamicPropertyRegistry registry) {
+        registry.add("blog.totp.encryption-key", () -> "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
         registry.add("blog.minio.bucket",()->BUCKET);
         registry.add("blog.upload-dir",UPLOADS::toString);
     }
@@ -115,6 +116,8 @@ class InfrastructureRealIT {
         jdbc.update("DELETE FROM attachment_group WHERE user_id=?",userId);
         jdbc.update("DELETE FROM notification WHERE user_id=? OR actor_id=?",userId,userId);
         jdbc.update("DELETE FROM sys_config_audit WHERE operator_id=?",userId);
+        for (String table : List.of("totp_challenge", "totp_recovery", "user_totp"))
+            jdbc.update("DELETE FROM " + table + " WHERE user_id=?", userId);
         jdbc.update("DELETE FROM `user` WHERE id=? AND username=?",userId,username);
     }
 
@@ -258,6 +261,36 @@ class InfrastructureRealIT {
         var response=send("POST","/auth/login",payload,null,null);String result=ok(response).path("access_token").asString();
         assertTrue(response.headers().allValues("set-cookie").stream().anyMatch(s->s.contains("AUTH_TOKEN=")&&s.contains("HttpOnly")));
         redisKeys.add(BlacklistJwtValidator.BLACKLIST_PREFIX+decoder.decode(result).getId());return result;
+    }
+
+    @Test
+    void totpRevokesOldSessionsAndConcurrentRecoveryHasOneWinnerOnMysql() throws Exception {
+        var setup = ok(send("POST", "/auth/totp/setup", Map.of("password", PASSWORD), token, null));
+        String secret = setup.path("secret").asString();
+        String otp = com.zer0drv.blog.auth.service.TotpCrypto.code(secret, Instant.now().getEpochSecond() / 30, 6);
+        var recovery = ok(send("POST", "/auth/totp/confirm", Map.of("password", PASSWORD, "code", otp), token, null));
+        assertEquals(10, recovery.size());
+        assertEquals(401, send("GET", "/auth/me", null, token, null).statusCode());
+        var primary = ok(send("POST", "/auth/login", Map.of("username", username, "password", PASSWORD), null, null));
+        assertFalse(primary.has("access_token"));
+        String challenge = primary.path("challenge").asString();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var calls = new ArrayList<Future<HttpResponse<String>>>();
+            for (int i = 0; i < 2; i++) calls.add(executor.submit(() -> send("POST", "/auth/totp/login",
+                    Map.of("challenge", challenge, "code", recovery.get(0).asString()), null, null)));
+            int successes = 0;
+            for (var call : calls) {
+                var response = call.get(20, TimeUnit.SECONDS);
+                if (body(response).path("code").asString().equals("200")) {
+                    successes++;
+                    String authenticated = body(response).path("data").path("access_token").asString();
+                    redisKeys.add(BlacklistJwtValidator.BLACKLIST_PREFIX + decoder.decode(authenticated).getId());
+                    assertEquals(username, ok(send("GET", "/auth/me", null, authenticated, null)).path("username").asString());
+                } else assertEquals("40081", body(response).path("code").asString());
+            }
+            assertEquals(1, successes);
+        }
+        assertEquals(9, jdbc.queryForObject("SELECT COUNT(*) FROM totp_recovery WHERE user_id=?", Integer.class, userId));
     }
     private JsonNode upload() throws Exception {
         String boundary="real-it-"+UUID.randomUUID();
