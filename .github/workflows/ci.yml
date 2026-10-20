@@ -76,7 +76,7 @@ jobs:
           cache: maven
       - name: Start disposable MySQL, Redis and MinIO
         run: docker compose -f compose.real-it.yaml up -d --wait --wait-timeout 150
-      - name: Real HTTP flows and retained-data migration upgrades
+      - name: Real HTTP flows, migration upgrades and backup restore drill
         run: |
           mkdir -p target/real-it-reports
           set -o pipefail
