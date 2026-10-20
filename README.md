@@ -367,6 +367,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 | V14 `subscription` | 文章订阅、邮箱确认、推送队列与投递记录 |
 | V15 `sys_config` | 系统参数覆盖与变更审计 |
 | V16 `attachment_cleanup` | 附件对象观察期、引用保护与清理记录 |
+| V17 `totp` | TOTP 加密绑定、一次性恢复码与短期登录挑战 |
 
 逻辑删除约定：全局字段 `deleted`（`0` 未删 / `1` 已删）；`Article`/`ArticleVersion`/`Comment`/`Attachment`/`SiteConfig` 使用实体级 `@TableLogic`（原因见实战笔记）。点赞/收藏类关联实体不映射 `deleted`，取消走物理删除。
 
@@ -413,7 +414,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 
 v1.1.0 已交付：slug 固定链接、密码/私密文章、front matter 与批量 zip 导入导出、友情链接、自定义页面、订阅推送、系统参数和附件观察期清理；实现与跨仓记录见 [CHANGELOG](CHANGELOG.md)。普通附件删除仅移出库，孤儿对象扫描、引用复检和观察期后的物理清理是独立管理流程。
 
-后续已登记需求：[TOTP 两步验证（#19）](https://github.com/Zer0Drv/blog/issues/19)、[AI 摘要/评论审核增强（#21）](https://github.com/Zer0Drv/blog/issues/21)，按 v1.1.0 决定顺延；后续版本与日期尚未指定。首登强制改密仍为候选，需先确认前后端字段契约。
+TOTP 两步验证实现、密钥部署和回滚限制见 [操作规程](docs/totp.md)，验收由 [#19](https://github.com/Zer0Drv/blog/issues/19) 跟踪。[AI 摘要/评论审核增强（#21）](https://github.com/Zer0Drv/blog/issues/21) 尚未实施；后续版本与日期尚未指定。首登强制改密仍为候选，需先确认前后端字段契约。
 
 质量与运维由 [#58](https://github.com/Zer0Drv/blog/issues/58) 继续跟踪：真实 MySQL/Redis/MinIO 回归、V13/V15 带数据迁移、两仓同 SHA 发布门禁、浏览器 E2E 和当前 SHA/schema 记录已合并；隔离恢复演练见上文。其他跨仓组合、历史回滚认证、现场备份策略/真实数据恢复与性能基线仍待完成。前端发布后的网关冒烟见配套 [blog-ui#70](https://github.com/Zer0Drv/blog-ui/pull/70)，现场证据以对应 CD 为准。应用镜像/dist 回滚不恢复数据库或附件数据。
 

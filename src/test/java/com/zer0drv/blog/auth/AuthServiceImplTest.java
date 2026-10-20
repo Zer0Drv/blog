@@ -59,6 +59,8 @@ class AuthServiceImplTest {
     private EmailCodeService emailCodeService;
     @Mock
     private PasswordEncoder passwordEncoder;
+    @Mock
+    private com.zer0drv.blog.auth.service.TotpService totpService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -86,17 +88,16 @@ class AuthServiceImplTest {
         principal.setRole(UserRole.USER.name());
         Authentication authentication = mock(Authentication.class);
         when(authenticationManager.authenticate(any())).thenReturn(authentication);
-        doReturn(List.of(new SimpleGrantedAuthority("ROLE_USER"))).when(authentication).getAuthorities();
         when(authentication.getPrincipal()).thenReturn(principal);
-        when(tokenService.generateToken(eq(7L), anyList())).thenReturn("jwt-token");
+        principal.setPassword("verified-hash");
+        when(totpService.primary(7L, "verified-hash")).thenReturn(Map.of("access_token", "jwt-token", "token_type", "Bearer"));
 
         Map<String, String> result = authService.userLogin(dto);
 
         assertEquals("jwt-token", result.get("access_token"));
         assertEquals("Bearer", result.get("token_type"));
-        ArgumentCaptor<List<String>> rolesCaptor = ArgumentCaptor.forClass(List.class);
-        verify(tokenService).generateToken(eq(7L), rolesCaptor.capture());
-        assertEquals(List.of("ROLE_USER"), rolesCaptor.getValue());
+        verify(totpService).primary(7L, "verified-hash");
+        verify(tokenService, never()).generateToken(any(), anyList());
     }
 
     @Test
@@ -189,7 +190,7 @@ class AuthServiceImplTest {
     void loginByGithub_boundUser_issuesTokenDirectly() {
         User bound = user(3L, UserRole.USER.name(), (short) 0);
         when(userService.getOne(any())).thenReturn(bound);
-        when(tokenService.generateToken(eq(3L), anyList())).thenReturn("gh-token");
+        when(totpService.primary(3L, null)).thenReturn(Map.of("access_token", "gh-token"));
 
         Map<String, String> result = authService.loginByGithub(99L, "octo", "Octo", null, null);
 
@@ -213,8 +214,10 @@ class AuthServiceImplTest {
     void loginByGithub_unbound_autoRegistersWithFallbackEmail() {
         when(userService.getOne(any())).thenReturn(null);
         when(userService.count(any())).thenReturn(0L);
-        when(userService.save(any(User.class))).thenReturn(true);
-        when(tokenService.generateToken(any(), anyList())).thenReturn("new-token");
+        when(userService.save(any(User.class))).thenAnswer(invocation -> {
+            ((User) invocation.getArgument(0)).setId(42L); return true;
+        });
+        when(totpService.primary(42L, null)).thenReturn(Map.of("access_token", "new-token"));
 
         Map<String, String> result = authService.loginByGithub(42L, "octo", null, null, null);
 
@@ -235,7 +238,7 @@ class AuthServiceImplTest {
         // 第一次按 githubId 查未命中，第二次按邮箱查到既有账号
         when(userService.getOne(any())).thenReturn(null, existing);
         when(userService.updateById(any(User.class))).thenReturn(true);
-        when(tokenService.generateToken(eq(9L), anyList())).thenReturn("bound-token");
+        when(totpService.primary(9L, null)).thenReturn(Map.of("access_token", "bound-token"));
 
         Map<String, String> result = authService.loginByGithub(55L, "octo", null, null, "user9@example.com");
 

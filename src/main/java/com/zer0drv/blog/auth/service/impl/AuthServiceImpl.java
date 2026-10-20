@@ -17,13 +17,11 @@ import com.zer0drv.blog.user.enums.UserRole;
 import com.zer0drv.blog.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jspecify.annotations.Nullable;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -46,6 +44,7 @@ public class AuthServiceImpl implements AuthService {
     private final UserService userService;
     private final EmailCodeService emailCodeService;
     private final PasswordEncoder passwordEncoder;
+    private final com.zer0drv.blog.auth.service.TotpService totpService;
 
     @Override
     public Map<String, String> userLogin(UserLoginDTO dto) {
@@ -59,17 +58,11 @@ public class AuthServiceImpl implements AuthService {
         } catch (BadCredentialsException e) {
             throw new BusinessException(StatusCode.USER_PASSWORD_ERROR);
         }
-        List<@Nullable String> roles = authenticate.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .filter(Objects::nonNull)
-                .filter(role -> role.startsWith("ROLE_"))
-                .toList();
         SecurityUser principal = (SecurityUser) authenticate.getPrincipal();
         if (Objects.isNull(principal)) {
             throw new BusinessException(StatusCode.USER_NOT_EXIST);
         }
-        String token = tokenService.generateToken(principal.getId(), roles);
-        return Map.of("access_token", token, "token_type", "Bearer");
+        return totpService.primary(principal.getId(), principal.getPassword());
     }
 
     @Override
@@ -196,8 +189,7 @@ public class AuthServiceImpl implements AuthService {
                     if (Objects.nonNull(byEmail.getStatus()) && byEmail.getStatus() == 1) {
                         throw new BusinessException(StatusCode.USER_BANNED);
                     }
-                    String boundToken = tokenService.generateToken(byEmail.getId(), List.of("ROLE_" + byEmail.getRole()));
-                    return Map.of("access_token", boundToken, "token_type", "Bearer");
+                    return totpService.primary(byEmail.getId(), null);
                 }
             }
             // 未绑定：自动注册。username 撞唯一索引时追加 githubId 兜底
@@ -225,7 +217,6 @@ public class AuthServiceImpl implements AuthService {
                 throw new BusinessException(StatusCode.USER_CREATE_FAILED);
             }
         }
-        String token = tokenService.generateToken(user.getId(), List.of("ROLE_" + user.getRole()));
-        return Map.of("access_token", token, "token_type", "Bearer");
+        return totpService.primary(user.getId(), null);
     }
 }

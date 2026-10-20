@@ -69,6 +69,7 @@ public final class BrowserE2EServer {
                 "--blog.minio.access-key=blog-it-user", "--blog.minio.secret-key=blog-it-minio-password",
                 "--blog.minio.bucket=blog-it-" + run, "--blog.upload-dir=target/browser-e2e/uploads/" + run,
                 "--jwt.secret=browser-e2e-only-signing-key-at-least-32-bytes", "--blog.admin.bootstrap-enabled=false",
+                "--blog.totp.encryption-key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 "--blog.subscription.worker-enabled=false", "--blog.auth.cookie.secure=false",
                 "--blog.search.fulltext-enabled=true", "--blog.minio.enabled=true", "--spring.flyway.enabled=true",
                 "--spring.sql.init.mode=never", "--spring.mail.host=", "--management.health.mail.enabled=false",
