@@ -6,6 +6,8 @@
 
 ### Added
 
+- 文章深链接的原始 HTML 提供公开标题、摘要、Open Graph 与 canonical；复用既有公开可见性，受限内容使用通用 noindex，网关与响应禁止缓存（Refs #58，见 `docs/article-sharing.md`）。
+
 - 新增 TOTP 绑定、密码/GitHub 登录第二因子、一次性恢复码及会话吊销；V17、独立环境加密密钥和部署回滚边界见 `docs/totp.md`（Refs #19）。
 
 - 新增合成数据的隔离恢复演练：真实 MySQL dump/reload、本地与 MinIO 附件完整性校验，删除源数据后恢复并通过真实应用 HTTP 验收；复用 real-it CI 保存证据，现场策略与 RPO/RTO 仍待确认（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。

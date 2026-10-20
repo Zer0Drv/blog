@@ -90,7 +90,7 @@ public class SecurityConfig {
                         // P0：公开站点配置（白名单键）与 SEO 三件套（RSS/Atom/sitemap/robots）
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/site/config", "/site/page-navigation", "/pages/*",
-                                "/rss.xml", "/atom.xml", "/sitemap.xml", "/robots.txt").permitAll()
+                                "/rss.xml", "/atom.xml", "/sitemap.xml", "/robots.txt", "/article/*").permitAll()
                         // P1：公开友情链接（仅启用项，issue #17）
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/friend-links").permitAll()
                         .requestMatchers("/admin/**").hasRole(UserRole.ADMIN.name())

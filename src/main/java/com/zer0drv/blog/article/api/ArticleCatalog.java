@@ -63,6 +63,9 @@ public interface ArticleCatalog {
     /** 订阅发送前读取完整公开投影，避免标题/slug 在任务入队后变为私密仍泄露。 */
     Optional<ArticleFeedEntry> findVisibleFeedEntry(Long id);
 
+    /** 原始 HTML 分享页使用；数字 id 或 slug，仅返回匿名公开文章。 */
+    Optional<ArticleFeedEntry> findVisibleFeedEntryByKey(String key);
+
     /**
      * 按 id 集合取文章列表 VO（含装配），保持入参 id 顺序。
      * 注意：<b>不过滤可见性</b>，仅过滤已删除（找不到的 id 跳过）——
