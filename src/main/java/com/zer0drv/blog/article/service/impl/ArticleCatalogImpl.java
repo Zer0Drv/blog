@@ -103,6 +103,21 @@ public class ArticleCatalogImpl implements ArticleCatalog {
     }
 
     @Override
+    public Optional<ArticleFeedEntry> findVisibleFeedEntryByKey(String key) {
+        if (key == null || !key.matches("[a-z0-9-]{1,200}")) return Optional.empty();
+        if (key.matches("[0-9]+")) {
+            try {
+                return findVisibleFeedEntry(Long.valueOf(key));
+            } catch (NumberFormatException ignored) {
+                return Optional.empty();
+            }
+        }
+        return Optional.ofNullable(articleMapper.selectOne(
+                ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class))
+                        .eq(Article::getSlug, key))).map(ArticleCatalogImpl::toFeedEntry);
+    }
+
+    @Override
     public List<ArticleListVO> listByIdsPreserveOrder(Collection<Long> ids) {
         if (Objects.isNull(ids) || ids.isEmpty()) {
             return List.of();
