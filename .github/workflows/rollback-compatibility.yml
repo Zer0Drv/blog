@@ -1,0 +1,141 @@
+name: V20 rollback compatibility
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deploy/certified-releases.json'
+      - '.github/workflows/rollback-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  certify-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Verify historical main CI and immutable push digests
+        id: matrix
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, appendFile } from 'node:fs/promises'
+          import { selectRelease, verifyRun } from './deploy/certify-rollback.mjs'
+          const matrix = JSON.parse(await readFile('deploy/certified-releases.json', 'utf8'))
+          const combinations = []
+          const headers = { Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json' }
+          async function github(path, text = false) {
+            const response = await fetch('https://api.github.com/repos/Zer0Drv/blog/' + path,
+              { headers, signal: AbortSignal.timeout(30000) })
+            if (!response.ok) throw new Error('Historical evidence unavailable: HTTP ' + response.status)
+            return text ? response.text() : response.json()
+          }
+          for (const entry of matrix.releases.filter(release => release.schema === '20')) {
+            if (!/^\d+$/.test(entry.runId)) throw new Error('Invalid historical run')
+            const run = await github('actions/runs/' + entry.runId)
+            const page = await github('actions/runs/' + entry.runId + '/jobs?per_page=100')
+            if (page.total_count !== page.jobs.length) throw new Error('Incomplete historical job inventory')
+            const image = page.jobs.find(job => job.name === 'image' && job.conclusion === 'success')
+            if (!image) throw new Error('Successful original image job missing')
+            const log = await github('actions/jobs/' + image.id + '/logs', true)
+            verifyRun(entry, run, page.jobs, log)
+            for (const frontendSha of entry.frontendShas) {
+              if (!/^[0-9a-f]{40}$/.test(frontendSha)) throw new Error('Frontend must be an exact SHA')
+              selectRelease(matrix, entry.tag, frontendSha,
+                { version: entry.schema, checksum: entry.schemaChecksum, failedCount: 0 })
+              combinations.push({ backendSha: entry.sha, frontendSha })
+            }
+          }
+          if (!combinations.length || combinations.length > 16) throw new Error('Unexpected V20 matrix size')
+          await appendFile(process.env.GITHUB_OUTPUT, 'matrix=' + JSON.stringify({ include: combinations }) + '\n')
+          NODE
+
+  browser-pair:
+    needs: certify-history
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.certify-history.outputs.matrix) }}
+    name: V20 ${{ matrix.backendSha }}
+    env:
+      BACKEND_E2E_DIR: ${{ github.workspace }}/backend-e2e
+      PERFORMANCE_PREVIEW: '1'
+      EXPECTED_BACKEND: ${{ matrix.backendSha }}
+      EXPECTED_FRONTEND: ${{ matrix.frontendSha }}
+    defaults:
+      run:
+        working-directory: browser-ui
+    steps:
+      - name: Checkout exact certified backend
+        uses: actions/checkout@v7
+        with:
+          repository: Zer0Drv/blog
+          ref: ${{ matrix.backendSha }}
+          path: backend-e2e
+          persist-credentials: false
+      - name: Checkout exact certified frontend
+        uses: actions/checkout@v7
+        with:
+          repository: Zer0Drv/blog-ui
+          ref: ${{ matrix.frontendSha }}
+          path: browser-ui
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: browser-ui/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Compile exact backend fixture
+        working-directory: backend-e2e
+        run: mvn -B -DskipTests package
+      - name: Build exact production frontend
+        run: pnpm run build
+      - name: Browser flows against production preview and isolated services
+        run: pnpm test:e2e
+      - name: Verify observed source identity
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises'
+          const observed = JSON.parse(await readFile('e2e-artifacts/versions.json', 'utf8'))
+          if (observed.frontendSha !== process.env.EXPECTED_FRONTEND ||
+              observed.backendSha !== process.env.EXPECTED_BACKEND ||
+              observed.frontendMode !== 'production-preview' ||
+              observed.sourceDirty.frontend || observed.sourceDirty.backend) {
+            throw new Error('Browser evidence does not match the certified exact source pair')
+          }
+          NODE
+      - name: Clean only this run's isolated services
+        if: always()
+        run: node e2e/cleanup.mjs
+      - name: Save pair identities, browser report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: v20-compatibility-${{ matrix.backendSha }}-${{ matrix.frontendSha }}-${{ github.run_attempt }}
+          path: browser-ui/e2e-artifacts/
+          retention-days: 90
+          if-no-files-found: error
