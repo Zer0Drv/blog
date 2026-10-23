@@ -48,7 +48,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-de
 
 必须保留交互终端；不要重定向输入或将密码放进命令行、环境变量、脚本。
 命令不监听 HTTP。输入已有用户名和 `INITIALIZE`（仅系统无所有者时提升已有 ADMIN），
-或 `RECOVER`（只能恢复已有 SUPER_ADMIN），再输入 16–72 字符新密码。
+或 `RECOVER`（只能恢复已有 SUPER_ADMIN），再输入 6–64 字符新密码。
 恢复重置封禁/密码/TOTP，吊销旧会话，留下 operator=0 审计；完成后重新绑定 TOTP。
 掌握主机与数据库权限是此恢复流程的信任边界，应限制主机登录权限。
 

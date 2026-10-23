@@ -104,6 +104,37 @@ class SecurityEvolutionIntegrationTests extends IntegrationTestSupport {
         assertNotNull(login(owner,"recovery-password-123"));
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {6, 64})
+    void localRecoveryAcceptsBoundaryLengthsAndRevokesOldSessions(int length) throws Exception {
+        String name = unique("recover_boundary_"); long owner = seedUser(name,"所有者","SUPER_ADMIN");
+        String oldAccess = login(name,TEST_PASSWORD);
+        String oldRefresh = sessions.create(decoder.decode(oldAccess));
+        String replacement = "r".repeat(length);
+        recovery.recover(name,replacement,false);
+        assertThrows(Exception.class, () -> decoder.decode(oldAccess));
+        assertThrows(BusinessException.class, () -> sessions.rotate(oldRefresh));
+        assertNotNull(login(name,replacement));
+        String encoded = jdbcTemplate.queryForObject("SELECT password FROM `user` WHERE id=?",String.class,owner);
+        assertNotEquals(replacement,encoded);
+        assertTrue(new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().matches(replacement,encoded));
+        assertEquals(1,jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM owner_operation_audit WHERE target_id=? AND action='LOCAL_RECOVER' AND outcome='SUCCESS'",
+                Integer.class,owner));
+    }
+
+    @Test void invalidLocalRecoveryPasswordsLeaveAccountAndAuditUnchanged() {
+        String name = unique("recover_invalid_"); long owner = seedUser(name,"所有者","SUPER_ADMIN");
+        var before = jdbcTemplate.queryForMap("SELECT password,role,status,session_version FROM `user` WHERE id=?",owner);
+        for (String password : java.util.Arrays.asList(null,"","short","x".repeat(65))) {
+            for (boolean initialize : new boolean[]{true,false})
+                assertThrows(IllegalArgumentException.class, () -> recovery.recover(name,password,initialize));
+        }
+        assertEquals(before,jdbcTemplate.queryForMap("SELECT password,role,status,session_version FROM `user` WHERE id=?",owner));
+        assertEquals(0,jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM owner_operation_audit WHERE target_id=?",Integer.class,owner));
+    }
+
     @Test void noWorkerMeansUnavailableWithoutRestart() {
         assertEquals(false,restart.capability().get("available"));
     }

@@ -22,7 +22,7 @@ public class OwnerRecoveryCommand implements ApplicationRunner {
         String username = console.readLine("目标用户名: ");
         String mode = console.readLine("输入 INITIALIZE 初始化首个所有者，或 RECOVER 恢复已有所有者: ");
         if (!java.util.Set.of("INITIALIZE", "RECOVER").contains(mode)) throw new IllegalArgumentException("无效恢复模式");
-        char[] password = console.readPassword("新的恢复密码（16–72 字符，不回显）: ");
+        char[] password = console.readPassword("新的恢复密码（6–64 字符，不回显）: ");
         try {
             recovery.recover(username, new String(password), "INITIALIZE".equals(mode));
             console.printf("所有者访问已恢复，历史会话与二次验证已撤销。请登录后重新绑定二次验证。%n");
