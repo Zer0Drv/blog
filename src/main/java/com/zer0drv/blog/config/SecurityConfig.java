@@ -104,9 +104,8 @@ public class SecurityConfig {
                         .failureHandler((request, response, exception) ->
                                 response.sendRedirect(oauthFailureRedirect)))
                 // 资源服务器：优先 Cookie 取 token，兼容 Authorization: Bearer（过渡期）；
-                // 权限由 DatabaseRoleJwtAuthenticationConverter 按 sub 实时读库装配——
-                // 不信任 token 内 roles 声明（签发时固化，库内直改角色后会失真，
-                // 提拔 ADMIN 后旧 token 访问 /admin/** 曾误返 403）
+                // 新 token 从 roles 声明装配权限，解码阶段仍检查账号状态、持久会话版本和吊销记录；
+                // 无 session_version 的历史 token 保留读库角色兼容路径（Refs #26）。
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .bearerTokenResolver(cookieBearerTokenResolver)
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(databaseRoleJwtAuthenticationConverter)));
