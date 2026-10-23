@@ -164,6 +164,30 @@ public class AttachmentCleanupService {
         }
     }
 
+    public record Preview(byte[] bytes, String filename, String contentType) {}
+
+    public Preview preview(long id) {
+        return tx.execute(status -> {
+            guard.lock(); // Serialize with purge; never revive or extend observation.
+            var row = require(id);
+            if (!Set.of("OBSERVING", "RETAINED", "RESTORED").contains(row.get("state")))
+                throw invalid("对象不可预览，请刷新清理列表");
+            String key = (String) row.get("object_key");
+            try {
+                byte[] bytes = store.readPreview((String) row.get("storage"), key);
+                String extension = key.substring(key.lastIndexOf('.') + 1);
+                String type = switch (extension) {
+                    case "png" -> "image/png";
+                    case "jpg", "jpeg" -> "image/jpeg";
+                    case "gif" -> "image/gif";
+                    case "webp" -> "image/webp";
+                    default -> "application/octet-stream";
+                };
+                return new Preview(bytes, AttachmentObjectKeys.filename(key), type);
+            } catch (Exception e) { throw unavailable("预览不可用，对象可能已删除或存储连接失败", e); }
+        });
+    }
+
     private static Timestamp eligible(Instant marked) {
         // DATETIME stores whole seconds. Round UP so it never shortens seven full days.
         return Timestamp.from(marked.plus(OBSERVATION).truncatedTo(java.time.temporal.ChronoUnit.SECONDS).plusSeconds(1));

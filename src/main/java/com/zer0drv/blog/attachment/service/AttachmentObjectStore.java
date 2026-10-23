@@ -81,6 +81,19 @@ public class AttachmentObjectStore {
     }
 
     /** Application UUID keys are immutable. Foreign replacement of an object must restart observation. */
+    public byte[] readPreview(String storage, String key) throws Exception {
+        validate(key);
+        var object = stat(storage, key);
+        if (object == null || object.size() > 10 * 1024 * 1024) throw new IllegalStateException("对象不存在或超过预览大小限制");
+        try (var input = "LOCAL".equals(storage)
+                ? Files.newInputStream(localPath(key), LinkOption.NOFOLLOW_LINKS)
+                : client().getObject(GetObjectArgs.builder().bucket(bucket).object(key).build())) {
+            byte[] bytes = input.readNBytes(10 * 1024 * 1024 + 1);
+            if (bytes.length > 10 * 1024 * 1024) throw new IllegalStateException("对象超过预览大小限制");
+            return bytes;
+        }
+    }
+
     public boolean delete(ObjectInfo expected) throws Exception {
         var actual = stat(expected.storage(), expected.key());
         if (actual == null) return false;
