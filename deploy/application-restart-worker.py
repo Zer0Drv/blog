@@ -33,6 +33,8 @@ def process(root, lock):
     job = str(uuid.UUID(data["id"]))
     if data["id"] != job:
         raise ValueError("Invalid request ID")
+    audit = {"operator": data.get("operator"), "requestedAt": data.get("requestedAt"),
+             "previousInstance": data.get("instance")}
     descriptor = None
     try:
         descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -41,17 +43,17 @@ def process(root, lock):
         if marker.exists():
             raise RuntimeError("Interrupted restart requires operator verification")
         marker.write_text(job, encoding="utf-8")
-        write_report(root, job, "RESTARTING")
+        write_report(root, job, "RESTARTING", **audit)
         # The executable and container are constants, never supplied by a Web request.
         subprocess.run(["docker", "restart", "--time", "30", "blog-backend"],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90)
         backup.wait_ready("blog-backend")
         checks = backup.recover_gateway()
-        write_report(root, job, "RECOVERED", gatewayChecks=checks, previousInstance=data.get("instance"))
+        write_report(root, job, "RECOVERED", gatewayChecks=checks, **audit)
     except FileExistsError:
-        write_report(root, job, "FAILED", reason="发布或备份持有部署锁，未执行重启")
+        write_report(root, job, "FAILED", reason="发布或备份持有部署锁，未执行重启", **audit)
     except Exception:
-        write_report(root, job, "FAILED", reason="重启或恢复验证失败，请检查容器与网关；不会自动再次重启")
+        write_report(root, job, "FAILED", reason="重启或恢复验证失败，请检查容器与网关；不会自动再次重启", **audit)
     finally:
         if descriptor is not None:
             os.close(descriptor)

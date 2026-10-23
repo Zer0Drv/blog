@@ -15,7 +15,7 @@ class RestartTest(unittest.TestCase):
     def fixture(self, root):
         job = str(uuid.uuid4())
         (root / "request").mkdir()
-        (root / "request" / "request.json").write_text(json.dumps({"id": job, "instance": "old"}))
+        (root / "request" / "request.json").write_text(json.dumps({"id": job, "instance": "old", "operator": 7, "requestedAt": "2026-10-23T00:00:00Z"}))
         return job
 
     def test_success_requires_backend_and_gateway_and_uses_fixed_command(self):
@@ -26,7 +26,11 @@ class RestartTest(unittest.TestCase):
                 worker.process(root, lock)
                 self.assertEqual(["docker", "restart", "--time", "30", "blog-backend"], run.call_args.args[0])
                 ready.assert_called_once_with("blog-backend"); gateway.assert_called_once()
-            self.assertEqual("RECOVERED", json.loads((root / (job + ".json")).read_text())["state"])
+            report = json.loads((root / (job + ".json")).read_text())
+            self.assertEqual("RECOVERED", report["state"])
+            self.assertEqual(7, report["operator"])
+            self.assertEqual("old", report["previousInstance"])
+            self.assertEqual("2026-10-23T00:00:00Z", report["requestedAt"])
             self.assertFalse(lock.exists())
 
     def test_deployment_lock_prevents_restart_and_is_preserved(self):
