@@ -24,6 +24,8 @@
 
 ### Changed
 
+- 本机显式创建 `.operations/enabled` 后，后端正常发布和回滚保留独立运维 worker 挂载，避免下一次部署关闭受控重启入口（Refs #82）。
+
 - 修复文章 HTML 网关代理的 Host，避免上游名称中的下划线触发 HTTP 400；旧后端缺少文章 HTML 路由时回退 SPA。
 
 - 补齐 README 的 V13–V16 迁移清单与 v1.1.0 交付范围，区分顺延需求、质量验证和业务数据恢复边界（Refs [#58](https://github.com/Zer0Drv/blog/issues/58)）。
