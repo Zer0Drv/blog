@@ -7,6 +7,7 @@ No restore, pruning or production overwrite is performed by this program.
 import argparse
 import datetime as dt
 import hashlib
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -15,10 +16,84 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.parse
 import uuid
 
 CONTAINERS = ("blog-backend", "blog-mysql", "blog-redis", "blog-minio")
 DATA = {"blog-mysql": "/var/lib/mysql", "blog-redis": "/data", "blog-minio": "/data"}
+
+
+class EntryResources(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.resources = []
+        self.mount = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        self.mount |= tag == "div" and attrs.get("id") == "app"
+        if tag == "script" and attrs.get("type") == "module" and attrs.get("src"):
+            self.resources.append((attrs["src"], "javascript"))
+        if tag == "link" and attrs.get("rel") == "stylesheet" and attrs.get("href"):
+            self.resources.append((attrs["href"], "text/css"))
+
+
+def verify_gateway(origin="http://127.0.0.1"):
+    """Probe the public entry after DNS refresh, never only backend health."""
+    expected_origin = urllib.parse.urlsplit(origin)
+    checks = []
+
+    def read(path, content_type):
+        url = urllib.parse.urljoin(origin + "/", path)
+        if urllib.parse.urlsplit(url).netloc != expected_origin.netloc or urllib.parse.urlsplit(url).scheme != expected_origin.scheme:
+            raise RuntimeError("Gateway resource uses another origin")
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"Cache-Control": "no-cache"}), timeout=10) as response:
+            if response.status != 200 or response.url != url or content_type not in response.headers.get("Content-Type", ""):
+                raise RuntimeError("Gateway response has invalid status, redirect or content type")
+            body = response.read(8 * 1024 * 1024 + 1)
+            if not body.strip() or len(body) > 8 * 1024 * 1024:
+                raise RuntimeError("Gateway response is empty or too large")
+        checks.append(path)
+        return body.decode("utf-8")
+
+    def api(path):
+        value = json.loads(read(path, "application/json"))
+        if str(value.get("code")) != "200" or value.get("data") is None:
+            raise RuntimeError("Gateway API returned an error")
+        return value["data"]
+
+    entry = EntryResources()
+    entry.feed(read("/", "text/html"))
+    if not entry.mount or not any(kind == "javascript" for _, kind in entry.resources):
+        raise RuntimeError("Gateway entry is not the frontend application")
+    for path, kind in entry.resources:
+        read(path, kind)
+    release = json.loads(read("/release.json", "application/json"))
+    if release.get("schemaVersion") != 1 or len(release.get("sha", "")) != 40:
+        raise RuntimeError("Gateway release manifest is invalid")
+    api("/api/site/config")
+    records = api("/api/articles?page=1&size=1").get("records", [])
+    if not records or not str(records[0].get("id", "")).isdigit():
+        raise RuntimeError("No public article for recovery validation")
+    article = EntryResources()
+    article.feed(read("/article/" + str(records[0]["id"]), "text/html"))
+    if not article.mount:
+        raise RuntimeError("Gateway article shell is invalid")
+    return checks
+
+
+def recover_gateway():
+    # Static upstream names are re-resolved on reload; validate before signalling.
+    command(["docker", "exec", "blog-gateway", "nginx", "-t"], stdout=subprocess.DEVNULL)
+    command(["docker", "exec", "blog-gateway", "nginx", "-s", "reload"], stdout=subprocess.DEVNULL)
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            return verify_gateway()
+        except Exception:
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Gateway recovery smoke failed") from None
+            time.sleep(1)
 
 
 def command(args, **kwargs):
@@ -151,6 +226,7 @@ def backup(root, config_file, execute=False):
     stopped, restart_errors = [], []
     success = False
     frozen = None
+    gateway_checks = []
     try:
         # Inspect after acquiring the CD lock so image/config identity belongs to this snapshot.
         sources, upload_dir, uploads_present = capture_sources()
@@ -214,9 +290,15 @@ def backup(root, config_file, execute=False):
                 wait_ready(name)
             except Exception:
                 restart_errors.append(name)
+        if stopped:
+            try:
+                gateway_checks = recover_gateway()
+            except Exception:
+                restart_errors.append("blog-gateway")
         status = {"checkedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
                   "ok": success and not restart_errors, "snapshot": snapshot.name,
-                  "restartFailures": restart_errors, "offsiteCopy": False, "recoveryPoint": frozen}
+                  "restartFailures": restart_errors, "gatewayChecks": gateway_checks,
+                  "offsiteCopy": False, "recoveryPoint": frozen}
         try:
             (root / "last-attempt.json").write_text(json.dumps(status, indent=2), encoding="utf-8")
             if status["ok"]:

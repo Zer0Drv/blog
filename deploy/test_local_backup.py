@@ -28,6 +28,7 @@ class SnapshotTest(unittest.TestCase):
 
             with patch.object(backup, "inspect", return_value=entries), \
                     patch.object(backup, "protect"), patch.object(backup, "wait_ready"), \
+                    patch.object(backup, "recover_gateway", return_value=["/", "/release.json"]), \
                     patch.object(backup.shutil, "disk_usage", return_value=SimpleNamespace(free=2**40)), \
                     patch.object(backup, "command", side_effect=command), \
                     patch.object(backup.subprocess, "run") as probe:
@@ -37,6 +38,54 @@ class SnapshotTest(unittest.TestCase):
             manifest = backup.verify(base / "backups" / result["snapshot"])
             self.assertEqual(result["recoveryPoint"], manifest["recoveryPoint"])
             self.assertEqual(8, len(manifest["files"]))
+
+    def test_gateway_failure_preserves_previous_success_and_restarts_every_service(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            (base / "deploy").mkdir()
+            for path in [".env", "docker-compose.yml", "docker-compose.prod.yml", "deploy/nginx.conf"]:
+                (base / path).write_text("fixture")
+            root = base / "backups"
+            root.mkdir()
+            (root / "last-success.json").write_text('{"previous":true}')
+            entries = {name: {"Image": "fixture", "Config": {"Env": [], "WorkingDir": "/app",
+                       "Image": "fixture", "Labels": None}} for name in backup.CONTAINERS}
+            calls = []
+            def command(args, **kwargs):
+                calls.append(args)
+                if args[1] == "cp": kwargs["stdout"].write(b"archive")
+                return SimpleNamespace(stdout=b"0")
+            with patch.object(backup, "inspect", return_value=entries), patch.object(backup, "protect"), \
+                    patch.object(backup, "wait_ready"), patch.object(backup, "recover_gateway", side_effect=RuntimeError("failed")), \
+                    patch.object(backup.shutil, "disk_usage", return_value=SimpleNamespace(free=2**40)), \
+                    patch.object(backup, "command", side_effect=command), patch.object(backup.subprocess, "run") as probe:
+                probe.return_value.returncode = 1
+                with self.assertRaisesRegex(RuntimeError, "blog-gateway"):
+                    backup.backup(root, base / ".env", execute=True)
+            self.assertEqual(list(reversed(backup.CONTAINERS)), [a[-1] for a in calls if a[1] == "start"])
+            self.assertEqual('{"previous":true}', (root / "last-success.json").read_text())
+            self.assertFalse(json.loads((root / "last-attempt.json").read_text())["ok"])
+            self.assertFalse((base / ".deployment.lock").exists())
+
+    def test_invalid_gateway_configuration_never_reloads(self):
+        with patch.object(backup, "command", side_effect=RuntimeError("invalid config")) as command:
+            with self.assertRaisesRegex(RuntimeError, "invalid config"):
+                backup.recover_gateway()
+        self.assertEqual(1, command.call_count)
+        self.assertEqual("-t", command.call_args.args[0][-1])
+
+    def test_reload_failure_never_reports_success(self):
+        with patch.object(backup, "command", side_effect=[None, RuntimeError("reload")]), \
+                patch.object(backup, "verify_gateway") as smoke:
+            with self.assertRaisesRegex(RuntimeError, "reload"):
+                backup.recover_gateway()
+        smoke.assert_not_called()
+
+    def test_backend_health_does_not_replace_gateway_smoke(self):
+        with patch.object(backup, "command"), patch.object(backup, "verify_gateway", side_effect=RuntimeError("502")), \
+                patch.object(backup.time, "monotonic", side_effect=[0, 31]):
+            with self.assertRaisesRegex(RuntimeError, "Gateway recovery smoke failed"):
+                backup.recover_gateway()
 
     def test_integrity_rejects_damage_extra_and_path_escape(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -80,6 +129,7 @@ class SnapshotTest(unittest.TestCase):
 
             with patch.object(backup, "inspect", return_value=entries), \
                     patch.object(backup, "protect"), patch.object(backup, "wait_ready"), \
+                    patch.object(backup, "recover_gateway", return_value=["/", "/release.json"]), \
                     patch.object(backup.shutil, "disk_usage", return_value=SimpleNamespace(free=2**40)), \
                     patch.object(backup, "command", side_effect=command), \
                     patch.object(backup.subprocess, "run") as probe:

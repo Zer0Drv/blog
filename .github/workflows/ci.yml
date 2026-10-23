@@ -89,6 +89,10 @@ jobs:
           mkdir -p target/real-it-reports
           set -o pipefail
           mvn -B -Preal-it verify 2>&1 | tee target/real-it-reports/maven.log
+      - name: Reproduce upstream IP change and verify gateway recovery
+        run: |
+          set -o pipefail
+          python3 deploy/gateway-recovery-drill.py | tee target/real-it-reports/gateway-recovery.json
       - name: Collect infrastructure diagnostics
         if: always()
         run: |
