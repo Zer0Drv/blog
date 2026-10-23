@@ -18,12 +18,11 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * JWT → 认证对象转换器：权限不取 token 内的 roles 声明，而是按 sub（用户 id）实时读库装配。
- * 背景：roles 声明在登录签发时固化，此后角色变更（尤其是库内直改提拔 ADMIN——管理接口
- * 本身不允许把用户设为 ADMIN）不会反映到已签发 token，持旧 token 访问 /admin/** 会误返 403，
- * 反向降级则误放行。改为实时读库后角色变更即时生效，无需重新登录；
- * token 吊销（封禁/改密/登出）仍由 BlacklistJwtValidator 负责，两者正交。
- * 代价：每个携带 token 的请求多一次 user 主键查询（博客规模可忽略）。
+ * JWT → 认证对象转换器：带 session_version 的新 token 从 roles 声明装配权限。
+ * BlacklistJwtValidator 在转换前检查账号状态、持久会话版本及 Redis 吊销记录；
+ * 角色变更通过受控 API 撤销会话，旧权限不能仅靠 access TTL 等待过期。
+ * 无 session_version 的历史 token 保留按 sub 读库获取角色的兼容路径。
+ * 每请求仍有账号状态/版本查询；这里不承诺零数据库鉴权（Refs #26）。
  *
  * @author Yoruhaki
  */
@@ -40,7 +39,7 @@ public class DatabaseRoleJwtAuthenticationConverter implements Converter<Jwt, Ab
     }
 
     /**
-     * 按 sub 实时读库装配当前角色；用户已删除或角色值非法时无权限（等效降级为仅登录）
+     * 新 token 使用已通过版本校验的角色声明；历史 token 回退到数据库角色。
      */
     private List<GrantedAuthority> currentAuthorities(Jwt jwt) {
         // Versioned claims are guarded by the shared database session epoch validator.

@@ -1,5 +1,19 @@
 # 非 AI issue 本地验收记录（2026-10-23）
 
+## #26 最终鉴权范围（2026-10-23 所有者确认）
+
+所有者确认保留实时撤销检查，并以此替代原任务三的纯 claims/仅短 TTL 方案。
+带 `session_version` 的新 token 从 `roles` 声明装配权限；解码阶段仍检查数据库中的
+账号状态、会话版本及 Redis 吊销记录。历史 token 没有版本声明时保留读库角色兼容路径。
+登录及 refresh 签发读取当前角色和版本；角色变更必须走受控 API 以触发会话撤销。
+每请求仍有数据库查询，不将此实现描述为零数据库鉴权。
+
+核对基线为 `04c5b51323fcf63f75f0b9b4b6d9eaf27a960b90`，相关实现位于
+`DatabaseRoleJwtAuthenticationConverter`、`BlacklistJwtValidator`、`TokenServiceImpl`
+和 `RefreshSessionService`。本次只同步验收范围和注释，不改鉴权行为。
+[对应主分支 CI](https://github.com/Zer0Drv/blog/actions/runs/39960310478) 已成功；
+部署、所有者初始化与业务验收分别记录，不以文档更新代替现场验收。
+
 ## 合并后的补充验收
 
 原实现已合并：后端 [#84](https://github.com/Zer0Drv/blog/pull/84) 为
