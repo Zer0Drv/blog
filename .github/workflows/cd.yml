@@ -214,7 +214,12 @@ jobs:
           ROLLBACK: ${{ needs.gate.outputs.rollback }}
         run: |
           : "${BACKEND_TAG:?Certified image tag is required}"
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
+          compose_args=(-f docker-compose.yml -f docker-compose.prod.yml)
+          # Explicit host opt-in survives deploys; no mount is added on unconfigured hosts.
+          if [[ -f .operations/enabled ]]; then
+            compose_args+=(-f docker-compose.operations.yml)
+          fi
+          docker-compose "${compose_args[@]}" pull backend
           image="ghcr.io/zer0drv/blog-backend:$BACKEND_TAG"
           revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
           if [[ "$revision" != "$RELEASE_SHA" ]]; then
@@ -226,7 +231,7 @@ jobs:
             echo "构建提交：\`$revision\`；本次工作流提交：\`$RELEASE_SHA\`；回滚：$ROLLBACK"
             docker image inspect --format '{{json .RepoDigests}}' "$image"
           } >> "$GITHUB_STEP_SUMMARY"
-          docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
+          docker-compose "${compose_args[@]}" up -d backend
 
       - name: 等待健康检查
         run: |

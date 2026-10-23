@@ -72,9 +72,11 @@ Web 应用不挂载 Docker socket。主机须具备 Python、Docker CLI 及既�
    python deploy/application-restart-worker.py --directory E:\dev\zer0drv\blog\.operations --lock E:\dev\zer0drv\.deployment.lock
    ```
 
-3. 维护窗口用 `docker-compose.yml`、`docker-compose.prod.yml` 和
+3. 完成目录权限和 worker 检查后，在 `.operations` 创建空文件 `enabled`，作为本机明确启用标记。
+   CD 的正常发布与回滚均在此文件存在时追加运维 overlay，后续发布保留挂载。
+   维护窗口用 `docker-compose.yml`、`docker-compose.prod.yml` 和
    `docker-compose.operations.yml` 三个 overlay 启动 backend；后续发布始终保留第三个文件。
-   未接入 overlay 的既有 CD 仍会关闭此可选能力，应先调整部署命令再启用。
+   停用时先移除 `enabled`，再仅用前两个文件重建 backend，最后停止 worker；不要仅停止心跳后假定挂载已移除。
 4. 管理端先保存配置；输入密码、二次验证码与 `RESTART_BACKEND` 后提交。
    配置未保存、worker 心跳失效、其他发布/备份持锁时拒绝执行。
 
