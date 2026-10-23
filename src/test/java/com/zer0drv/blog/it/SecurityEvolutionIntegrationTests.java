@@ -105,7 +105,7 @@ class SecurityEvolutionIntegrationTests extends IntegrationTestSupport {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(ints = {6, 72})
+    @org.junit.jupiter.params.provider.ValueSource(ints = {6, 64})
     void localRecoveryAcceptsBoundaryLengthsAndRevokesOldSessions(int length) throws Exception {
         String name = unique("recover_boundary_"); long owner = seedUser(name,"所有者","SUPER_ADMIN");
         String oldAccess = login(name,TEST_PASSWORD);
@@ -126,7 +126,7 @@ class SecurityEvolutionIntegrationTests extends IntegrationTestSupport {
     @Test void invalidLocalRecoveryPasswordsLeaveAccountAndAuditUnchanged() {
         String name = unique("recover_invalid_"); long owner = seedUser(name,"所有者","SUPER_ADMIN");
         var before = jdbcTemplate.queryForMap("SELECT password,role,status,session_version FROM `user` WHERE id=?",owner);
-        for (String password : java.util.Arrays.asList(null,"","short","x".repeat(73))) {
+        for (String password : java.util.Arrays.asList(null,"","short","x".repeat(65))) {
             for (boolean initialize : new boolean[]{true,false})
                 assertThrows(IllegalArgumentException.class, () -> recovery.recover(name,password,initialize));
         }
