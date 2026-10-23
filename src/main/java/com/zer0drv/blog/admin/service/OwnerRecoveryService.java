@@ -16,8 +16,8 @@ public class OwnerRecoveryService {
     private final TokenService tokens;
     @Transactional
     public void recover(String username, String password, boolean initialize) {
-        if (password == null || password.length() < 16 || password.length() > 72)
-            throw new IllegalArgumentException("恢复密码须为 16–72 个字符");
+        if (password == null || password.length() < 6 || password.length() > 72)
+            throw new IllegalArgumentException("恢复密码须为 6–72 个字符");
         jdbc.queryForList("SELECT id FROM owner_operation_lock WHERE id=1 FOR UPDATE");
         var rows = jdbc.queryForList("SELECT id,role FROM `user` WHERE username=? AND deleted=0 FOR UPDATE", username);
         if (rows.isEmpty()) throw new IllegalArgumentException("指定账号不存在");
