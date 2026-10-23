@@ -58,6 +58,9 @@ class InfrastructureRealIT {
     @Autowired private CaptchaService captcha;
     @Autowired private Flyway flyway;
     @Autowired private AttachmentObjectStore objects;
+    @Autowired private com.zer0drv.blog.admin.service.OwnerOperations owners;
+    @Autowired private com.zer0drv.blog.admin.service.AdminCommentService adminComments;
+    @Autowired private com.zer0drv.blog.social.service.NotificationService notifications;
     private final HttpClient http=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
     private final Set<String> redisKeys=new HashSet<>();
     private String username,token;
@@ -321,6 +324,95 @@ class InfrastructureRealIT {
             var winner = responses.stream().filter(r -> r.statusCode()==200).findFirst().orElseThrow();
             String cookie = winner.headers().allValues("set-cookie").stream().filter(v -> v.startsWith("AUTH_TOKEN=")).findFirst().orElseThrow().split(";",2)[0];
             assertEquals(401,send("GET","/auth/me",null,null,cookie).statusCode());
+        }
+    }
+
+    @Test
+    void concurrentOwnershipTransfersHaveOneWinnerAndPreserveAnActiveOwner() throws Exception {
+        jdbc.update("UPDATE `user` SET role='SUPER_ADMIN' WHERE id=?", userId);
+        var targets = new LinkedHashMap<Long,String>();
+        try {
+            for (int i=0;i<2;i++) {
+                String name="transfer_"+UUID.randomUUID().toString().replace("-","").substring(0,16);
+                jdbc.update("INSERT INTO `user`(username,password,email,nickname,role,status) VALUES(?,?,?,'Transfer IT','ADMIN',0)",name,HASH,name+"@real-it.invalid");
+                targets.put(jdbc.queryForObject("SELECT id FROM `user` WHERE username=?",Long.class,name),name);
+            }
+            try (var pool=Executors.newFixedThreadPool(2)) {
+                var start=new CountDownLatch(1);
+                var calls=new ArrayList<Future<Boolean>>();
+                for (var target:targets.entrySet()) calls.add(pool.submit(() -> {
+                    start.await();
+                    try {
+                        owners.execute(userId,target.getKey(),new com.zer0drv.blog.admin.service.OwnerOperations.Request("TRANSFER",PASSWORD,null,target.getValue(),null));
+                        return true;
+                    } catch (com.zer0drv.blog.common.exception.BusinessException expected) { return false; }
+                }));
+                start.countDown();
+                int successes=0;
+                for (var call:calls) if(call.get(20,TimeUnit.SECONDS)) successes++;
+                assertEquals(1,successes);
+            }
+            assertEquals("ADMIN",jdbc.queryForObject("SELECT role FROM `user` WHERE id=?",String.class,userId));
+            long winner=targets.keySet().stream().filter(id -> "SUPER_ADMIN".equals(jdbc.queryForObject("SELECT role FROM `user` WHERE id=? AND status=0",String.class,id))).findFirst().orElseThrow();
+            assertEquals(1,targets.keySet().stream().filter(id -> "SUPER_ADMIN".equals(jdbc.queryForObject("SELECT role FROM `user` WHERE id=?",String.class,id))).count());
+            assertThrows(Exception.class,()->decoder.decode(token));
+            assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM owner_operation_audit WHERE operator_id=? AND outcome='SUCCESS'",Integer.class,userId));
+            assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM owner_operation_audit WHERE operator_id=? AND outcome='DENIED'",Integer.class,userId));
+            assertThrows(com.zer0drv.blog.common.exception.BusinessException.class,()->owners.execute(winner,winner,
+                    new com.zer0drv.blog.admin.service.OwnerOperations.Request("FREEZE",PASSWORD,null,targets.get(winner),null)));
+            assertEquals(0,jdbc.queryForObject("SELECT status FROM `user` WHERE id=?",Integer.class,winner));
+        } finally {
+            jdbc.update("DELETE FROM owner_operation_audit WHERE operator_id=?",userId);
+            for (long id:targets.keySet()) {
+                jdbc.update("DELETE FROM owner_operation_audit WHERE operator_id=? OR target_id=?",id,id);
+                jdbc.update("DELETE FROM auth_refresh_session WHERE user_id=?",id);
+                jdbc.update("DELETE FROM `user` WHERE id=?",id);
+                redisKeys.add("blog:user-tokens:"+id);
+            }
+        }
+    }
+
+    @Test
+    void concurrentCommentDeletionAndDeliveryNeverExposeSnapshotsAndRetractionIsIdempotent() throws Exception {
+        long article=createArticle("notification race","public content","PUBLISHED","PUBLIC");
+        String secret="private snapshot "+UUID.randomUUID();
+        jdbc.update("INSERT INTO comment(article_id,user_id,content) VALUES(?,?,?)",article,userId,secret);
+        long root=jdbc.queryForObject("SELECT id FROM comment WHERE article_id=?",Long.class,article);
+        jdbc.update("INSERT INTO comment(article_id,user_id,parent_id,content) VALUES(?,?,?,'reply')",article,userId,root);
+        long reply=jdbc.queryForObject("SELECT id FROM comment WHERE parent_id=?",Long.class,root);
+        try {
+            // A removed parent must not hide a still valid reply.
+            jdbc.update("INSERT INTO comment_notification_removal(comment_id,reason) VALUES(?,'DELETED')",root);
+            jdbc.update("UPDATE comment SET deleted=1 WHERE id=?",root);
+            notifications.notify(com.zer0drv.blog.social.service.NotificationIntent.commentReply(userId,null,article,reply,secret));
+            assertEquals("AVAILABLE",notifications.forComment(reply).getFirst().getContentState());
+            try (var pool=Executors.newFixedThreadPool(2)) {
+                var start=new CountDownLatch(1);
+                var deletion=pool.submit(() -> {start.await(); adminComments.forceDelete(root); return null;});
+                var delivery=pool.submit(() -> {start.await(); notifications.notify(com.zer0drv.blog.social.service.NotificationIntent.commentReply(userId,null,article,reply,secret)); return null;});
+                start.countDown(); deletion.get(20,TimeUnit.SECONDS); delivery.get(20,TimeUnit.SECONDS);
+            }
+            var visible=notifications.forComment(reply);
+            assertEquals(2,visible.size());
+            for (var notification:visible) {
+                assertEquals("ADMIN_REMOVED",notification.getContentState());
+                assertNull(notification.getArticleId()); assertNull(notification.getCommentId());
+                assertFalse(notification.getSummary().contains(secret));
+                assertEquals("",jdbc.queryForObject("SELECT summary FROM notification WHERE id=?",String.class,notification.getId()));
+            }
+            assertEquals(2,notifications.unreadCount(decoder.decode(token)));
+            try (var pool=Executors.newFixedThreadPool(2)) {
+                var start=new CountDownLatch(1);
+                Callable<Void> retract=()->{start.await(); for(var notification:visible) notifications.retract(notification.getId(),userId); return null;};
+                var first=pool.submit(retract); var second=pool.submit(retract); start.countDown();
+                first.get(20,TimeUnit.SECONDS); second.get(20,TimeUnit.SECONDS);
+            }
+            assertTrue(notifications.forComment(reply).isEmpty());
+            assertEquals(0,notifications.unreadCount(decoder.decode(token)));
+            assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM notification_retraction_audit WHERE operator_id=?",Integer.class,userId));
+        } finally {
+            jdbc.update("DELETE FROM comment_notification_removal WHERE comment_id IN (?,?)",root,reply);
+            jdbc.update("DELETE FROM notification_retraction_audit WHERE operator_id=?",userId);
         }
     }
 
