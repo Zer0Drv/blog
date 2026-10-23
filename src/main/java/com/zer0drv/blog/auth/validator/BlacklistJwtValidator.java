@@ -19,10 +19,19 @@ public class BlacklistJwtValidator implements OAuth2TokenValidator<Jwt> {
     public static final String BLACKLIST_PREFIX = "blog:blacklist:jwt:";
 
     private final StringRedisTemplate stringRedisTemplate;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Override
     @NullMarked
     public OAuth2TokenValidatorResult validate(Jwt token) {
+        if (jdbc != null) {
+            var accounts = jdbc.queryForList("SELECT status,session_version FROM `user` WHERE id=? AND deleted=0", token.getSubject());
+            Number version = token.getClaim("session_version");
+            if (accounts.isEmpty() || ((Number) accounts.getFirst().get("status")).intValue() != 0
+                    || ((Number) accounts.getFirst().get("session_version")).longValue() != (version == null ? 0 : version.longValue()))
+                return OAuth2TokenValidatorResult.failure(new OAuth2Error("invalid_token", "Session revoked", null));
+        }
         String jti = token.getId();
         Boolean isBlacked = stringRedisTemplate.hasKey(BLACKLIST_PREFIX + jti);
         if (Boolean.TRUE.equals(isBlacked)) {

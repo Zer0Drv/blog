@@ -54,6 +54,7 @@ class InfrastructureRealIT {
     @Autowired private ObjectMapper mapper;
     @Autowired private JwtDecoder decoder;
     @Autowired private TokenService tokens;
+    @Autowired private com.zer0drv.blog.auth.service.RefreshSessionService refreshSessions;
     @Autowired private CaptchaService captcha;
     @Autowired private Flyway flyway;
     @Autowired private AttachmentObjectStore objects;
@@ -61,6 +62,18 @@ class InfrastructureRealIT {
     private final Set<String> redisKeys=new HashSet<>();
     private String username,token;
     private long userId;
+
+    @Test void logoutRevokesRotatedAccessAndRefreshButNotOtherDevice() {
+        var original = decoder.decode(token);
+        String first = refreshSessions.create(original);
+        var rotated = refreshSessions.rotate(first);
+        var otherAccess = decoder.decode(tokens.generateToken(userId,List.of("ROLE_USER")));
+        String other = refreshSessions.create(otherAccess);
+        tokens.blackToken(original.getId(),original.getExpiresAt());
+        assertThrows(Exception.class, () -> decoder.decode(rotated.access()));
+        assertThrows(com.zer0drv.blog.common.exception.BusinessException.class, () -> refreshSessions.rotate(rotated.refresh()));
+        assertNotNull(refreshSessions.rotate(other));
+    }
 
     @DynamicPropertySource
     static void isolate(DynamicPropertyRegistry registry) {
@@ -116,7 +129,7 @@ class InfrastructureRealIT {
         jdbc.update("DELETE FROM attachment_group WHERE user_id=?",userId);
         jdbc.update("DELETE FROM notification WHERE user_id=? OR actor_id=?",userId,userId);
         jdbc.update("DELETE FROM sys_config_audit WHERE operator_id=?",userId);
-        for (String table : List.of("totp_challenge", "totp_recovery", "user_totp"))
+        for (String table : List.of("totp_challenge", "totp_recovery", "user_totp", "auth_refresh_session"))
             jdbc.update("DELETE FROM " + table + " WHERE user_id=?", userId);
         jdbc.update("DELETE FROM `user` WHERE id=? AND username=?",userId,username);
     }
@@ -292,6 +305,25 @@ class InfrastructureRealIT {
         }
         assertEquals(9, jdbc.queryForObject("SELECT COUNT(*) FROM totp_recovery WHERE user_id=?", Integer.class, userId));
     }
+    @Test
+    void concurrentRefreshUsesMysqlCurrentReadsAndReplayRevokesWinner() throws Exception {
+        String refresh = refreshSessions.create(decoder.decode(token));
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var start = new CountDownLatch(1);
+            Callable<HttpResponse<String>> action = () -> {
+                start.await();
+                return send("POST", "/auth/refresh", Map.of(), null, "REFRESH_TOKEN=" + refresh);
+            };
+            var first = pool.submit(action); var second = pool.submit(action); start.countDown();
+            var responses = List.of(first.get(20,TimeUnit.SECONDS), second.get(20,TimeUnit.SECONDS));
+            assertEquals(1,responses.stream().filter(r -> r.statusCode()==200).count());
+            assertEquals(1,responses.stream().filter(r -> r.statusCode()==401).count());
+            var winner = responses.stream().filter(r -> r.statusCode()==200).findFirst().orElseThrow();
+            String cookie = winner.headers().allValues("set-cookie").stream().filter(v -> v.startsWith("AUTH_TOKEN=")).findFirst().orElseThrow().split(";",2)[0];
+            assertEquals(401,send("GET","/auth/me",null,null,cookie).statusCode());
+        }
+    }
+
     private JsonNode upload() throws Exception {
         String boundary="real-it-"+UUID.randomUUID();
         byte[] prefix=("--"+boundary+"\r\nContent-Disposition: form-data; name=\"file\"; filename=\"pixel.png\"\r\nContent-Type: image/png\r\n\r\n").getBytes(StandardCharsets.UTF_8);

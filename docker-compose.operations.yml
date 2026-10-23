@@ -1,0 +1,8 @@
+# Optional local-host worker bridge. Start the separate worker as documented first.
+# Include this overlay in every subsequent deployment to preserve the mount.
+services:
+  backend:
+    environment:
+      BLOG_OPERATIONS_DIRECTORY: /app/operations
+    volumes:
+      - ./.operations:/app/operations

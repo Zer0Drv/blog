@@ -19,6 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * @author Yoruhaki
  */
 @Configuration
+@org.springframework.security.config.annotation.authentication.configuration.EnableGlobalAuthentication
 public class PasswordEncoderConfig {
 
     @Bean

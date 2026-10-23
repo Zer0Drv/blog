@@ -58,6 +58,12 @@ class NotificationMarkReadSyncTest {
     @BeforeEach
     void setUp() {
         notificationService = spy(new NotificationServiceImpl(userService, realtimePushService, notificationMailService));
+        var articles = org.mockito.Mockito.mock(com.zer0drv.blog.article.api.ArticleCatalog.class);
+        org.mockito.Mockito.lenient().when(articles.isVisible(org.mockito.ArgumentMatchers.anyLong())).thenReturn(true);
+        var comments = org.mockito.Mockito.mock(com.zer0drv.blog.comment.api.CommentNotificationState.class);
+        org.mockito.Mockito.lenient().when(comments.state(org.mockito.ArgumentMatchers.anyLong())).thenReturn("AVAILABLE");
+        org.springframework.test.util.ReflectionTestUtils.setField(notificationService, "articleCatalog", articles);
+        org.springframework.test.util.ReflectionTestUtils.setField(notificationService, "commentState", comments);
     }
 
     @Test

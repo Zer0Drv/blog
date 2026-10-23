@@ -19,6 +19,17 @@ public class AdminAttachmentCleanupController {
         return Result.ok(service.page(page, size));
     }
     @GetMapping("/report") public Result<Map<String, Object>> report() { return Result.ok(service.report()); }
+    @GetMapping("/{id}/preview") public org.springframework.http.ResponseEntity<byte[]> preview(
+            @PathVariable long id, @RequestParam(defaultValue="false") boolean download) {
+        var preview = service.preview(id);
+        return org.springframework.http.ResponseEntity.ok()
+                .header("Cache-Control", "no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("Content-Security-Policy", "default-src 'none'; sandbox")
+                .header("Content-Disposition", (download ? "attachment" : "inline") + "; filename=\"" + preview.filename() + "\"")
+                .contentType(org.springframework.http.MediaType.parseMediaType(preview.contentType()))
+                .body(preview.bytes());
+    }
     @PostMapping("/scan") public Result<Map<String, Object>> scan(@AuthenticationPrincipal Jwt jwt) { return Result.ok(service.scan(JwtSubjects.userIdOf(jwt))); }
     @PostMapping("/{id}/restore") public Result<Void> restore(@PathVariable long id, @AuthenticationPrincipal Jwt jwt) {
         service.restore(id, JwtSubjects.userIdOf(jwt)); return Result.ok();

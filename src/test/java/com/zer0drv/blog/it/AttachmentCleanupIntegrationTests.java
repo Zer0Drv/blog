@@ -71,6 +71,28 @@ class AttachmentCleanupIntegrationTests extends IntegrationTestSupport {
     private String admin() throws Exception { String name = unique("cleanup_admin_"); seedUser(name,"管理员","ADMIN"); return bearerOf(name); }
 
     @Test
+    void previewRequiresAdminAndExistingRecordWithoutChangingRetention() throws Exception {
+        String key = object(true), bearer = admin();
+        cleanup.scan(1);
+        long record = id(key);
+        mockMvc.perform(get("/admin/attachments/cleanup/{id}/preview", record)).andExpect(status().isUnauthorized());
+        String user = unique("preview_user_"); seedUser(user, "用户", "USER");
+        mockMvc.perform(get("/admin/attachments/cleanup/{id}/preview", record).header(HttpHeaders.AUTHORIZATION, bearerOf(user)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/admin/attachments/cleanup/{id}/preview", record).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().bytes(new byte[]{1,2,3,4}));
+        assertEquals("OBSERVING", state(key));
+        mockMvc.perform(get("/admin/attachments/cleanup/{id}/preview?download=true", record).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.startsWith("attachment;")));
+        Files.delete(root.resolve(key));
+        mockMvc.perform(get("/admin/attachments/cleanup/{id}/preview", record).header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(jsonPath("$.code").value("40023"));
+        jdbcTemplate.update("UPDATE attachment_cleanup SET state='DELETED' WHERE id=?", record);
+        assertThrows(BusinessException.class, () -> cleanup.preview(record));
+    }
+
+    @Test
     void adminFlowMarksWaitsRestoresAndKeepsFiles() throws Exception {
         String key = object(true), fresh = object(false), bearer = admin();
         jdbcTemplate.update("INSERT INTO attachment(user_id,url,object_key,storage,filename,deleted) VALUES(1,?,?, 'LOCAL','image.png',1)", "/uploads/"+key,key);

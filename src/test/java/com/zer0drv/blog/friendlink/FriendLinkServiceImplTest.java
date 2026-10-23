@@ -36,6 +36,7 @@ import static org.mockito.Mockito.verify;
 class FriendLinkServiceImplTest {
 
     private FriendLinkServiceImpl friendLinkService;
+    private com.zer0drv.blog.site.service.SiteConfigService siteConfig;
 
     @BeforeAll
     static void initTableInfo() {
@@ -48,6 +49,9 @@ class FriendLinkServiceImplTest {
     @BeforeEach
     void setUp() {
         friendLinkService = spy(new FriendLinkServiceImpl());
+        siteConfig = org.mockito.Mockito.mock(com.zer0drv.blog.site.service.SiteConfigService.class);
+        org.mockito.Mockito.lenient().when(siteConfig.getBool("site.friend_links_enabled", true)).thenReturn(true);
+        org.springframework.test.util.ReflectionTestUtils.setField(friendLinkService, "siteConfig", siteConfig);
         org.springframework.test.util.ReflectionTestUtils.setField(friendLinkService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
@@ -94,6 +98,17 @@ class FriendLinkServiceImplTest {
         friendLinkService.listPublic();
 
         verify(friendLinkService, times(1)).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+    }
+
+    @Test
+    void globalSwitchOverridesWarmCacheAndCanReopen() {
+        doReturn(List.of(link(1L, "A", FriendLink.STATUS_ENABLED)))
+                .when(friendLinkService).list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
+        assertEquals(1, friendLinkService.listPublic().size());
+        org.mockito.Mockito.when(siteConfig.getBool("site.friend_links_enabled", true)).thenReturn(false);
+        assertEquals(0, friendLinkService.listPublic().size());
+        org.mockito.Mockito.when(siteConfig.getBool("site.friend_links_enabled", true)).thenReturn(true);
+        assertEquals(1, friendLinkService.listPublic().size());
     }
 
     @Test

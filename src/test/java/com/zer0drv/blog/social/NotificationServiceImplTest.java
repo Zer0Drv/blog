@@ -49,6 +49,12 @@ class NotificationServiceImplTest {
     @BeforeEach
     void setUp() {
         notificationService = spy(new NotificationServiceImpl(userService, realtimePushService, notificationMailService));
+        var articles = org.mockito.Mockito.mock(com.zer0drv.blog.article.api.ArticleCatalog.class);
+        org.mockito.Mockito.lenient().when(articles.isVisible(org.mockito.ArgumentMatchers.anyLong())).thenReturn(true);
+        var comments = org.mockito.Mockito.mock(com.zer0drv.blog.comment.api.CommentNotificationState.class);
+        org.mockito.Mockito.lenient().when(comments.state(org.mockito.ArgumentMatchers.anyLong())).thenReturn("AVAILABLE");
+        org.springframework.test.util.ReflectionTestUtils.setField(notificationService, "articleCatalog", articles);
+        org.springframework.test.util.ReflectionTestUtils.setField(notificationService, "commentState", comments);
     }
 
     @Test
@@ -106,7 +112,7 @@ class NotificationServiceImplTest {
         verify(notificationService, never()).count(any());
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(notificationService).save(captor.capture());
-        assertEquals("hi", captor.getValue().getSummary());
+        assertEquals("", captor.getValue().getSummary());
     }
 
     @Test
@@ -120,7 +126,7 @@ class NotificationServiceImplTest {
         verify(realtimePushService).pushToUser(eq(1L), eq("notification"), captor.capture());
         NotificationVO pushed = captor.getValue();
         assertEquals(NotificationType.COMMENT_REPLY.name(), pushed.getType());
-        assertEquals("hi", pushed.getSummary());
+        assertEquals("收到评论互动，请前往文章查看", pushed.getSummary());
         assertEquals(10L, pushed.getArticleId());
     }
 
@@ -154,7 +160,7 @@ class NotificationServiceImplTest {
                 NotificationIntent.commentReply(1L, 2L, 10L, 100L, "hi")));
 
         verify(notificationMailService).sendCommentMailAsync(eq(1L), eq(NotificationType.COMMENT_REPLY),
-                any(), eq(10L), eq("hi"));
+                any(), eq(10L), eq(""));
     }
 
     @Test
@@ -179,7 +185,7 @@ class NotificationServiceImplTest {
         notificationService.notify(NotificationIntent.commentReply(1L, 2L, 10L, 100L, "hi"));
 
         verify(notificationMailService).sendCommentMailAsync(eq(1L), eq(NotificationType.COMMENT_REPLY),
-                any(), eq(10L), eq("hi"));
+                any(), eq(10L), eq(""));
     }
 
     @Test

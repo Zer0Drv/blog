@@ -30,6 +30,8 @@ public class FriendLinkServiceImpl extends ServiceImpl<FriendLinkMapper, FriendL
         implements FriendLinkService {
     @org.springframework.beans.factory.annotation.Autowired
     private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.site.service.SiteConfigService siteConfig;
 
     /**
      * 启用列表缓存 TTL 兜底：即使存在绕过本服务的改库路径，也最多滞后 5 分钟生效
@@ -48,6 +50,7 @@ public class FriendLinkServiceImpl extends ServiceImpl<FriendLinkMapper, FriendL
 
     @Override
     public List<FriendLinkVO> listPublic() {
+        if (!siteConfig.getBool("site.friend_links_enabled", true)) return List.of();
         List<FriendLinkVO> cached = publicCache.get();
         if (Objects.nonNull(cached) && System.currentTimeMillis() < publicCacheExpiresAt) {
             return cached;

@@ -44,37 +44,40 @@ class AdminAccessIntegrationTests extends IntegrationTestSupport {
     }
 
     /**
-     * 回归：库内直改提拔为 ADMIN 后，旧 token（roles 声明仍 ROLE_USER）立即获得访问权，
-     * 不再误返 403——权限由 DatabaseRoleJwtAuthenticationConverter 按 sub 实时读库装配
+     * 版本化会话：角色变更必须同时递增会话版本；旧 token 被拒绝，
+     * 重新登录后获得新权限。未经事件吊销的库内直改不再是受支持路径。
      */
     @Test
-    void staleTokenAfterPromotionToAdminReturns200() throws Exception {
+    void versionedTokenAfterAuditedPromotionRequiresNewLogin() throws Exception {
         String username = unique("it_admin_promote_");
         long userId = seedUser(username, "待提拔", "USER");
         String staleBearer = bearerOf(username);
 
-        jdbcTemplate.update("UPDATE `user` SET role = 'ADMIN' WHERE id = ?", userId);
+        jdbcTemplate.update("UPDATE `user` SET role = 'ADMIN', session_version=session_version+1 WHERE id = ?", userId);
 
         mockMvc.perform(get("/admin/stats/overview")
                         .header(HttpHeaders.AUTHORIZATION, staleBearer))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value("200"));
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/admin/stats/overview").header(HttpHeaders.AUTHORIZATION, bearerOf(username)))
+                .andExpect(status().isOk());
     }
 
     /**
-     * 回归的反向：库内直改降级后，旧 token（roles 声明仍 ROLE_ADMIN）立即失效，
+     * 回归的反向：降级与会话版本更新后，旧 token 立即失效，
      * 不得凭过期声明继续放行
      */
     @Test
-    void staleTokenAfterDemotionFromAdminReturns403() throws Exception {
+    void versionedTokenAfterAuditedDemotionIsUnauthorized() throws Exception {
         String username = unique("it_admin_demote_");
         long userId = seedUser(username, "待降级", "ADMIN");
         String staleBearer = bearerOf(username);
 
-        jdbcTemplate.update("UPDATE `user` SET role = 'USER' WHERE id = ?", userId);
+        jdbcTemplate.update("UPDATE `user` SET role = 'USER', session_version=session_version+1 WHERE id = ?", userId);
 
         mockMvc.perform(get("/admin/stats/overview")
                         .header(HttpHeaders.AUTHORIZATION, staleBearer))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/admin/stats/overview").header(HttpHeaders.AUTHORIZATION, bearerOf(username)))
                 .andExpect(status().isForbidden());
     }
 }

@@ -13,6 +13,8 @@ import org.springframework.security.oauth2.jwt.Jwt;
  * @author Yoruhaki
  */
 public interface NotificationService extends IService<Notification> {
+    void retract(Long id, Long operator);
+    java.util.List<NotificationVO> forComment(Long commentId);
 
     /**
      * 我的通知分页（create_time 倒序；type 可空按类型过滤）

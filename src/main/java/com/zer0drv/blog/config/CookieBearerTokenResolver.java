@@ -27,6 +27,8 @@ public class CookieBearerTokenResolver implements BearerTokenResolver {
 
     @Override
     public String resolve(HttpServletRequest request) {
+        // Refresh authenticates its own HttpOnly credential, even when access has expired.
+        if ("/auth/refresh".equals(request.getServletPath()) || "/auth/refresh".equals(request.getRequestURI())) return null;
         Cookie[] cookies = request.getCookies();
         if (cookies != null) {
             for (Cookie cookie : cookies) {

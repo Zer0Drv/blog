@@ -94,6 +94,7 @@ public class SysConfigService {
         if (raw == null) return d.defaultValue();
         try {
             Object value = d.type().equals("STRING") ? raw : json.readValue(raw, Object.class);
+            if (d.key().equals("jwt.expiration-ms") && value instanceof Number number) value = Math.min(900000L, number.longValue());
             return normalize(d, value);
         } catch (Exception e) { throw invalid(d.key() + " 的环境或 YAML 配置无效"); }
     }

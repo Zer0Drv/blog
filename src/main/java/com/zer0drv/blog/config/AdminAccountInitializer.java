@@ -63,7 +63,7 @@ public class AdminAccountInitializer implements ApplicationRunner {
             return;
         }
         long adminCount = userService.count(Wrappers.lambdaQuery(User.class)
-                .eq(User::getRole, UserRole.ADMIN.name()));
+                .in(User::getRole, UserRole.ADMIN.name(), UserRole.SUPER_ADMIN.name()));
         if (adminCount > 0) {
             return;
         }

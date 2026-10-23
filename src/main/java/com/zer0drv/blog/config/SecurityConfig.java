@@ -39,6 +39,7 @@ public class SecurityConfig {
     private String oauthFailureRedirect;
 
     @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication(type = org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type.SERVLET)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) {
         http.csrf(csrf -> csrf.disable())
                 // 安全响应头（#6-1）：CSP 默认仅 self（img-src 额外放行 http/https/data：
@@ -62,7 +63,7 @@ public class SecurityConfig {
                         .requestMatchers("/error", "/actuator/health").permitAll()
                         .requestMatchers("/auth/login", "/auth/register", "/auth/email-code",
                                 "/auth/password-reset-code", "/auth/password-reset",
-                                "/auth/oauth/exchange", "/auth/totp/login").permitAll()
+                                "/auth/oauth/exchange", "/auth/totp/login", "/auth/refresh").permitAll()
                         // 图形验证码端点（频率触发，匿名可获取/预检）
                         .requestMatchers("/auth/captcha", "/auth/captcha/required").permitAll()
                         // GitHub OAuth2 登录端点与回调
@@ -93,6 +94,8 @@ public class SecurityConfig {
                                 "/rss.xml", "/atom.xml", "/sitemap.xml", "/robots.txt", "/article/*").permitAll()
                         // P1：公开友情链接（仅启用项，issue #17）
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/friend-links").permitAll()
+                        .requestMatchers("/admin/owner/**").hasRole(UserRole.SUPER_ADMIN.name())
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/admin/operations/restart").hasRole(UserRole.SUPER_ADMIN.name())
                         .requestMatchers("/admin/**").hasRole(UserRole.ADMIN.name())
                         .anyRequest().authenticated())
                 // GitHub OAuth2 登录：成功后由 successHandler 签发一次性换码 code 并 302 回前端

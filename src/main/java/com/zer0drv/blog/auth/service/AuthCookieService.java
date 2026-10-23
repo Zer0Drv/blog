@@ -21,8 +21,12 @@ import java.time.Duration;
 public class AuthCookieService {
     @org.springframework.beans.factory.annotation.Autowired
     private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    @org.springframework.beans.factory.annotation.Autowired
+    private RefreshSessionService refreshSessions;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.security.oauth2.jwt.JwtDecoder decoder;
 
-    private long lifetimeMs() { return sysConfig == null ? expirationMs : sysConfig.getLong("jwt.expiration-ms"); }
+    private long lifetimeMs() { return Math.min(900000L, sysConfig == null ? expirationMs : sysConfig.getLong("jwt.expiration-ms")); }
     private String activeSameSite() { return sysConfig == null ? sameSite : sysConfig.getString("blog.auth.cookie.same-site"); }
 
     @Value("${blog.auth.cookie.name:AUTH_TOKEN}")
@@ -52,6 +56,17 @@ public class AuthCookieService {
      * 下发认证 Cookie：Set-Cookie: AUTH_TOKEN=<jwt>; HttpOnly; Secure; Path=/; Max-Age=<token有效期秒>
      */
     public void writeTokenCookie(HttpServletResponse response, String token) {
+        if (refreshSessions != null) writeRefreshCookie(response, refreshSessions.create(decoder.decode(token)), RefreshSessionService.TTL);
+        writeAccessCookie(response, token);
+    }
+
+    public void writeRefreshCookie(HttpServletResponse response, String token, long maxAge) {
+        response.addHeader(HttpHeaders.SET_COOKIE, ResponseCookie.from("REFRESH_TOKEN", token)
+                .httpOnly(true).secure(secure).path("/api/auth/refresh")
+                .maxAge(Duration.ofSeconds(Math.max(0, maxAge))).sameSite(activeSameSite()).build().toString());
+    }
+
+    public void writeAccessCookie(HttpServletResponse response, String token) {
         ResponseCookie cookie = ResponseCookie.from(cookieName, token)
                 .httpOnly(true)
                 .secure(secure)
@@ -66,6 +81,7 @@ public class AuthCookieService {
      * 清除认证 Cookie（登出）：Max-Age=0
      */
     public void clearTokenCookie(HttpServletResponse response) {
+        writeRefreshCookie(response, "", 0);
         ResponseCookie cookie = ResponseCookie.from(cookieName, "")
                 .httpOnly(true)
                 .secure(secure)

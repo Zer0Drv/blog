@@ -406,3 +406,40 @@ CREATE TABLE IF NOT EXISTS totp_challenge (
     credential_hash CHAR(64) NOT NULL,
     expires_at BIGINT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS comment_notification_removal (
+    comment_id BIGINT PRIMARY KEY,
+    reason VARCHAR(32) NOT NULL,
+    removed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS notification_retraction_audit (
+    notification_id BIGINT PRIMARY KEY,
+    operator_id BIGINT NOT NULL,
+    retracted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+-- Content snapshots cannot track subsequent deletion/visibility changes. Remove historical copies.
+UPDATE notification SET summary='' WHERE comment_id IS NOT NULL;
+
+ALTER TABLE `user` ADD COLUMN IF NOT EXISTS session_version BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS auth_refresh_session (
+    token_hash VARCHAR(64) PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    session_version BIGINT NOT NULL,
+    family VARCHAR(64) NOT NULL,
+    access_jti VARCHAR(64) NOT NULL,
+    expires_at BIGINT NOT NULL,
+    consumed BOOLEAN NOT NULL DEFAULT FALSE,
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    INDEX idx_refresh_user(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS owner_operation_lock (id INT PRIMARY KEY);
+INSERT INTO owner_operation_lock(id) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM owner_operation_lock WHERE id=1);
+CREATE TABLE IF NOT EXISTS owner_operation_audit (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    operator_id BIGINT NOT NULL,
+    target_id BIGINT NOT NULL,
+    action VARCHAR(32) NOT NULL,
+    outcome VARCHAR(16) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

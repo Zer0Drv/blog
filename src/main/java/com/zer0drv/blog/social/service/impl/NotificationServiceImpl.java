@@ -47,6 +47,12 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     private final UserService userService;
     private final RealtimePushService realtimePushService;
     private final NotificationMailService notificationMailService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.comment.api.CommentNotificationState commentState;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.article.api.ArticleCatalog articleCatalog;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Override
     public PageResult<NotificationVO> pageMine(long page, long size, String type, Jwt jwt) {
@@ -128,7 +134,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
         notification.setActorId(intent.actorId());
         notification.setArticleId(intent.articleId());
         notification.setCommentId(intent.commentId());
-        notification.setSummary(intent.summary());
+        notification.setSummary(intent.commentId() == null ? intent.summary() : "");
         notification.setReadFlag(UNREAD);
         // 落库通道（含 dedupe 查重）：失败仅记日志，不回滚主业务；无落库实体则不再推送/邮件
         try {
@@ -138,7 +144,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             }
             save(notification);
         } catch (Exception e) {
-            log.error("通知投递失败：intent={}", intent, e);
+            log.error("通知投递失败：type={} recipient={}", intent.type(), intent.recipientId(), e);
             return;
         }
         // WS 推送通道：实时推送通知帧给接收者（独立兜底，失败不连坐邮件）
@@ -146,7 +152,7 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             realtimePushService.pushToUser(intent.recipientId(), "notification",
                     assemble(List.of(notification)).getFirst());
         } catch (Exception e) {
-            log.error("通知投递失败：intent={}", intent, e);
+            log.error("通知投递失败：type={} recipient={}", intent.type(), intent.recipientId(), e);
         }
         // 邮件通道：P0 §2.2 评论邮件通知（评论回复/@）+ 违规强删告知作者。
         // articleId 为 null 时（文章已物理删除）由 mail service 按类型选择文案，不拼详情链接
@@ -159,9 +165,9 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
                     actorNickname = Objects.nonNull(actor) ? actor.getNickname() : null;
                 }
                 notificationMailService.sendCommentMailAsync(intent.recipientId(), intent.type(),
-                        actorNickname, intent.articleId(), intent.summary());
+                        actorNickname, intent.articleId(), intent.commentId() == null ? intent.summary() : "");
             } catch (Exception e) {
-                log.error("通知投递失败：intent={}", intent, e);
+                log.error("通知投递失败：type={} recipient={}", intent.type(), intent.recipientId(), e);
             }
         }
     }
@@ -201,6 +207,24 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             vo.setSummary(notification.getSummary());
             vo.setArticleId(notification.getArticleId());
             vo.setCommentId(notification.getCommentId());
+            String state = "AVAILABLE";
+            if (notification.getArticleId() != null && !articleCatalog.isVisible(notification.getArticleId())) {
+                state = "UNAVAILABLE";
+            } else if (notification.getCommentId() != null) {
+                state = commentState.state(notification.getCommentId());
+            }
+            vo.setContentState(state);
+            if (!"AVAILABLE".equals(state)) {
+                vo.setSummary(switch (state) {
+                    case "DELETED" -> "该评论已删除";
+                    case "ADMIN_REMOVED" -> "该评论已被管理员移除";
+                    default -> "相关内容暂不可访问";
+                });
+                vo.setArticleId(null);
+                vo.setCommentId(null);
+            } else if (notification.getCommentId() != null) {
+                vo.setSummary("收到评论互动，请前往文章查看");
+            }
             vo.setReadFlag(notification.getReadFlag());
             // create_time 走数据库默认值：落库后实时推送时实体尚未回查为 null，兜底取当前时间
             vo.setCreateTime(Objects.nonNull(notification.getCreateTime())
@@ -217,5 +241,19 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
             }
             return vo;
         }).collect(Collectors.toList());
+    }
+    @Override
+    @org.springframework.transaction.annotation.Transactional
+    public void retract(Long id, Long operator) {
+        // Atomic transition makes repeated requests harmless and audits only the first removal.
+        if (jdbc.update("UPDATE notification SET deleted=1, summary='' WHERE id=? AND deleted=0", id) == 1) {
+            jdbc.update("INSERT INTO notification_retraction_audit(notification_id,operator_id) VALUES(?,?)", id, operator);
+        }
+    }
+
+    @Override
+    public List<NotificationVO> forComment(Long commentId) {
+        return assemble(list(Wrappers.lambdaQuery(Notification.class)
+                .eq(Notification::getCommentId, commentId).orderByDesc(Notification::getId).last("LIMIT 100")));
     }
 }
