@@ -7,6 +7,8 @@
 
 ## 功能特性
 
+本轮权限、会话迁移、通知隐私及本机重启的部署/恢复步骤见 [所有者与本机运维](docs/owner-and-local-operations.md)。
+
 ### 内容
 - **自定义页面**：独立 `custom_page` 表（V13），ADMIN 管理草稿/发布/下架/逻辑删除；支持 Markdown/富文本编辑与清洗，公开 `/pages/{slug}` 只读取已发布页面；站点设置 `site.page_navigation` 按 slug 数组控制导航顺序，未发布/删除页面自动隐藏，sitemap 仅收录已发布页面。页面不进入文章列表、搜索、RSS 或互动流程；删除后 slug 保留占位
 - 文章 CRUD：Markdown / 富文本双编辑器模式，草稿 / 发布 / 下架状态流转，置顶与推荐位

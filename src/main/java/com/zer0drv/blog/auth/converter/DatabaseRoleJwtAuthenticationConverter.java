@@ -43,11 +43,25 @@ public class DatabaseRoleJwtAuthenticationConverter implements Converter<Jwt, Ab
      * 按 sub 实时读库装配当前角色；用户已删除或角色值非法时无权限（等效降级为仅登录）
      */
     private List<GrantedAuthority> currentAuthorities(Jwt jwt) {
+        // Versioned claims are guarded by the shared database session epoch validator.
+        // Legacy tokens retain the database-role compatibility path until they expire.
+        if (jwt.getClaim("session_version") != null) {
+            List<String> roles = jwt.getClaimAsStringList("roles");
+            if (roles == null) return List.of();
+            var authorities = new java.util.ArrayList<GrantedAuthority>();
+            for (String role : roles) {
+                if (role.startsWith("ROLE_") && UserRole.isValid(role.substring(5))) authorities.add(new SimpleGrantedAuthority(role));
+            }
+            if (roles.contains("ROLE_SUPER_ADMIN")) authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+            return authorities;
+        }
         Long userId = JwtSubjects.userIdOf(jwt);
         User user = userService.getById(userId);
         if (Objects.isNull(user) || !UserRole.isValid(user.getRole())) {
             return List.of();
         }
+        if (UserRole.SUPER_ADMIN.name().equals(user.getRole()))
+            return List.of(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"), new SimpleGrantedAuthority("ROLE_ADMIN"));
         return List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole()));
     }
 }

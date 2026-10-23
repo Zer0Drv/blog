@@ -29,8 +29,10 @@ import java.util.UUID;
 public class TokenServiceImpl implements TokenService {
     @org.springframework.beans.factory.annotation.Autowired
     private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
-    private long lifetimeMs() { return sysConfig == null ? expirationMs : sysConfig.getLong("jwt.expiration-ms"); }
+    private long lifetimeMs() { return Math.min(900000L, sysConfig == null ? expirationMs : sysConfig.getLong("jwt.expiration-ms")); }
 
     /**
      * 用户活跃 token 集合键（#9）：blog:user-tokens:{userId}，成员为 jti
@@ -45,7 +47,15 @@ public class TokenServiceImpl implements TokenService {
     private final ApplicationEventPublisher eventPublisher;
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public String generateToken(Long userId, List<String> roles) {
+        long version = 0;
+        if (jdbc != null) {
+            var account = jdbc.queryForMap("SELECT role,status,session_version FROM `user` WHERE id=? AND deleted=0 FOR UPDATE", userId);
+            if (((Number) account.get("status")).intValue() != 0) throw new IllegalStateException("Account is disabled");
+            version = ((Number) account.get("session_version")).longValue();
+            roles = List.of("ROLE_" + account.get("role"));
+        }
         Instant now = Instant.now();
         long lifetime = lifetimeMs();
         String jti = UUID.randomUUID().toString().replace("-", "");
@@ -56,6 +66,7 @@ public class TokenServiceImpl implements TokenService {
                 .issuedAt(now)
                 .expiresAt(now.plusMillis(lifetime))
                 .claim("roles", roles)
+                .claim("session_version", version)
                 .build();
 
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
@@ -83,6 +94,7 @@ public class TokenServiceImpl implements TokenService {
 
     @Override
     public void blackUserTokens(Long userId) {
+        eventPublisher.publishEvent(new UserTokensRevoked(userId));
         String userTokensKey = USER_TOKENS_KEY.formatted(userId);
         Set<String> jtis = stringRedisTemplate.opsForSet().members(userTokensKey);
         if (jtis != null && !jtis.isEmpty()) {
@@ -91,7 +103,6 @@ public class TokenServiceImpl implements TokenService {
             jtis.forEach(jti -> blackToken(jti, revokeUntil));
         }
         stringRedisTemplate.delete(userTokensKey);
-        eventPublisher.publishEvent(new UserTokensRevoked(userId));
     }
 
     @Override

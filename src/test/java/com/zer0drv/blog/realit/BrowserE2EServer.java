@@ -27,7 +27,7 @@ public final class BrowserE2EServer {
         var encoder = context.getBean(PasswordEncoder.class);
         var accounts = new LinkedHashMap<String, String>();
         var ids = new LinkedHashMap<String, Long>();
-        for (String role : List.of("ADMIN", "AUTHOR", "USER")) {
+        for (String role : List.of("ADMIN", "AUTHOR", "USER", "SUPER_ADMIN")) {
             String username = "be2e_" + run.substring(0, 12) + "_" + role.toLowerCase();
             jdbc.update("INSERT INTO `user`(username,password,email,nickname,role,status) VALUES(?,?,?,?,?,0)",
                     username, encoder.encode(PASSWORD), username + "@browser-e2e.invalid", "Browser " + role, role);
@@ -47,7 +47,7 @@ public final class BrowserE2EServer {
                     "Browser fixture isolated browser data " + run, "Isolated browser fixture", status);
             articles.put(name, jdbc.queryForObject("SELECT id FROM article WHERE slug=?", Long.class, slug));
         }
-        var evidence = Map.of("runId", run, "accounts", accounts, "articles", articles,
+        var evidence = Map.of("runId", run, "accounts", accounts, "accountIds", ids, "articles", articles,
                 "bucket", "blog-it-" + run, "backend", "http://127.0.0.1:28082");
         Path output = Path.of("target", "browser-e2e", "fixture.json");
         Files.createDirectories(output.getParent());

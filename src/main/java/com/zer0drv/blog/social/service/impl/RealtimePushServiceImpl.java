@@ -135,6 +135,12 @@ public class RealtimePushServiceImpl implements RealtimePushService {
         }
     }
 
+    @EventListener
+    public void onRemoteRevocation(com.zer0drv.blog.auth.event.RemoteSessionRevocation event) {
+        if (event.userId() != null) onUserTokensRevoked(new UserTokensRevoked(event.userId()));
+        else onTokenRevoked(new TokenRevoked(event.jti()));
+    }
+
     @Scheduled(fixedDelay = 1000, initialDelay = 1000)
     public void sweepSessions() {
         sessions.forEach((userId, bucket) -> {

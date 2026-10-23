@@ -59,6 +59,12 @@ public class TotpService {
                 jdbc.queryForObject("SELECT COUNT(*) FROM totp_recovery WHERE user_id=?", Integer.class, user));
     }
 
+    public void reauthenticate(long user, String password, String code) {
+        var account = lock(user); var state = state(user);
+        password(user, account, state, password);
+        if (enabled(state)) verify(user, state, code, true);
+    }
+
     public Map<String, String> setup(long user, String password) {
         var account = lock(user); var state = state(user);
         password(user, account, state, password);

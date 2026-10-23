@@ -35,6 +35,11 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final UserService userService;
     private final Converter converter;
     private final TokenService tokenService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private void lockOperations() {
+        if (jdbc != null) jdbc.queryForList("SELECT id FROM owner_operation_lock WHERE id=1 FOR UPDATE");
+    }
 
     @Override
     public PageResult<UserVO> pageUsers(long page, long size, String keyword, String role, String status) {
@@ -56,7 +61,9 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public void ban(Long id, Jwt jwt) {
+        lockOperations();
         User target = requireUser(id);
         assertOperable(target, jwt);
         target.setStatus(STATUS_BANNED);
@@ -66,7 +73,9 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public void unban(Long id, Jwt jwt) {
+        lockOperations();
         User target = requireUser(id);
         // #6-6：与 ban/updateRole 同一边界校验——不能对 ADMIN 与自己执行 unban
         assertOperable(target, jwt);
@@ -77,9 +86,11 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     @Override
+    @org.springframework.transaction.annotation.Transactional
     public void updateRole(Long id, RoleUpdateDTO dto, Jwt jwt) {
+        lockOperations();
         String role = dto.getRole();
-        if (!UserRole.isValid(role)) {
+        if (!UserRole.isValid(role) || UserRole.SUPER_ADMIN.name().equals(role)) {
             throw new BusinessException(StatusCode.ROLE_CHOICE_ERROR);
         }
         User target = requireUser(id);
@@ -96,7 +107,7 @@ public class AdminUserServiceImpl implements AdminUserService {
      * 操作边界：不能操作 ADMIN、不能操作自己
      */
     private void assertOperable(User target, Jwt jwt) {
-        if (UserRole.ADMIN.name().equals(target.getRole())) {
+        if (UserRole.ADMIN.name().equals(target.getRole()) || UserRole.SUPER_ADMIN.name().equals(target.getRole())) {
             throw new BusinessException(StatusCode.CANNOT_OPERATE_ADMIN);
         }
         if (JwtSubjects.userIdOf(jwt).equals(target.getId())) {

@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 @Getter
 @RequiredArgsConstructor
 public enum UserRole {
+    SUPER_ADMIN("超级管理员"),
     ADMIN("管理员"),
     AUTHOR("作者"),
     USER("读者");

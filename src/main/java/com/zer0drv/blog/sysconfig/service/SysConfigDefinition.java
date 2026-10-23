@@ -21,7 +21,7 @@ public record SysConfigDefinition(String key, String env, String type, String gr
             definitions.add(integer(prefix + ".window-seconds", env + "_WINDOW_SECONDS", "验证码", scenes[i] + " 计数窗口（秒；新窗口生效）", 600, 60, 86400, true));
         }
         definitions.add(integer("blog.captcha.code-ttl-seconds", "CAPTCHA_CODE_TTL_SECONDS", "验证码", "新验证码有效期（秒）", 300, 30, 3600, true));
-        definitions.add(integer("jwt.expiration-ms", "JWT_EXPIRATION_MS", "认证", "JWT 有效期（毫秒；重启生效，现有凭据不改有效期）", 3600000, 300000, 604800000, false));
+        definitions.add(integer("jwt.expiration-ms", "JWT_EXPIRATION_MS", "认证", "Access JWT 有效期（毫秒；最长 15 分钟；重启生效）", 900000, 300000, 900000, false));
         definitions.add(new SysConfigDefinition("blog.auth.cookie.same-site", "AUTH_COOKIE_SAME_SITE", "STRING", "认证", "认证 Cookie SameSite（None 必须启用 Secure；重启生效）", "Strict", false, null, null, "^(Strict|Lax|None)$", List.of("Strict", "Lax", "None")));
         definitions.add(integer("blog.upload-daily-limit", "UPLOAD_DAILY_LIMIT", "上传", "每用户每日上传次数上限", 100, 1, 100000, true));
         definitions.add(integer("blog.upload.max-bytes", "UPLOAD_MAX_BYTES", "上传", "单张图片大小上限（字节；不超过容器 5MB 上限）", 5242880, 1024, 5242880, true));
