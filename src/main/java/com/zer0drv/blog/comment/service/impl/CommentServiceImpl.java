@@ -55,6 +55,8 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> implements CommentService {
     @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.comment.api.CommentNotificationState notificationState;
+    @org.springframework.beans.factory.annotation.Autowired
     private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
@@ -205,6 +207,7 @@ public class CommentServiceImpl extends ServiceImpl<CommentMapper, Comment> impl
         if (comment.getParentId() == 0L) {
             remove(Wrappers.lambdaQuery(Comment.class).eq(Comment::getParentId, id));
         }
+        notificationState.removed(id, isAdmin() && !comment.getUserId().equals(userId));
     }
 
     /**

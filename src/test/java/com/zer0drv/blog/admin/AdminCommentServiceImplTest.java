@@ -68,6 +68,9 @@ class AdminCommentServiceImplTest {
     void setUp() {
         adminCommentService = new AdminCommentServiceImpl(
                 commentMapper, articleCatalog, userService, commentService, commentLikeMapper);
+        org.springframework.test.util.ReflectionTestUtils.setField(adminCommentService, "notificationState",
+                org.mockito.Mockito.mock(com.zer0drv.blog.comment.api.CommentNotificationState.class));
+
     }
 
     private static Comment comment(long id, long parentId, String status) {

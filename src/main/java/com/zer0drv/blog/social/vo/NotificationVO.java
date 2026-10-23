@@ -17,6 +17,7 @@ public class NotificationVO {
     private String type;
 
     private String summary;
+    private String contentState;
 
     private Long articleId;
 

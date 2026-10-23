@@ -128,19 +128,18 @@ class NotificationMailServiceImplTest {
         when(siteConfigServiceProvider.getIfAvailable()).thenReturn(siteConfigService);
         when(siteConfigService.getValue("site.name", "Blog")).thenReturn("我的站");
         when(siteConfigService.getValue("site.base_url", "http://localhost:5173")).thenReturn("https://blog.example.com");
-        when(articleCatalog.findRef(10L)).thenReturn(Optional.of(new ArticleRef(10L, 1L, "标题文")));
 
         mailService.sendCommentMailAsync(9L, NotificationType.COMMENT_REPLY, "评论人甲", 10L, "写得好");
 
         ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
         verify(mailSender).send(captor.capture());
         SimpleMailMessage message = captor.getValue();
-        assertEquals("【我的站】你的文章有新回复", message.getSubject());
+        assertEquals("【我的站】你有新的评论互动", message.getSubject());
         assertEquals("a@example.com", message.getTo()[0]);
-        assertTrue(message.getText().contains("评论人甲"));
-        assertTrue(message.getText().contains("标题文"));
-        assertTrue(message.getText().contains("写得好"));
-        assertTrue(message.getText().contains("https://blog.example.com/article/10"));
+        assertFalse(message.getText().contains("评论人甲"));
+        assertFalse(message.getText().contains("标题文"));
+        assertFalse(message.getText().contains("写得好"));
+        assertTrue(message.getText().contains("https://blog.example.com/notifications"));
     }
 
     @Test
@@ -173,14 +172,13 @@ class NotificationMailServiceImplTest {
         when(userService.getById(9L)).thenReturn(user(9L, "a@example.com", null));
         when(mailSenderProvider.getIfAvailable()).thenReturn(mailSender);
         lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(null);
-        when(articleCatalog.findRef(10L)).thenReturn(Optional.empty());
 
         mailService.sendCommentMailAsync(9L, NotificationType.MENTION, null, 10L, "摘要");
 
         ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
         verify(mailSender).send(captor.capture());
-        assertEquals("【Blog】你的文章有新回复", captor.getValue().getSubject());
-        assertTrue(captor.getValue().getText().contains("http://localhost:5173/article/10"));
+        assertEquals("【Blog】你有新的评论互动", captor.getValue().getSubject());
+        assertTrue(captor.getValue().getText().contains("http://localhost:5173/notifications"));
     }
 
     @Test
@@ -188,7 +186,6 @@ class NotificationMailServiceImplTest {
         when(userService.getById(9L)).thenReturn(user(9L, "a@example.com", (short) 1));
         when(mailSenderProvider.getIfAvailable()).thenReturn(mailSender);
         lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(null);
-        when(articleCatalog.findRef(10L)).thenReturn(Optional.empty());
         doThrow(new RuntimeException("smtp down")).when(mailSender).send(any(SimpleMailMessage.class));
 
         // 邮件失败不抛出、不回滚主业务

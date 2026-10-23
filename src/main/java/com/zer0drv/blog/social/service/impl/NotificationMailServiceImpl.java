@@ -85,16 +85,9 @@ public class NotificationMailServiceImpl implements NotificationMailService {
                         + "如有疑问或认为属于误删，请联系站点管理员。\n\n"
                         + siteName + "：" + baseUrl);
             } else {
-                // 评论回复 / @ 提及
-                String articleTitle = Objects.nonNull(articleId)
-                        ? articleCatalog.findRef(articleId).map(ArticleRef::title).orElse("") : "";
-                String actor = Objects.isNull(actorNickname) || actorNickname.isBlank() ? "有用户" : actorNickname;
-                String action = type == NotificationType.MENTION ? "在评论中提到了你" : "回复了你的文章";
-                message.setSubject("【" + siteName + "】你的文章有新回复");
-                message.setText(actor + " " + action
-                        + (articleTitle.isBlank() ? "" : "《" + articleTitle + "》") + "：\n"
-                        + (Objects.isNull(summary) ? "" : summary) + "\n\n"
-                        + "查看详情：" + baseUrl + "/article/" + articleId);
+                // Mail cannot be recalled. Never copy comment/title snapshots into queued mail.
+                message.setSubject("【" + siteName + "】你有新的评论互动");
+                message.setText("请登录通知中心查看当前可访问的内容：" + baseUrl + "/notifications");
             }
             mailSender.send(message);
         } catch (Exception e) {

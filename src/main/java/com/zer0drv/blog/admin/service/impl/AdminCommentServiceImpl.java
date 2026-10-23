@@ -37,6 +37,8 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AdminCommentServiceImpl implements AdminCommentService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.zer0drv.blog.comment.api.CommentNotificationState notificationState;
 
     /**
      * 列表 status 伪状态：回收站（deleted=1 的评论，P0 §2.4）
@@ -89,6 +91,7 @@ public class AdminCommentServiceImpl implements AdminCommentService {
     public void delete(Long id) {
         Comment comment = requireComment(id);
         commentMapper.deleteById(id);
+        notificationState.removed(id, true);
         // 删主评论连带逻辑删除其回复
         if (comment.getParentId() == 0L) {
             commentMapper.delete(Wrappers.lambdaQuery(Comment.class).eq(Comment::getParentId, id));
@@ -143,6 +146,7 @@ public class AdminCommentServiceImpl implements AdminCommentService {
             throw new BusinessException(StatusCode.COMMENT_NOT_EXIST);
         }
         List<Long> likeTargetIds = new ArrayList<>();
+        notificationState.removed(id, true);
         likeTargetIds.add(id);
         if (comment.getParentId() == 0L) {
             // 主评论：连带物理删全部回复（含回收站中的）与这些回复的点赞关联
