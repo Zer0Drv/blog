@@ -5,10 +5,55 @@ from pathlib import Path
 import subprocess
 import time
 import uuid
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("backup", Path(__file__).with_name("local-backup.py"))
 backup = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(backup)
+
+worker_spec = importlib.util.spec_from_file_location("restart_worker", Path(__file__).with_name("application-restart-worker.py"))
+worker = importlib.util.module_from_spec(worker_spec)
+worker_spec.loader.exec_module(worker)
+
+
+def verify_worker_restart(root, upstream):
+    """Exercise the real worker against this disposable container, never blog-backend."""
+    operations = root / "operations"
+    (operations / "request").mkdir(parents=True)
+    job = str(uuid.uuid4())
+    (operations / "request" / "request.json").write_text(json.dumps({
+        "id": job, "operator": 7, "instance": "fixture-before", "requestedAt": "fixture"
+    }))
+    before = json.loads(docker("inspect", upstream))[0]["State"]["StartedAt"]
+    original_run = subprocess.run
+    calls = []
+
+    def isolated_restart(args, **kwargs):
+        if args[:2] == ["docker", "restart"]:
+            assert args == ["docker", "restart", "--time", "30", "blog-backend"]
+            calls.append(args)
+            return original_run([*args[:-1], upstream], **kwargs)
+        # Other calls in this harness must never target the production application.
+        assert "blog-backend" not in args and "blog-gateway" not in args
+        return original_run(args, **kwargs)
+
+    def ready(name):
+        assert name == "blog-backend"
+        backup.wait_ready(upstream)
+
+    with patch.object(worker.subprocess, "run", side_effect=isolated_restart), \
+            patch.object(worker.backup, "wait_ready", side_effect=ready), \
+            patch.object(worker.backup, "recover_gateway", side_effect=backup.recover_gateway):
+        worker.process(operations, root / "deployment.lock")
+        worker.process(operations, root / "deployment.lock")  # no request, no second restart
+    report = json.loads((operations / (job + ".json")).read_text())
+    after = json.loads(docker("inspect", upstream))[0]["State"]["StartedAt"]
+    assert report["state"] == "RECOVERED" and before != after and len(calls) == 1
+    assert report["operator"] == 7 and report["previousInstance"] == "fixture-before"
+    assert not (operations / "request").exists() and not (root / "deployment.lock").exists()
+    backup.verify_gateway()
+    return {"state": report["state"], "containerRestarted": before != after,
+            "restartCount": len(calls), "gatewayChecks": report["gatewayChecks"]}
 
 
 def docker(*args):
@@ -37,6 +82,7 @@ def main():
         docker("network", "create", prefix); created_network = True
         def start_upstream():
             docker("run", "-d", "--name", upstream, "--network", prefix, "--network-alias", "minio", "--network-alias", "backend",
+                   "--health-cmd", "wget -q -O /dev/null http://127.0.0.1:9000/blog-frontend/index.html || exit 1", "--health-interval", "1s", "--health-retries", "30",
                    "-v", str(files)+":/usr/share/nginx/html:ro", "-v", str(root/"upstream.conf")+":/etc/nginx/conf.d/default.conf:ro", "nginx:1.29-alpine")
             if upstream not in containers: containers.append(upstream)
         start_upstream()
@@ -65,6 +111,7 @@ def main():
         backup.verify_gateway = lambda: original_smoke(origin)
         checks = backup.recover_gateway()
         report = {"oldIp":old,"newIp":new,"failureReproduced":reproduced,"recoveryChecks":checks,"ok":True}
+        report["workerRestart"] = verify_worker_restart(root, upstream)
         (root / "report.json").write_text(json.dumps(report,indent=2))
         print(json.dumps(report))
     finally:

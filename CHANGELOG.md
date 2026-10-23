@@ -6,6 +6,8 @@
 
 ### Added
 
+- 补齐真实 MySQL 所有权转移、通知删除/投递/撤回竞态，以及独立 Docker worker 单次重启验收；明确拒绝非受管理图片的预览与下载（Refs #81、#82、#83、Zer0Drv/blog-ui#78）。
+
 - 增加短期 access 与轮换 refresh 会话、重放吊销、SUPER_ADMIN 受控处置和无 HTTP 的主机恢复命令（Refs #26、#83）。
 - 增加可选本机运维 worker，仅允许后端重启并验证实例、配置与统一网关恢复（Refs #82）。
 - 增加清理对象的鉴权预览/下载、评论通知动态占位及单条撤回审计；修复友情链接开关缓存和冷备后网关 DNS 恢复（Refs #80、#81、Zer0Drv/blog-ui#77、Zer0Drv/blog-ui#78）。

@@ -92,6 +92,25 @@ class AttachmentCleanupIntegrationTests extends IntegrationTestSupport {
         assertThrows(BusinessException.class, () -> cleanup.preview(record));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"html", "svg", "pdf", "zip"})
+    void unsupportedObjectsNeverBecomePreviewOrDownloadTargets(String extension) throws Exception {
+        String key = object(true);
+        cleanup.scan(1);
+        long record = id(key);
+        String unsupported = key.substring(0, key.length() - 3) + extension;
+        Path path = root.resolve(unsupported);
+        Files.writeString(path, "<script>alert('untrusted')</script>"); files.add(path);
+        jdbcTemplate.update("UPDATE attachment_cleanup SET object_key=? WHERE id=?", unsupported, record);
+        String bearer = admin();
+        for (String suffix : List.of("", "?download=true"))
+            mockMvc.perform(get("/admin/attachments/cleanup/" + record + "/preview" + suffix)
+                    .header(HttpHeaders.AUTHORIZATION, bearer))
+                    .andExpect(jsonPath("$.code").value("40023"));
+        assertTrue(Files.exists(path));
+        assertEquals("OBSERVING", state(unsupported));
+    }
+
     @Test
     void adminFlowMarksWaitsRestoresAndKeepsFiles() throws Exception {
         String key = object(true), fresh = object(false), bearer = admin();
