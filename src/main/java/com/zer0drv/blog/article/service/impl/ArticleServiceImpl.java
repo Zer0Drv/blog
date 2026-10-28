@@ -12,6 +12,8 @@ import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.api.ArticleStatus;
 import com.zer0drv.blog.article.api.Visibility;
 import com.zer0drv.blog.article.domain.Article;
+import com.zer0drv.blog.article.domain.ArticleSearchCriteria;
+import com.zer0drv.blog.article.domain.ArticleSearchSnippet;
 import com.zer0drv.blog.article.domain.ArticleSlugger;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
@@ -29,6 +31,7 @@ import com.zer0drv.blog.article.vo.ArticleAccessVO;
 import com.zer0drv.blog.article.vo.ArticleAuthorVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
+import com.zer0drv.blog.article.vo.ArticleSearchResultVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
 import com.zer0drv.blog.article.vo.ArticleVersionVO;
 import com.zer0drv.blog.category.domain.Category;
@@ -60,6 +63,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -610,24 +614,26 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     @Override
-    public PageResult<ArticleListVO> search(String keyword, long page, long size) {
-        if (Objects.isNull(keyword) || keyword.isBlank()) {
-            throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "搜索关键字不能为空");
+    public ArticleSearchResultVO search(String keyword, long page, long size, Long categoryId, Long tagId,
+                                        LocalDate publishedFrom, LocalDate publishedTo, String sort) {
+        ArticleSearchCriteria criteria = ArticleSearchCriteria.of(keyword, page, size, categoryId, tagId,
+                publishedFrom, publishedTo, sort,
+                sysConfig == null ? fulltextEnabled : sysConfig.getBool("blog.search.fulltext-enabled"));
+        Page<Article> result = baseMapper.searchPublic(new Page<>(page, size), criteria);
+        List<ArticleListVO> records = assemble(result.getRecords());
+        for (int i = 0; i < records.size(); i++) {
+            Article article = result.getRecords().get(i);
+            records.get(i).setSnippet(ArticleSearchSnippet.of(article.getContentText(),
+                    article.getSummary(), criteria.keyword()));
         }
-        String kw = keyword.trim();
-        Page<Article> result;
-        if (sysConfig == null ? fulltextEnabled : sysConfig.getBool("blog.search.fulltext-enabled")) {
-            // 生产（MySQL）：ngram FULLTEXT，MATCH...AGAINST 仅 MySQL 可跑
-            result = baseMapper.searchByFulltext(new Page<>(page, size), kw);
-        } else {
-            // 兜底（H2 测试 / 未建全文索引）：title/summary/content_text 三路 LIKE
-            result = page(new Page<>(page, size), ArticleVisibility.apply(Wrappers.lambdaQuery(Article.class))
-                    .and(w -> w.like(Article::getTitle, kw)
-                            .or().like(Article::getSummary, kw)
-                            .or().like(Article::getContentText, kw))
-                    .orderByDesc(Article::getPublishTime));
-        }
-        return PageResult.of(assemble(result.getRecords()), result.getTotal(), page, size);
+        ArticleSearchResultVO response = new ArticleSearchResultVO();
+        response.setRecords(records);
+        response.setTotal(result.getTotal());
+        response.setPage(page);
+        response.setSize(size);
+        response.setSearchMode(criteria.fulltext() ? "FULLTEXT" : "LIKE");
+        response.setEffectiveSort(criteria.effectiveSort());
+        return response;
     }
 
     @Override

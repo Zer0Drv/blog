@@ -25,6 +25,9 @@ public class ArticleListVO {
 
     private String summary;
 
+    /** Public search excerpt, plain text; absent on other list endpoints. */
+    private String snippet;
+
     private String cover;
 
     private Long categoryId;

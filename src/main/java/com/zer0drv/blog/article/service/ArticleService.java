@@ -8,6 +8,7 @@ import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleAccessVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
+import com.zer0drv.blog.article.vo.ArticleSearchResultVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
 import com.zer0drv.blog.article.vo.ArticleVersionVO;
 import com.zer0drv.blog.common.response.PageResult;
@@ -15,6 +16,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 
 import java.util.List;
 import java.util.Map;
+import java.time.LocalDate;
 
 /**
  * 文章域作者 / 管理员用例接口（issue #24 第二步起不再 extends IService，
@@ -123,7 +125,12 @@ public interface ArticleService {
      * 全文搜索（公开；blog.search.fulltext-enabled=true 走 ngram FULLTEXT，否则 LIKE 兜底）。
      * 仅出对外可见文章（谓词见 ArticleVisibility）
      */
-    PageResult<ArticleListVO> search(String keyword, long page, long size);
+    default ArticleSearchResultVO search(String keyword, long page, long size) {
+        return search(keyword, page, size, null, null, null, null, "relevance");
+    }
+
+    ArticleSearchResultVO search(String keyword, long page, long size, Long categoryId, Long tagId,
+                                 LocalDate publishedFrom, LocalDate publishedTo, String sort);
 
     /**
      * 归档（公开）：可见文章按月分组，月份倒序，月内按发布时间倒序

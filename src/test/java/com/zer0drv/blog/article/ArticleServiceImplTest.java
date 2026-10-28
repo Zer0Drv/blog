@@ -11,6 +11,7 @@ import com.zer0drv.blog.article.api.ArticleInteractionStats;
 import com.zer0drv.blog.article.api.ArticleNotificationPort;
 import com.zer0drv.blog.article.api.ArticleStatus;
 import com.zer0drv.blog.article.domain.Article;
+import com.zer0drv.blog.article.domain.ArticleSearchCriteria;
 import com.zer0drv.blog.article.domain.ArticleTag;
 import com.zer0drv.blog.article.domain.ArticleVersion;
 import com.zer0drv.blog.article.dto.ArticleSaveDTO;
@@ -400,32 +401,34 @@ class ArticleServiceImplTest {
     }
 
     @Test
-    void search_blankKeywordThrowsParamInvalid() {
-        BusinessException e = assertThrows(BusinessException.class,
-                () -> articleService.search("  ", 1, 10));
-        assertEquals(StatusCode.PARAM_INVALID.getCode(), e.getCode());
+    void search_blankKeywordBrowsesWithExplicitNewestFallback() {
+        when(articleMapper.searchPublic(any(), any())).thenReturn(new Page<>(1, 10));
+        var result = articleService.search("  ", 1, 10);
+        assertEquals("LIKE", result.getSearchMode());
+        assertEquals("newest", result.getEffectiveSort());
     }
 
     @Test
     void search_fulltextDisabledFallsBackToLike() {
-        doReturn(new Page<Article>(1, 10)).when(articleService).page(any(Page.class), any(Wrapper.class));
-
-        articleService.search("关键字", 1, 10);
-
-        // LIKE 兜底：走 MP page，不触发 MATCH...AGAINST 自定义 SQL
-        verify(articleMapper, never()).searchByFulltext(any(), anyString());
-        verify(articleService).page(any(Page.class), any(Wrapper.class));
+        when(articleMapper.searchPublic(any(), any())).thenReturn(new Page<>(1, 10));
+        var result = articleService.search("关键字", 1, 10);
+        assertEquals("LIKE", result.getSearchMode());
+        assertEquals("newest", result.getEffectiveSort());
+        var query = ArgumentCaptor.forClass(ArticleSearchCriteria.class);
+        verify(articleMapper).searchPublic(any(), query.capture());
+        assertFalse(query.getValue().fulltext());
     }
 
     @Test
     void search_fulltextEnabledUsesMatchAgainst() {
         ReflectionTestUtils.setField(articleService, "fulltextEnabled", true);
-        when(articleMapper.searchByFulltext(any(), eq("关键字"))).thenReturn(new Page<>(1, 10));
-
-        articleService.search("关键字", 1, 10);
-
-        verify(articleMapper).searchByFulltext(any(), eq("关键字"));
-        verify(articleService, never()).page(any(Page.class), any(Wrapper.class));
+        when(articleMapper.searchPublic(any(), any())).thenReturn(new Page<>(1, 10));
+        var result = articleService.search("关键字", 1, 10);
+        assertEquals("FULLTEXT", result.getSearchMode());
+        assertEquals("relevance", result.getEffectiveSort());
+        var query = ArgumentCaptor.forClass(ArticleSearchCriteria.class);
+        verify(articleMapper).searchPublic(any(), query.capture());
+        assertTrue(query.getValue().fulltext());
     }
 
     @Test
