@@ -74,6 +74,9 @@ public class SecurityConfig {
                         // 单篇 /articles/{id}/export 保持公开，可见性由服务层按详情口径判定）
                         .requestMatchers(org.springframework.http.HttpMethod.GET,
                                 "/articles/export").authenticated()
+                        .requestMatchers("/series/manage", "/series/manage/**").hasAnyRole("ADMIN", "AUTHOR")
+                        .requestMatchers(org.springframework.http.HttpMethod.GET,
+                                "/series", "/series/*", "/series/by-article/*").permitAll()
                         // 文章口令校验（issue #15，公开）：PASSWORD 文章的访问入口，
                         // 服务层 CaptchaGuard 限流防爆破；单段路径参数，不与 /articles 新建冲突
                         .requestMatchers(org.springframework.http.HttpMethod.POST,

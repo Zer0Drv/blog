@@ -398,6 +398,9 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 | V15 `sys_config` | 系统参数覆盖与变更审计 |
 | V16 `attachment_cleanup` | 附件对象观察期、引用保护与清理记录 |
 | V17 `totp` | TOTP 加密绑定、一次性恢复码与短期登录挑战 |
+| V21 `article_series` | 作者文章系列、有序成员关系与 revision 并发保护 |
+
+文章系列的 API、权限、实时可见性、附件引用与发布回滚边界见 [文章系列](docs/article-series.md)。
 
 逻辑删除约定：全局字段 `deleted`（`0` 未删 / `1` 已删）；`Article`/`ArticleVersion`/`Comment`/`Attachment`/`SiteConfig` 使用实体级 `@TableLogic`（原因见实战笔记）。点赞/收藏类关联实体不映射 `deleted`，取消走物理删除。
 

@@ -443,3 +443,27 @@ CREATE TABLE IF NOT EXISTS owner_operation_audit (
     outcome VARCHAR(16) NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- V21: ordered author-owned article series, physically deleted as a collection.
+CREATE TABLE IF NOT EXISTS article_series (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    owner_id BIGINT NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    description VARCHAR(2000) NOT NULL DEFAULT '',
+    cover VARCHAR(512) NOT NULL DEFAULT '',
+    slug VARCHAR(200) NOT NULL UNIQUE,
+    status VARCHAR(16) NOT NULL DEFAULT 'DRAFT',
+    revision BIGINT NOT NULL DEFAULT 0,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_article_series_owner(owner_id,update_time,id),
+    INDEX idx_article_series_status(status,update_time,id)
+);
+CREATE TABLE IF NOT EXISTS article_series_item (
+    series_id BIGINT NOT NULL,
+    article_id BIGINT NOT NULL,
+    position INT NOT NULL,
+    PRIMARY KEY(series_id,article_id),
+    UNIQUE(series_id,position),
+    INDEX idx_series_item_article(article_id)
+);
