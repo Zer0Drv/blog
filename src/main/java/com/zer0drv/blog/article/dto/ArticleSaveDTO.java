@@ -2,6 +2,7 @@ package com.zer0drv.blog.article.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -14,6 +15,10 @@ import java.util.List;
  */
 @Data
 public class ArticleSaveDTO {
+
+    /** Required for every edit/publish of an existing article. */
+    @PositiveOrZero
+    private Long editRevision;
 
     /**
      * 标题
@@ -50,6 +55,7 @@ public class ArticleSaveDTO {
     /**
      * 封面图 URL
      */
+    @Size(max = 512)
     private String cover;
 
     /**

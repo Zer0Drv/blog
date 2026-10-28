@@ -124,7 +124,7 @@ class InfrastructureRealIT {
         if(!redisKeys.isEmpty()) redis.delete(redisKeys);
         redisKeys.clear();
         // Scope every deletion to the account created by this test; no TRUNCATE/FLUSHDB.
-        for(String table:new String[]{"subscription_delivery","subscription_publication","article_version","article_tag","article_like","article_favorite","comment"})
+        for(String table:new String[]{"subscription_delivery","subscription_publication","article_working_copy","article_version","article_tag","article_like","article_favorite","comment"})
             jdbc.update("DELETE FROM "+table+" WHERE article_id IN (SELECT id FROM article WHERE author_id=?)",userId);
         jdbc.update("DELETE FROM article WHERE author_id=?",userId);
         jdbc.update("DELETE FROM attachment_cleanup WHERE object_key IN (SELECT object_key FROM attachment WHERE user_id=?)",userId);
@@ -206,12 +206,31 @@ class InfrastructureRealIT {
     }
 
     @Test
-    void realRedisDraftPreventsMatureMinioDeletion() throws Exception {
+    void legacyRedisDraftPreventsMatureMinioDeletion() throws Exception {
+        assertDraftPreventsMatureMinioDeletion(true);
+    }
+
+    @Test
+    void durableWorkingCopyPreventsMatureMinioDeletion() throws Exception {
+        assertDraftPreventsMatureMinioDeletion(false);
+    }
+
+    private void assertDraftPreventsMatureMinioDeletion(boolean legacy) throws Exception {
         JsonNode upload=upload();long id=upload.path("id").asLong();String url=upload.path("url").asString();
         long article=createArticle("draft reference", "draft", "DRAFT","PUBLIC");
-        ok(send("PUT","/articles/"+article+"/autosave",Map.of("title","draft","content","![]("+url+")","cover",url),token,null));
-        String draft="blog:autosave:"+article+":"+userId;redisKeys.add(draft);
-        assertNotNull(redis.opsForValue().get(draft));assertTrue(redis.getExpire(draft)>0);
+        if (legacy) {
+            String draft="blog:autosave:"+article+":"+userId;redisKeys.add(draft);
+            // Pre-V22 clients wrote these TTL drafts. They remain recoverable and must retain attachments.
+            redis.opsForValue().set(draft,mapper.writeValueAsString(Map.of("title","draft","content","![]("+url+")","cover",url)),Duration.ofHours(2));
+            assertTrue(ok(send("GET","/articles/"+article+"/autosave",null,token,null)).path("exists").asBoolean());
+            assertNotNull(redis.opsForValue().get(draft));assertTrue(redis.getExpire(draft)>0);
+        } else {
+            JsonNode saved=ok(send("PUT","/articles/"+article+"/autosave",Map.of("title","draft","content","![]("+url+")","cover",url,
+                    "editorType","MARKDOWN","editRevision",0,"visibility","PUBLIC","summary","","tagIds",List.of()),token,null));
+            assertTrue(saved.path("hasWorkingCopy").asBoolean());
+            assertEquals("draft",jdbc.queryForObject("SELECT content FROM article WHERE id=?",String.class,article));
+            assertTrue(jdbc.queryForObject("SELECT content FROM article_working_copy WHERE article_id=?",String.class,article).contains(url));
+        }
         ok(send("DELETE","/attachments/"+id,null,token,null));
         String key=jdbc.queryForObject("SELECT object_key FROM attachment WHERE id=?",String.class,id);var object=objects.stat("MINIO",key);
         jdbc.update("INSERT INTO attachment_cleanup(storage,object_key,size_bytes,fingerprint,marked_at,eligible_at,operator_id) VALUES('MINIO',?,?,?,?,?,?)",

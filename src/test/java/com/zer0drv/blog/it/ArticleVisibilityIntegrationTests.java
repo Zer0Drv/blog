@@ -282,7 +282,7 @@ class ArticleVisibilityIntegrationTests extends IntegrationTestSupport {
         Mockito.when(stringRedisTemplate.opsForValue().get("blog:article-access:" + id + ":old-token")).thenReturn(oldHash);
         mockMvc.perform(get("/articles/{id}", id).header(ACCESS_TOKEN_HEADER, "old-token"))
                 .andExpect(jsonPath("$.data.passwordRequired").value(false));
-        mockMvc.perform(put("/articles/{id}", id).header(HttpHeaders.AUTHORIZATION, bearer)
+        mockMvc.perform(post("/articles/{id}/publish", id).with(editRevision(id)).header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"改口令文章\",\"content\":\"c\",\"editorType\":\"MARKDOWN\",\"accessPassword\":\"new-1234\"}"))
                 .andExpect(jsonPath("$.code").value("200"));
@@ -429,7 +429,7 @@ class ArticleVisibilityIntegrationTests extends IntegrationTestSupport {
         long articleId = createWithVisibility(bearer, unique("切换文章"), "DRAFT", "PUBLIC", null);
 
         // PUBLIC → PASSWORD（带口令）
-        mockMvc.perform(put("/articles/{id}", articleId)
+        mockMvc.perform(put("/articles/{id}", articleId).with(editRevision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"切换文章\",\"content\":\"c\",\"editorType\":\"MARKDOWN\","
@@ -441,7 +441,7 @@ class ArticleVisibilityIntegrationTests extends IntegrationTestSupport {
         assertTrue(hash != null && hash.startsWith("$2"), "切入 PASSWORD 应落哈希");
 
         // PASSWORD → PUBLIC：哈希清空（口令不残留在库）
-        mockMvc.perform(put("/articles/{id}", articleId)
+        mockMvc.perform(put("/articles/{id}", articleId).with(editRevision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"切换文章\",\"content\":\"c\",\"editorType\":\"MARKDOWN\","
@@ -453,14 +453,14 @@ class ArticleVisibilityIntegrationTests extends IntegrationTestSupport {
         assertTrue(cleared == null || cleared.isBlank(), "切回 PUBLIC 应清空口令哈希");
 
         // 缺省 visibility = 保持现状：先切到 PRIVATE 再不传 visibility 保存，仍为 PRIVATE
-        mockMvc.perform(put("/articles/{id}", articleId)
+        mockMvc.perform(put("/articles/{id}", articleId).with(editRevision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"切换文章\",\"content\":\"c\",\"editorType\":\"MARKDOWN\","
                                 + "\"status\":\"DRAFT\",\"visibility\":\"PRIVATE\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("200"));
-        mockMvc.perform(put("/articles/{id}", articleId)
+        mockMvc.perform(put("/articles/{id}", articleId).with(editRevision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"切换文章\",\"content\":\"c2\",\"editorType\":\"MARKDOWN\","

@@ -116,7 +116,7 @@ class ArticleCategoryIntegrationTests extends IntegrationTestSupport {
         long id = categorizedArticle(authorId, category);
         save(id, ownerBearer, ",\"categoryId\":" + category);
 
-        mockMvc.perform(put("/articles/{id}", id)
+        mockMvc.perform(put("/articles/{id}", id).with(editRevision(id))
                         .header(HttpHeaders.AUTHORIZATION, otherBearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(saveBody(",\"categoryId\":null")))
@@ -162,7 +162,8 @@ class ArticleCategoryIntegrationTests extends IntegrationTestSupport {
     }
 
     private void save(long id, String bearer, String categoryField) throws Exception {
-        mockMvc.perform(put("/articles/{id}", id)
+        mockMvc.perform(("PUBLISHED".equals(jdbcTemplate.queryForObject("SELECT status FROM article WHERE id=?", String.class, id))
+                        ? post("/articles/{id}/publish", id) : put("/articles/{id}", id)).with(editRevision(id))
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(saveBody(categoryField)))
@@ -171,10 +172,11 @@ class ArticleCategoryIntegrationTests extends IntegrationTestSupport {
     }
 
     private void restore(long id, int version, String bearer, String code) throws Exception {
-        mockMvc.perform(post("/articles/{id}/restore/{version}", id, version)
+        mockMvc.perform(post("/articles/{id}/restore/{version}", id, version).param("editRevision", revision(id))
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(code));
+        if ("200".equals(code) && "PUBLISHED".equals(jdbcTemplate.queryForObject("SELECT status FROM article WHERE id=?", String.class, id))) publishWorkingCopy(id, bearer);
     }
 
     private Long versionCategory(long id, int version) {

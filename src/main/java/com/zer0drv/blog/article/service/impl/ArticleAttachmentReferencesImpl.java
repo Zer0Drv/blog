@@ -24,7 +24,7 @@ public class ArticleAttachmentReferencesImpl implements ArticleAttachmentReferen
     public Set<String> retainedAttachmentFilenames() {
         Set<String> references = new HashSet<>();
         // No deleted / visibility filter: trash and retained versions remain restorable.
-        for (String table : new String[]{"article", "article_version"}) {
+        for (String table : new String[]{"article", "article_version", "article_working_copy"}) {
             jdbc.query("SELECT content, cover, summary FROM " + table, (org.springframework.jdbc.core.RowCallbackHandler) row ->
                     references.addAll(AttachmentObjectKeys.references(row.getString(1), row.getString(2), row.getString(3))));
         }

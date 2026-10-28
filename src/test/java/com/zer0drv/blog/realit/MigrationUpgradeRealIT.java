@@ -67,6 +67,11 @@ class MigrationUpgradeRealIT {
             assertEquals("PENDING",db.queryForObject("SELECT state FROM subscription_publication WHERE article_id=700012",String.class));
             assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM attachment_cleanup_lock WHERE id=1",Integer.class));
             assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM attachment_cleanup",Integer.class));
+            assertEquals(0L,db.queryForObject("SELECT edit_revision FROM article WHERE id=700002",Long.class));
+            assertEquals(0L,db.queryForObject("SELECT edit_revision FROM article WHERE id=700011",Long.class));
+            assertEquals("PUBLISHED",db.queryForObject("SELECT status FROM article WHERE id=700011",String.class));
+            assertEquals(content,db.queryForObject("SELECT content FROM article WHERE id=700011",String.class));
+            assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM article_working_copy",Integer.class));
             if(baseline>=15) {
                 assertEquals("42",db.queryForObject("SELECT config_value FROM sys_config WHERE config_key='blog.upload-daily-limit'",String.class));
                 assertEquals("42",db.queryForObject("SELECT new_value FROM sys_config_audit WHERE operator_id=700001",String.class));

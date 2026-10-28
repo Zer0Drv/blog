@@ -12,8 +12,8 @@
 ### 内容
 - **自定义页面**：独立 `custom_page` 表（V13），ADMIN 管理草稿/发布/下架/逻辑删除；支持 Markdown/富文本编辑与清洗，公开 `/pages/{slug}` 只读取已发布页面；站点设置 `site.page_navigation` 按 slug 数组控制导航顺序，未发布/删除页面自动隐藏，sitemap 仅收录已发布页面。页面不进入文章列表、搜索、RSS 或互动流程；删除后 slug 保留占位
 - 文章 CRUD：Markdown / 富文本双编辑器模式，草稿 / 发布 / 下架状态流转，置顶与推荐位
-- **版本历史**：每次保存自动快照（版本号递增），可查看任意版本并一键恢复（恢复也留痕）
-- **自动保存**：草稿自动保存到 Redis（TTL 2h），正式保存后自动清除
+- **版本历史**：生效内容变更前自动快照；已发布文章恢复历史内容先生成修改草稿，明确更新发布后才影响读者
+- **修改草稿与自动保存**：已发布文章独立保存工作稿，自动保存持久化到数据库；修订号防止并发覆盖，支持预览、放弃与冲突对比。旧 Redis 草稿仅显式恢复，见 [编辑契约与升级说明](docs/article-working-drafts.md)
 - **定时发布**：`publishTime` 可选，公众可见性谓词单一出处在 `article/domain/ArticleVisibility`——内存判定 / MyBatis-Plus Wrapper 拼接 / 原生 SQL 常量三种消费形态同源，`Clock` 注入支持固定时钟单测
 - **密码保护 / 私密文章**：独立 `visibility` 字段（PUBLIC / PASSWORD / PRIVATE，V12），与 status 生命周期正交；公众可见性 = `status=PUBLISHED AND publish_time<=now AND visibility=PUBLIC`（同一谓词收口列表/Feed/归档/搜索/RSS/sitemap，口令与私密文章标题零泄露）；PASSWORD 文章详情先出「需口令」极简视图，口令 BCrypt 哈希落库，校验端点 `POST /articles/{id}/password` 限流防爆破（CaptchaGuard 登录同款 IP + 文章双维度），通过签发 2h 访问令牌（Redis，详情经 `X-Article-Access-Token` 头放行）；PRIVATE 对公众与「不存在」同语义
 - **回收站**：文章/评论删除仅逻辑删，可恢复（回草稿）或物理删除（级联）
@@ -132,7 +132,7 @@
 | MyBatis-Plus | 3.5.17 | `mybatis-plus-spring-boot4-starter` + `mybatis-plus-jsqlparser` |
 | MySQL | 8.4 LTS | 主存储，ngram FULLTEXT 支撑全文搜索 |
 | Flyway | 随 Boot | MySQL 支持模块为 `flyway-mysql`（`flyway-database-mysql` 不存在，双仓 404 实测） |
-| Redis | 7 | 验证码、防刷限流、token 黑名单与用户活跃 jti 集合、OAuth 一次性换码、自动保存草稿 |
+| Redis | 7 | 验证码、防刷限流、token 黑名单与用户活跃 jti 集合、OAuth 一次性换码、旧自动保存草稿兼容读取 |
 | MinIO | 9.0.3（SDK） | 对象存储，镜像用 `alpine/minio`（官方镜像已 EOL 下架）；需显式搭配 `okhttp-jvm` 5.5.0（原因见实战笔记①） |
 | 其他 | — | MapStruct-Plus 1.5.3、Hutool 5.8.48（含 captcha）、jsoup 1.23.2（富文本清洗）、Rome 2.1.0、Spring Modulith 2.1.1、ArchUnit 1.5.1（test，架构红线）、Lombok |
 
@@ -295,12 +295,15 @@ src/main/java/com/zer0drv/blog/
 | GET | `/articles/{id}` | 详情（匿名仅可见已发布的公开文章；PASSWORD 文章需口令令牌，见下行） | 公开 |
 | POST | `/articles/{id}/password` | 口令保护文章的口令校验（通过签发 2h 访问令牌；IP + 文章双维度限流） | 公开 |
 | GET | `/articles/mine` | 本人文章（支持伪状态 TRASH） | ADMIN/AUTHOR |
-| POST/PUT | `/articles` `/articles/{id}` | 新建 / 编辑（保存自动快照版本；支持定时发布；富文本入库前 XSS 清洗） | ADMIN/AUTHOR |
+| POST | `/articles` | 新建（支持直接或定时发布；富文本入库前 XSS 清洗） | ADMIN/AUTHOR |
+| GET/PUT | `/articles/{id}/editing` `/articles/{id}` | 私有编辑详情 / 完整保存（已有文章需 editRevision；已发布文章只写工作稿） | 本人/ADMIN |
+| POST | `/articles/{id}/publish` | 携 editRevision 原子发布当前完整表单 | 本人/ADMIN |
+| DELETE | `/articles/{id}/working-copy` | 携 editRevision 放弃工作稿 | 本人/ADMIN |
 | DELETE | `/articles/{id}` | 删除（逻辑删，进回收站） | 本人/ADMIN |
 | PUT | `/articles/{id}/status` | 上架 / 下架 / 回草稿 | ADMIN/AUTHOR |
 | GET | `/articles/{id}/versions` `/versions/{version}` | 版本列表 / 版本详情 | 本人/ADMIN |
-| POST | `/articles/{id}/restore/{version}` | 恢复到指定版本（留痕，内容过 XSS 清洗） | 本人/ADMIN |
-| PUT/GET | `/articles/{id}/autosave` | 自动保存草稿写入 / 读取（Redis，TTL 2h） | 本人/ADMIN |
+| POST | `/articles/{id}/restore/{version}` | 携 editRevision 恢复历史内容（已发布文章只生成工作稿） | 本人/ADMIN |
+| PUT/GET | `/articles/{id}/autosave` | 持久自动保存 / 兼容读取旧 Redis 草稿；新编辑稿由 editing 获取 | 本人/ADMIN |
 | POST | `/articles/{id}/restore` | 回收站恢复（回草稿） | 本人/ADMIN |
 | DELETE | `/articles/{id}/force` | 物理删除（级联） | 本人/ADMIN |
 | GET | `/articles/{id}/export?format=md\|html` | 导出为文件（front matter 元数据 + 正文原文；可见性同详情） | 同详情 |
@@ -399,6 +402,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 | V16 `attachment_cleanup` | 附件对象观察期、引用保护与清理记录 |
 | V17 `totp` | TOTP 加密绑定、一次性恢复码与短期登录挑战 |
 | V21 `article_series` | 作者文章系列、有序成员关系与 revision 并发保护 |
+| V22 `article_working_copy` | 持久文章工作稿与 edit_revision 编辑冲突保护 |
 
 文章系列的 API、权限、实时可见性、附件引用与发布回滚边界见 [文章系列](docs/article-series.md)。
 

@@ -82,6 +82,7 @@ public class AdminArticleServiceImpl implements AdminArticleService {
         requireArticle(id);
         articleMapper.update(null, Wrappers.lambdaUpdate(Article.class)
                 .set(Article::getStatus, ArticleStatus.OFFLINE.name())
+                .setSql("edit_revision = edit_revision + 1")
                 .eq(Article::getId, id));
     }
 

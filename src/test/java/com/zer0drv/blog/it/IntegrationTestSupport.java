@@ -67,6 +67,31 @@ public abstract class IntegrationTestSupport {
     @Autowired
     protected ObjectMapper objectMapper;
 
+    /** Explicitly opt old HTTP scenarios into the editing revision contract. */
+    protected org.springframework.test.web.servlet.request.RequestPostProcessor editRevision(long articleId) {
+        return request -> {
+            var body = (tools.jackson.databind.node.ObjectNode) objectMapper.readTree(request.getContentAsByteArray());
+            body.put("editRevision", jdbcTemplate.queryForObject("SELECT edit_revision FROM article WHERE id=?", Long.class, articleId));
+            request.setContent(objectMapper.writeValueAsBytes(body));
+            return request;
+        };
+    }
+
+    protected String revision(long articleId) {
+        return jdbcTemplate.queryForObject("SELECT edit_revision FROM article WHERE id=?", Long.class, articleId).toString();
+    }
+
+    protected void publishWorkingCopy(long id, String bearer) throws Exception {
+        var editing = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/articles/{id}/editing", id)
+                .header(HttpHeaders.AUTHORIZATION, bearer)).andReturn();
+        var body = (tools.jackson.databind.node.ObjectNode) objectMapper.readTree(editing.getResponse().getContentAsString()).path("data");
+        var tagIds = body.putArray("tagIds");
+        body.path("tags").forEach(tag -> tagIds.add(tag.path("id").asLong()));
+        mockMvc.perform(post("/articles/{id}/publish", id).header(HttpHeaders.AUTHORIZATION, bearer)
+                .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsBytes(body)))
+                .andExpect(jsonPath("$.code").value("200"));
+    }
+
     /**
      * Redis 顶替配置：深桩让所有读操作返回 null、写操作静默成功。
      * 覆盖：验证码频率计数（未达阈值放行）、JWT 黑名单校验（未命中）、邮箱验证码（本套件不触达）。
