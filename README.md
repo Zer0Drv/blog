@@ -94,6 +94,34 @@
 - **图片引用**：外链图片（Markdown `![](http…)` 与 HTML `<img src="http…">`）保留原样，URL 去重后随 `externalImages` 返回作「待转存附件库」清单；导入链路不做远程拉取转存
 - 作者 = 当前用户；响应不含正文（可凭 id 进草稿编辑页查看）；属文章操作，**不计入附件上传日配额**
 
+## 搜索接口（#95）
+
+`GET /articles/search` 支持 `keyword`、`categoryId`、`tagId`、`publishedFrom`、`publishedTo`、
+`sort`、`page`、`size` 的组合查询。分类为精确分类 ID（不自动包含子分类），标签为单个标签 ID；
+空关键词用于筛选/浏览全部公开文章。日期格式 `YYYY-MM-DD`，按文章 `publish_time` 使用的应用/数据库
+墙上时间解释，起止日均包含（SQL 为起日零点至结束日下一天零点的半开区间）；部署时应用与数据库须同一时区。
+日期范围限 `1000-01-01` 至 `9999-12-30`，反向区间返回 `40023`。
+
+- `sort=relevance`（默认）、`newest`、`oldest`。时间相同以 ID 同向排序；相关度相同再按发布时间、ID 倒序。
+- 保留 MySQL ngram FULLTEXT（索引默认 `ngram_token_size=2`）。含标点/特殊字符、单字、含单字词的查询，
+  空关键词或关闭 `blog.search.fulltext-enabled` 时使用 LIKE。LIKE 将 `%`、`_`、`!` 转义为字面量，
+  反斜杠也按字面量处理；FULLTEXT 是数据库自然语言相关度，LIKE 是完整关键词子串匹配，两种模式的结果可能不同。
+- FULLTEXT 匹配标题与正文文本，LIKE 兼容标题/摘要/正文三路；LIKE 不伪造相关度，
+  请求 `relevance` 时实际按 `newest` 返回。响应 `data.searchMode` 为 `FULLTEXT`/`LIKE`，
+  `data.effectiveSort` 告知实际排序，供页面说明。
+- 保留 `records/total/page/size`。每条结果增加 `snippet`：正文命中附近最多 200 个 Unicode 码点，
+  需要截断时附加省略号（总长最多 202）；正文为空或仅自定义摘要命中时取摘要。返回纯文本，不插入高亮 HTML，客户端必须按文本节点渲染，
+  即使字符串含 `<script>` 等代码示例也不能使用 `v-html`/`innerHTML`。
+- `records[].highlightTerms` 是实际出现在返回标题/片段中的字面匹配词数组（空数组表示无可高亮词）。
+  FULLTEXT 自然语言查询可能只命中关键词的一部分：例如“搜索功能”仅命中正文深处的“搜索”，
+  此时片段定位到该二字 ngram，并返回对应高亮词；优先定位完整关键词，其次空白分词，最后二码点 ngram。
+  LIKE 不做 ngram 扩展。完整摘要命中优先于正文的部分命中；接口不插入高亮 HTML、不返回正文位置，词数组也必须按文本渲染。
+- 关键词最多 200 个 UTF-16 码元；`page=1..100000`、`size=1..100`（默认 1/10），分类/标签 ID 必须为正数。
+  无效参数返回 `40023`。所有过滤与计数均复用 `ArticleVisibility.SQL`，不返回草稿、未来发布、
+  密码/私密、下架或删除文章，响应不包含原始正文或访问口令哈希。
+
+示例：`/articles/search?keyword=搜索&categoryId=2&tagId=3&publishedFrom=2026-01-01&publishedTo=2026-10-28&sort=newest&page=1&size=10`。
+
 ## 技术栈
 
 | 组件 | 版本 | 说明 |

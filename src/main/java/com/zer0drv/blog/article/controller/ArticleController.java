@@ -12,6 +12,7 @@ import com.zer0drv.blog.article.vo.ArticleDetailVO;
 import com.zer0drv.blog.article.vo.ArticleExportVO;
 import com.zer0drv.blog.article.vo.ArticleImportResultVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
+import com.zer0drv.blog.article.vo.ArticleSearchResultVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
 import com.zer0drv.blog.article.vo.ArticleVersionVO;
 import com.zer0drv.blog.common.captcha.CaptchaGuard;
@@ -26,6 +27,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -42,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -97,10 +100,15 @@ public class ArticleController {
      * 全文搜索（公开；P0）。字面量路径优先于 /{id}，无需改 SecurityConfig
      */
     @GetMapping("/search")
-    public Result<PageResult<ArticleListVO>> search(@RequestParam(required = false) String keyword,
+    public Result<ArticleSearchResultVO> search(@RequestParam(required = false) String keyword,
                                                     @RequestParam(defaultValue = "1") long page,
-                                                    @RequestParam(defaultValue = "10") long size) {
-        return Result.ok(articleService.search(keyword, page, size));
+                                                    @RequestParam(defaultValue = "10") long size,
+                                                    @RequestParam(required = false) Long categoryId,
+                                                    @RequestParam(required = false) Long tagId,
+                                                    @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate publishedFrom,
+                                                    @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate publishedTo,
+                                                    @RequestParam(defaultValue = "relevance") String sort) {
+        return Result.ok(articleService.search(keyword, page, size, categoryId, tagId, publishedFrom, publishedTo, sort));
     }
 
     /**

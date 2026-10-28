@@ -289,11 +289,12 @@ class ArticleP0IntegrationTests extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("200"))
                 .andExpect(jsonPath("$.data.total").value(2));
 
-        // 关键字空白 → PARAM_INVALID
+        // 清空关键词恢复公开浏览，仍走公开可见性谓词
         mockMvc.perform(get("/articles/search").param("keyword", "  "))
-                .andExpect(jsonPath("$.code").value("40023"));
+                .andExpect(jsonPath("$.code").value("200"))
+                .andExpect(jsonPath("$.data.effectiveSort").value("newest"));
         mockMvc.perform(get("/articles/search"))
-                .andExpect(jsonPath("$.code").value("40023"));
+                .andExpect(jsonPath("$.code").value("200"));
     }
 
     // ---------- 归档 ----------
