@@ -60,6 +60,7 @@ MySQL/Redis/MinIO 运行完整 Chromium 业务流程。当前两组各覆盖登�
 - 两侧发布与回滚均经过实际网关 smoke，记录前端 SHA、后端不可变镜像/revision、
   schema/checksum、文章/资源/公开接口；后端还断言实际运行 revision 等于认证目标。
 - 两侧 CD 与本机备份共享 `E:\dev\zer0drv\.deployment.lock`，阻止快照期间部署或两仓并发发布。
+- 后端 CD 获取锁时对正常占用最多等待 10 分钟（`DEPLOYMENT_LOCK_TIMEOUT_MS`，默认 600000；`DEPLOYMENT_LOCK_POLL_MS` 默认 2000）。仅重试 EEXIST；超时或其他文件错误会停止部署，保留原锁。只有匹配 owner 的操作能释放锁，禁止按锁年龄自动删除。
   锁被占用时失败而非抢占；失败步骤仍释放自己的锁。进程/机器崩溃留下锁时，先核对
   Actions 与 Docker 状态，确认无现场操作后人工清理，不能按时间盲目抢锁。
 
