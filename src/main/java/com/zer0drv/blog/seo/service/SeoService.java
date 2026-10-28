@@ -10,6 +10,7 @@ import com.rometools.rome.io.FeedException;
 import com.rometools.rome.io.SyndFeedOutput;
 import com.zer0drv.blog.article.api.ArticleCatalog;
 import com.zer0drv.blog.article.api.ArticleFeedEntry;
+import com.zer0drv.blog.article.api.SeriesCatalog;
 import com.zer0drv.blog.custompage.api.PageCatalog;
 import com.zer0drv.blog.common.exception.BusinessException;
 import com.zer0drv.blog.common.response.StatusCode;
@@ -57,6 +58,7 @@ public class SeoService {
     private final UserService userService;
     private final SiteConfigService siteConfigService;
     private final PageCatalog pageCatalog;
+    private final SeriesCatalog seriesCatalog;
 
     /**
      * RSS 2.0 订阅源
@@ -95,6 +97,11 @@ public class SeoService {
         for (var page : pageCatalog.publishedLinks()) {
             xml.append("  <url><loc>").append(escapeXml(baseUrl + "/pages/" + page.slug())).append("</loc>");
             if (page.updateTime() != null) xml.append("<lastmod>").append(page.updateTime().format(SITEMAP_DATE_FORMATTER)).append("</lastmod>");
+            xml.append("</url>\n");
+        }
+        for (var series : seriesCatalog.publishedLinks()) {
+            xml.append("  <url><loc>").append(escapeXml(baseUrl + "/series/" + series.slug())).append("</loc>");
+            if (series.updateTime() != null) xml.append("<lastmod>").append(series.updateTime().format(SITEMAP_DATE_FORMATTER)).append("</lastmod>");
             xml.append("</url>\n");
         }
         xml.append("</urlset>\n");

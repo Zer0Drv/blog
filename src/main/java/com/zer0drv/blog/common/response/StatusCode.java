@@ -73,6 +73,10 @@ public enum StatusCode {
     ARTICLE_PASSWORD_INVALID("40078", "访问口令错误"),
     PAGE_NOT_EXIST("40079", "页面不存在"),
     PAGE_SLUG_EXISTS("40080", "slug 已被其他页面占用"),
+    // 40081–40084 已由 TotpService 使用。
+    SERIES_NOT_EXIST("40085", "系列不存在"),
+    SERIES_SLUG_EXISTS("40086", "slug 已被其他系列占用"),
+    SERIES_CONFLICT("40900", "系列已被其他操作修改，请重新加载后再保存"),
     NOT_AUTHOR("40301", "仅作者本人或管理员可操作"),
     INTERNAL_SERVER_ERROR("50000", "服务器错误");
 

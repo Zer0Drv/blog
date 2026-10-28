@@ -28,6 +28,9 @@ public class ArticleAttachmentReferencesImpl implements ArticleAttachmentReferen
             jdbc.query("SELECT content, cover, summary FROM " + table, (org.springframework.jdbc.core.RowCallbackHandler) row ->
                     references.addAll(AttachmentObjectKeys.references(row.getString(1), row.getString(2), row.getString(3))));
         }
+        // Series have no recycle bin: all retained collections, including drafts, protect their cover.
+        jdbc.query("SELECT cover FROM article_series", (org.springframework.jdbc.core.RowCallbackHandler) row ->
+                references.addAll(AttachmentObjectKeys.references(row.getString(1))));
         int keys = 0;
         try (var cursor = redis.scan(ScanOptions.scanOptions().match("blog:autosave:*").count(200).build())) {
             while (cursor.hasNext()) {
