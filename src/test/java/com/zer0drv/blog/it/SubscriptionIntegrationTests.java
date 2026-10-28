@@ -89,7 +89,7 @@ class SubscriptionIntegrationTests extends IntegrationTestSupport {
         worker.processPending();
         assertEquals(1L, notifications(publicId, reader));
         for (long id : new long[]{privateId, passwordId, draftId}) assertEquals(0L, notifications(id, reader));
-        mockMvc.perform(put("/articles/{id}", publicId).header(HttpHeaders.AUTHORIZATION, bearer)
+        mockMvc.perform(post("/articles/{id}/publish", publicId).with(editRevision(publicId)).header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"title\":\"修改正文\",\"content\":\"修改\",\"editorType\":\"MARKDOWN\",\"status\":\"PUBLISHED\"}"))
                 .andExpect(jsonPath("$.code").value("200"));
         worker.processPending();

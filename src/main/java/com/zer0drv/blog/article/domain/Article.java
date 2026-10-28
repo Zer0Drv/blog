@@ -90,6 +90,10 @@ public class Article {
     @TableField(value = "status")
     private String status;
 
+    /** Editing concurrency token; public view counters and pin/recommend flags do not change it. */
+    @TableField(value = "edit_revision")
+    private Long editRevision;
+
     /**
      * 可见性（V12，issue #15）：PUBLIC / PASSWORD / PRIVATE；与 status 生命周期正交，
      * 仅在「已发布且到点」后决定受众；公众可见性谓词要求 PUBLIC（出处 ArticleVisibility）

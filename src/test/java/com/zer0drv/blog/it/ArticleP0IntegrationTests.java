@@ -21,7 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * article 系 P0 接口级集成测试：版本历史、定时发布可见性、回收站（删除→TRASH→恢复→force）、
  * 搜索 LIKE 兜底（测试 yaml 已配 fulltext-enabled=false）、归档分组、自动保存权限路径。
- * Redis 深桩读恒 null，autosave 只测权限 / 参数 / 响应形态，存储行为由单测覆盖。
+ * Redis 深桩读恒 null；自动保存写持久工作稿，旧 Redis 读取仅作显式恢复来源。
  *
  * @author Yoruhaki
  */
@@ -61,7 +61,7 @@ class ArticleP0IntegrationTests extends IntegrationTestSupport {
         long articleId = publishArticle(bearer, unique("版本文章"));
 
         // 编辑一次：产 1 号快照（更新前的旧行）
-        mockMvc.perform(put("/articles/{id}", articleId)
+        mockMvc.perform(post("/articles/{id}/publish", articleId).with(editRevision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"改版标题\",\"content\":\"改版正文\",\"editorType\":\"MARKDOWN\"}"))
@@ -90,10 +90,11 @@ class ArticleP0IntegrationTests extends IntegrationTestSupport {
                 .andExpect(jsonPath("$.code").value("40067"));
 
         // 恢复到 1 号版本：标题回到旧值，且恢复本身留痕（版本数 1 → 2）
-        mockMvc.perform(post("/articles/{id}/restore/{version}", articleId, 1)
+        mockMvc.perform(post("/articles/{id}/restore/{version}", articleId, 1).param("editRevision", revision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("200"));
+        publishWorkingCopy(articleId, bearer);
         mockMvc.perform(get("/articles/{id}", articleId)
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(jsonPath("$.data.title").value(org.hamcrest.Matchers.not("改版标题")));
@@ -365,7 +366,7 @@ class ArticleP0IntegrationTests extends IntegrationTestSupport {
         }
     }
 
-    // ---------- 自动保存（Redis 深桩，只测权限 / 参数 / 响应形态） ----------
+    // ---------- 持久自动保存与旧 Redis 恢复权限 ----------
 
     @Test
     void autosavePermissionAndValidation() throws Exception {
@@ -374,19 +375,19 @@ class ArticleP0IntegrationTests extends IntegrationTestSupport {
         String bearer = bearerOf(author);
         long articleId = publishArticle(bearer, unique("自动保存文章"));
 
-        // 作者保存草稿：返回 savedAt
-        mockMvc.perform(put("/articles/{id}/autosave", articleId)
+        // 作者自动保存持久工作稿：返回 revision
+        mockMvc.perform(put("/articles/{id}/autosave", articleId).with(editRevision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"草稿\",\"content\":\"草稿正文\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("200"))
-                .andExpect(jsonPath("$.data.savedAt").isNumber());
+                .andExpect(jsonPath("$.data.editRevision").isNumber());
         // Redis 深桩读恒 null → exists:false
         mockMvc.perform(get("/articles/{id}/autosave", articleId)
                         .header(HttpHeaders.AUTHORIZATION, bearer))
                 .andExpect(jsonPath("$.data.exists").value(false));
-        // 正文为空 → 参数校验
+        // 缺少 revision → 参数校验
         mockMvc.perform(put("/articles/{id}/autosave", articleId)
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -395,7 +396,7 @@ class ArticleP0IntegrationTests extends IntegrationTestSupport {
         // 非作者 → 40301；匿名 → 401
         String other = unique("it_auto_other_");
         seedUser(other, "其他作者", "AUTHOR");
-        mockMvc.perform(put("/articles/{id}/autosave", articleId)
+        mockMvc.perform(put("/articles/{id}/autosave", articleId).with(editRevision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearerOf(other))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"x\"}"))

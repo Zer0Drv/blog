@@ -201,7 +201,7 @@ class ArticleSlugIntegrationTests extends IntegrationTestSupport {
         String body = """
                 {"title":"改链文章","content":"c","editorType":"MARKDOWN","status":"PUBLISHED","slug":"%s"}
                 """.formatted(newSlug);
-        mockMvc.perform(put("/articles/{id}", articleId)
+        mockMvc.perform(post("/articles/{id}/publish", articleId).with(editRevision(articleId))
                         .header(HttpHeaders.AUTHORIZATION, bearer)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))

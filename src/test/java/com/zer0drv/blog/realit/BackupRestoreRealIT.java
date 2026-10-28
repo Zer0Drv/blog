@@ -137,7 +137,7 @@ class BackupRestoreRealIT {
             verifyApplication(run, restored, restoredUploads, content, minioUrl);
             report.put("restoreAndVerifyMillis", elapsed(restoreStart));
             report.put("tables", before);
-            report.put("checks", List.of("all table row counts + logical SHA-256", "BCrypt and real HTTP login", "article/category/tag/version/trash/page/comment/subscription/config audit",
+            report.put("checks", List.of("all table row counts + logical SHA-256", "BCrypt and real HTTP login", "article/category/tag/version/working copy/revision/trash/page/comment/subscription/config audit",
                     "local and MinIO attachment references + SHA-256 + anonymous HTTP bytes", "site config", "Flyway validate + migrate no-op",
                     "real public article detail after application restart"));
             report.put("result", "passed");
@@ -175,6 +175,8 @@ class BackupRestoreRealIT {
         db.update("INSERT INTO article(id,title,slug,content,content_text,editor_type,author_id,category_id,status,visibility,publish_time) VALUES(800002,'恢复正文 🧪','restore-public',?,?,'MARKDOWN',800001,800003,'PUBLISHED','PUBLIC',UTC_TIMESTAMP())", content, content);
         db.update("INSERT INTO article_tag(article_id,tag_id) VALUES(800002,800004)");
         db.update("INSERT INTO article_version(article_id,version,title,content,editor_type) VALUES(800002,2,'恢复历史',?,'MARKDOWN')", content);
+        db.update("UPDATE article SET edit_revision=7 WHERE id=800002");
+        db.update("INSERT INTO article_working_copy(article_id,title,slug,summary,content,editor_type,cover,category_id,tag_ids,visibility,publish_time) VALUES(800002,'恢复未发布工作稿','restore-working','尚未发布',?,'MARKDOWN',?,800003,'[800004]','PUBLIC',UTC_TIMESTAMP())", content + "\n未发布修改", minioUrl);
         db.update("INSERT INTO article(id,title,slug,content,editor_type,author_id,deleted) VALUES(800007,'回收站','restore-trash',?,'MARKDOWN',800001,1)", content);
         for (String storage : List.of("LOCAL", "MINIO")) {
             boolean local = storage.equals("LOCAL");
@@ -195,6 +197,9 @@ class BackupRestoreRealIT {
         assertEquals(content, db.queryForObject("SELECT content FROM article WHERE id=800002 AND category_id=800003 AND status='PUBLISHED' AND visibility='PUBLIC'", String.class));
         assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM article_tag atg JOIN tag t ON t.id=atg.tag_id WHERE atg.article_id=800002 AND t.name='恢复标签'", Integer.class));
         assertEquals(content, db.queryForObject("SELECT content FROM article_version WHERE article_id=800002 AND version=2", String.class));
+        assertEquals(7L, db.queryForObject("SELECT edit_revision FROM article WHERE id=800002", Long.class));
+        assertEquals(content + "\n未发布修改", db.queryForObject("SELECT content FROM article_working_copy WHERE article_id=800002", String.class));
+        assertEquals("[800004]", db.queryForObject("SELECT tag_ids FROM article_working_copy WHERE article_id=800002", String.class));
         assertEquals(1, db.queryForObject("SELECT deleted FROM article WHERE id=800007", Integer.class));
         assertEquals("恢复站点 🧪", db.queryForObject("SELECT config_value FROM site_config WHERE config_key='site.name'", String.class));
         assertEquals(minioUrl, db.queryForObject("SELECT url FROM attachment WHERE object_key=? AND storage='MINIO'", String.class, MINIO_KEY));
@@ -221,6 +226,14 @@ class BackupRestoreRealIT {
             assertEquals(200, login.statusCode());
             assertEquals(200, mapper.readTree(login.body()).path("code").asInt(-1), login.body());
             assertTrue(login.headers().allValues("set-cookie").stream().anyMatch(value -> value.startsWith("AUTH_TOKEN=")));
+            String authCookie = login.headers().allValues("set-cookie").stream().filter(value -> value.startsWith("AUTH_TOKEN=")).findFirst().orElseThrow().split(";", 2)[0];
+            var editing = http.send(HttpRequest.newBuilder(URI.create(origin + "/articles/800002/editing")).header("Cookie", authCookie)
+                    .timeout(Duration.ofSeconds(10)).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, editing.statusCode());
+            var workingCopy = mapper.readTree(editing.body()).path("data");
+            assertEquals(7L, workingCopy.path("editRevision").asLong());
+            assertTrue(workingCopy.path("hasWorkingCopy").asBoolean());
+            assertEquals(content + "\n未发布修改", workingCopy.path("content").asString());
             var article = http.send(HttpRequest.newBuilder(URI.create(origin + "/articles/800002")).timeout(Duration.ofSeconds(10)).build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, article.statusCode());
             assertEquals(content, mapper.readTree(article.body()).path("data").path("content").asText(), article.body());

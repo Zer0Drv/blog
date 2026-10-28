@@ -7,6 +7,7 @@ import com.zer0drv.blog.article.dto.AutosaveDTO;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleAccessVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
+import com.zer0drv.blog.article.vo.ArticleEditingVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.article.vo.ArticleSearchResultVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
@@ -62,7 +63,10 @@ public interface ArticleService {
     /**
      * 编辑文章（仅本人或 ADMIN）
      */
-    void update(Long id, ArticleSaveDTO dto, Jwt jwt);
+    ArticleEditingVO update(Long id, ArticleSaveDTO dto, Jwt jwt);
+    ArticleEditingVO getEditing(Long id, Jwt jwt);
+    ArticleEditingVO publish(Long id, ArticleSaveDTO dto, Jwt jwt);
+    ArticleEditingVO discardWorkingCopy(Long id, Long editRevision, Jwt jwt);
 
     /**
      * 删除文章（仅本人或 ADMIN，逻辑删除入回收站；P0 起不再级联清关联，保证可恢复）
@@ -107,17 +111,17 @@ public interface ArticleService {
 
     /**
      * 恢复到指定版本（仅本人或 ADMIN）：覆盖标题 / 摘要 / 正文 / 编辑器类型 / 封面 / 分类，
-     * status 与 publishTime 不动；覆盖前对当前行产一个新快照（恢复也留痕）
+     * status 与 publishTime 不动；已发布文章仅写工作稿，正式更新时才快照旧生效稿。
      */
-    void restoreVersion(Long id, Integer version, Jwt jwt);
+    ArticleEditingVO restoreVersion(Long id, Integer version, Long editRevision, Jwt jwt);
 
     /**
-     * 自动保存草稿（仅本人或 ADMIN，仅编辑已有文章）：存 Redis，TTL 2 小时，返回 {savedAt}
+     * 自动保存持久工作稿（仅本人或 ADMIN）：校验 revision，允许空标题/正文，不产生版本快照。
      */
-    Map<String, Object> saveAutosave(Long id, AutosaveDTO dto, Jwt jwt);
+    ArticleEditingVO saveAutosave(Long id, AutosaveDTO dto, Jwt jwt);
 
     /**
-     * 读取自动保存草稿（仅本人或 ADMIN）：不存在返回 {exists:false}
+     * 读取旧版 Redis 自动保存（仅本人或 ADMIN）：显式迁移来源，不存在返回 {exists:false}
      */
     Map<String, Object> getAutosave(Long id, Jwt jwt);
 

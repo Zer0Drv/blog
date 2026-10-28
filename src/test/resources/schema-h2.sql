@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS `article`
     `category_id`    BIGINT       NULL COMMENT '分类id',
     `author_id`      BIGINT       NOT NULL COMMENT '作者id',
     `status`         VARCHAR(16)  NOT NULL DEFAULT 'DRAFT' COMMENT '状态：DRAFT/PUBLISHED/OFFLINE',
+    `edit_revision`  BIGINT NOT NULL DEFAULT 0,
     `visibility`     VARCHAR(16)  NOT NULL DEFAULT 'PUBLIC' COMMENT '可见性：PUBLIC/PASSWORD/PRIVATE（V12）',
     `access_password_hash` VARCHAR(100) NULL COMMENT '口令保护访问口令（BCrypt 哈希，V12）',
     `publish_time`   DATETIME     NULL COMMENT '首次发布时间',
@@ -445,6 +446,22 @@ CREATE TABLE IF NOT EXISTS owner_operation_audit (
 );
 
 -- V21: ordered author-owned article series, physically deleted as a collection.
+CREATE TABLE IF NOT EXISTS article_working_copy (
+  article_id BIGINT NOT NULL PRIMARY KEY,
+  title VARCHAR(200) NOT NULL DEFAULT '',
+  slug VARCHAR(200) NOT NULL,
+  summary VARCHAR(500) NOT NULL DEFAULT '',
+  content LONGTEXT NOT NULL,
+  editor_type VARCHAR(16) NOT NULL,
+  cover VARCHAR(512) NOT NULL DEFAULT '',
+  category_id BIGINT NULL,
+  tag_ids LONGTEXT NOT NULL,
+  visibility VARCHAR(16) NOT NULL,
+  access_password_hash VARCHAR(100) NULL,
+  publish_time DATETIME NULL,
+  update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS article_series (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     owner_id BIGINT NOT NULL,

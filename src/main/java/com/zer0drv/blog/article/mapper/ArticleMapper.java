@@ -17,6 +17,16 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface ArticleMapper extends BaseMapper<Article> {
 
+    @Select("SELECT * FROM article WHERE id = #{id} AND deleted = 0 FOR UPDATE")
+    Article selectForUpdate(@Param("id") Long id);
+
+    @Select("SELECT * FROM article WHERE id = #{id} FOR UPDATE")
+    Article selectAnyForUpdate(@Param("id") Long id);
+
+    // Updating an editing token must not change the effective publication's timestamp.
+    @Update("UPDATE article SET edit_revision=edit_revision+1, update_time=update_time WHERE id=#{id} AND edit_revision=#{revision}")
+    int advanceEditRevision(@Param("id") Long id, @Param("revision") Long revision);
+
     /**
      * 作者本人回收站分页（P0）。MP 逻辑删除会自动拼 deleted=0，回收站必须手写 SQL 绕过
      */
@@ -61,7 +71,7 @@ public interface ArticleMapper extends BaseMapper<Article> {
     /**
      * 从回收站恢复：置 deleted=0 且回草稿态（不直接上线）
      */
-    @Update("UPDATE article SET deleted = 0, status = 'DRAFT' WHERE id = #{id} AND deleted = 1")
+    @Update("UPDATE article SET deleted = 0, status = 'DRAFT', edit_revision=edit_revision+1 WHERE id = #{id} AND deleted = 1")
     int restoreDeleted(@Param("id") Long id);
 
     /**

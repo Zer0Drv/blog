@@ -61,7 +61,8 @@ MinIO 临时目录的 uid/gid 与既有镜像用户匹配，不需要修改开�
 | 登录/吊销 | HTTP 登录与 HttpOnly Cookie、Redis 用户 token 索引/TTL、登出黑名单、用户全部 token 吊销 |
 | 验证码 | 失败计数及 TTL、HTTP 获取验证码、正确登录消费验证码、不可复用、真实 Redis TTL 到期 |
 | 附件 | multipart 上传到 MinIO、匿名下载字节一致、移出库不立即删对象、到期复检/物理删除/回收字节 |
-| 草稿保护 | 真实 HTTP 自动保存落 Redis，草稿单独引用的 MinIO 对象不能被到期删除 |
+| 草稿保护 | 真实 HTTP 自动保存持久写入 MySQL 工作稿，工作稿单独引用的 MinIO 对象不能被到期删除；兼容旧 Redis 草稿引用 |
+| 修改草稿 | `ArticleWorkingDraftRealIT` 验证公开出口隔离、并发修订冲突、发布事务回滚、权限、密码/私密/定时、恢复与放弃、旧 Redis 恢复及附件保护 |
 | 系统参数 | 重启型存储配置修改不能把当前运行实例的上传改路由到新后端 |
 | 搜索 | 真正 `MATCH...AGAINST`/ngram 索引；草稿、私密、口令、定时、回收站、下架文章均不进入公开搜索 |
 | WebSocket | 真实握手/心跳、登出后关闭连接，吊销 Cookie 再次握手失败 |

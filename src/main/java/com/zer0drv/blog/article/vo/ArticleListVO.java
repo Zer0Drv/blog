@@ -57,6 +57,10 @@ public class ArticleListVO {
      */
     private Boolean visible;
 
+    /** Only populated by the authenticated owner list. */
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private Boolean hasWorkingCopy;
+
     /**
      * 编辑器类型：MARKDOWN / RICHTEXT（前端列表行内导出按它决定 md/html）
      */

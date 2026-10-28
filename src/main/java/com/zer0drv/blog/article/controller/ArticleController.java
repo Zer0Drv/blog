@@ -9,6 +9,7 @@ import com.zer0drv.blog.article.transfer.ArticleTransferService;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleAccessVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
+import com.zer0drv.blog.article.vo.ArticleEditingVO;
 import com.zer0drv.blog.article.vo.ArticleExportVO;
 import com.zer0drv.blog.article.vo.ArticleImportResultVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
@@ -233,14 +234,33 @@ public class ArticleController {
     }
 
     /**
-     * 编辑文章（仅本人或 ADMIN）
+     * 保存编辑内容：已发布文章写工作稿，非公开文章直接保存（仅本人或 ADMIN）
      */
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
-    public Result<Void> update(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+    public Result<ArticleEditingVO> update(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
                                @RequestBody @Valid ArticleSaveDTO dto) {
-        articleService.update(id, dto, jwt);
-        return Result.ok();
+        return Result.ok(articleService.update(id, dto, jwt));
+    }
+
+    @GetMapping("/{id}/editing")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<ArticleEditingVO> editing(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id) {
+        return Result.ok(articleService.getEditing(id, jwt));
+    }
+
+    @PostMapping("/{id}/publish")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<ArticleEditingVO> publish(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                                           @RequestBody @Valid ArticleSaveDTO dto) {
+        return Result.ok(articleService.publish(id, dto, jwt));
+    }
+
+    @DeleteMapping("/{id}/working-copy")
+    @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
+    public Result<ArticleEditingVO> discardWorkingCopy(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                                                       @RequestParam Long editRevision) {
+        return Result.ok(articleService.discardWorkingCopy(id, editRevision, jwt));
     }
 
     /**
@@ -284,28 +304,27 @@ public class ArticleController {
     }
 
     /**
-     * 恢复到指定版本（P0，仅本人或 ADMIN；恢复前对当前行留快照）
+     * 恢复指定历史内容；已发布文章写工作稿，非公开文章更新前留快照。
      */
     @PostMapping("/{id}/restore/{version}")
     @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
-    public Result<Void> restoreVersion(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
-                                       @PathVariable Integer version) {
-        articleService.restoreVersion(id, version, jwt);
-        return Result.ok();
+    public Result<ArticleEditingVO> restoreVersion(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+                                       @PathVariable Integer version, @RequestParam Long editRevision) {
+        return Result.ok(articleService.restoreVersion(id, version, editRevision, jwt));
     }
 
     /**
-     * 自动保存草稿（P0，仅本人或 ADMIN，仅编辑已有文章）
+     * 持久化自动保存工作稿（仅本人或 ADMIN，校验 editRevision）
      */
     @PutMapping("/{id}/autosave")
     @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")
-    public Result<Map<String, Object>> saveAutosave(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
+    public Result<ArticleEditingVO> saveAutosave(@AuthenticationPrincipal Jwt jwt, @PathVariable Long id,
                                                     @RequestBody @Valid AutosaveDTO dto) {
         return Result.ok(articleService.saveAutosave(id, dto, jwt));
     }
 
     /**
-     * 读取自动保存草稿（P0，仅本人或 ADMIN）
+     * 读取旧版 Redis 自动保存，供显式恢复（仅本人或 ADMIN）
      */
     @GetMapping("/{id}/autosave")
     @PreAuthorize("hasAnyRole('ADMIN','AUTHOR')")

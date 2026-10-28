@@ -119,6 +119,7 @@ class ArticleServiceImplTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private ArticleServiceImpl articleService;
+    private com.zer0drv.blog.article.mapper.ArticleWorkingCopyRepository workingCopies;
 
     @BeforeAll
     static void initTableInfo() {
@@ -143,6 +144,15 @@ class ArticleServiceImplTest {
                 passwordEncoder, eventPublisher));
         ReflectionTestUtils.setField(articleService, "baseMapper", articleMapper);
         ReflectionTestUtils.setField(articleService, "fulltextEnabled", false);
+        workingCopies = mock(com.zer0drv.blog.article.mapper.ArticleWorkingCopyRepository.class);
+        ReflectionTestUtils.setField(articleService, "workingCopies", workingCopies);
+        org.mockito.Mockito.lenient().when(articleMapper.selectForUpdate(anyLong())).thenAnswer(call -> articleService.getById((Long) call.getArgument(0)));
+        org.mockito.Mockito.lenient().when(articleMapper.selectAnyForUpdate(anyLong())).thenAnswer(call -> {
+            Article any = articleMapper.selectAnyById(call.getArgument(0));
+            return any == null ? articleMapper.selectDeletedById(call.getArgument(0)) : any;
+        });
+        org.mockito.Mockito.lenient().when(articleMapper.advanceEditRevision(anyLong(), anyLong())).thenReturn(1);
+
         org.springframework.test.util.ReflectionTestUtils.setField(articleService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
@@ -168,6 +178,9 @@ class ArticleServiceImplTest {
     private static Article draftArticle(long id, long authorId) {
         Article article = new Article();
         article.setId(id);
+        article.setEditRevision(0L);
+        article.setSlug("post-" + id);
+        article.setVisibility("PUBLIC");
         article.setAuthorId(authorId);
         article.setTitle("旧标题");
         article.setSummary("旧摘要");
@@ -180,6 +193,7 @@ class ArticleServiceImplTest {
 
     private static ArticleSaveDTO saveDto(String title, String content, String status) {
         ArticleSaveDTO dto = new ArticleSaveDTO();
+        dto.setEditRevision(0L);
         dto.setTitle(title);
         dto.setContent(content);
         dto.setEditorType(EditorType.MARKDOWN.name());
@@ -244,7 +258,7 @@ class ArticleServiceImplTest {
         ArticleSaveDTO dto = saveDto("t", "c", "PUBLISHED");
         dto.setPublishTime(future);
 
-        articleService.update(10L, dto, jwtOf(1L));
+        articleService.publish(10L, dto, jwtOf(1L));
 
         ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
         verify(articleService).updateById(captor.capture());
@@ -259,7 +273,7 @@ class ArticleServiceImplTest {
         dto.setPublishTime(LocalDateTime.now().plusSeconds(10));
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> articleService.update(10L, dto, jwtOf(1L)));
+                () -> articleService.publish(10L, dto, jwtOf(1L)));
         assertEquals(StatusCode.PARAM_INVALID.getCode(), e.getCode());
         assertEquals("定时发布时间必须晚于当前时间", e.getMessage());
     }
@@ -276,12 +290,60 @@ class ArticleServiceImplTest {
         ArticleSaveDTO dto = saveDto("t", "c", "PUBLISHED");
         dto.setPublishTime(LocalDateTime.now().plusDays(3));
 
-        articleService.update(10L, dto, jwtOf(1L));
+        articleService.publish(10L, dto, jwtOf(1L));
 
         ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
         verify(articleService).updateById(captor.capture());
         // 已上线文章不可改档期，publishTime 保持原值
         assertEquals(liveSince, captor.getValue().getPublishTime());
+    }
+
+    @Test
+    void publishOfflineWithoutSchedulePreservesOriginalPublicationTime() {
+        Article old = draftArticle(10L, 1L);
+        old.setStatus("OFFLINE");
+        LocalDateTime original = LocalDateTime.now().minusDays(3);
+        old.setPublishTime(original);
+        doReturn(old).when(articleService).getById(10L);
+        doReturn(true).when(articleService).updateById(any(Article.class));
+        var result = articleService.publish(10L, saveDto("新标题", "正文", "PUBLISHED"), jwtOf(1L));
+        assertEquals("PUBLISHED", result.getActiveStatus());
+        assertEquals(original, result.getActivePublishTime());
+    }
+
+    @Test
+    void publishedSaveKeepsEffectiveFieldsAndDoesNotCreateVersionOrNotification() {
+        Article old = draftArticle(10L, 1L);
+        old.setStatus("PUBLISHED");
+        LocalDateTime original = LocalDateTime.now().minusDays(3);
+        old.setPublishTime(original);
+        old.setUpdateTime(original);
+        doReturn(old).when(articleService).getById(10L);
+        articleService.update(10L, saveDto("待审标题", "待审正文", "DRAFT"), jwtOf(1L));
+        assertEquals("旧标题", old.getTitle());
+        assertEquals("PUBLISHED", old.getStatus());
+        assertEquals(original, old.getPublishTime());
+        assertEquals(original, old.getUpdateTime());
+        verify(workingCopies).replace(any(Article.class), eq(List.of()));
+        verify(articleService, never()).updateById(any(Article.class));
+        verify(articleVersionMapper, never()).insert(any(ArticleVersion.class));
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void staleAndMissingRevisionRejectWithoutWritingAnything() {
+        Article old = draftArticle(10L, 1L);
+        old.setEditRevision(3L);
+        doReturn(old).when(articleService).getById(10L);
+        var dto = saveDto("覆盖", "过期正文", "PUBLISHED");
+        assertEquals("40901", assertThrows(BusinessException.class,
+                () -> articleService.publish(10L, dto, jwtOf(1L))).getCode());
+        dto.setEditRevision(null);
+        assertEquals("40023", assertThrows(BusinessException.class,
+                () -> articleService.update(10L, dto, jwtOf(1L))).getCode());
+        verify(workingCopies, never()).replace(any(), any());
+        verify(articleService, never()).updateById(any(Article.class));
+        verify(articleVersionMapper, never()).insert(any(ArticleVersion.class));
     }
 
     @Test
@@ -313,7 +375,7 @@ class ArticleServiceImplTest {
                 .thenReturn(target, (ArticleVersion) null);
         doReturn(true).when(articleService).updateById(any(Article.class));
 
-        articleService.restoreVersion(10L, 3, jwtOf(1L));
+        articleService.restoreVersion(10L, 3, 0L, jwtOf(1L));
 
         // 恢复也留痕：先快照当前行
         ArgumentCaptor<ArticleVersion> snapshotCaptor = ArgumentCaptor.forClass(ArticleVersion.class);
@@ -356,19 +418,18 @@ class ArticleServiceImplTest {
     }
 
     @Test
-    void saveAutosave_writesRedisWithTtlAndReturnsSavedAt() {
+    void saveAutosave_persistsWorkingCopyAndAdvancesRevisionWithoutRedisOrPublication() {
         Article article = draftArticle(10L, 1L);
         doReturn(article).when(articleService).getById(10L);
-        ValueOperations<String, String> ops = mock(ValueOperations.class);
-        when(stringRedisTemplate.opsForValue()).thenReturn(ops);
         AutosaveDTO dto = new AutosaveDTO();
+        dto.setEditRevision(0L);
         dto.setTitle("草稿标题");
         dto.setContent("草稿正文");
-
-        Map<String, Object> result = articleService.saveAutosave(10L, dto, jwtOf(1L));
-
-        assertTrue(result.containsKey("savedAt"));
-        verify(ops).set(eq("blog:autosave:10:1"), anyString(), eq(Duration.ofHours(2)));
+        var result = articleService.saveAutosave(10L, dto, jwtOf(1L));
+        assertEquals(1L, result.getEditRevision());
+        verify(workingCopies).replace(any(Article.class), eq(List.of()));
+        verify(articleVersionMapper, never()).insert(any(ArticleVersion.class));
+        verify(stringRedisTemplate, never()).opsForValue();
     }
 
     @Test
@@ -441,6 +502,7 @@ class ArticleServiceImplTest {
 
         // 非作者不可恢复
         Article trashed = draftArticle(10L, 1L);
+        trashed.setDeleted((short) 1);
         when(articleMapper.selectDeletedById(10L)).thenReturn(trashed);
         BusinessException e2 = assertThrows(BusinessException.class,
                 () -> articleService.restore(10L, jwtOf(2L)));
@@ -652,7 +714,7 @@ class ArticleServiceImplTest {
 
         articleService.update(10L, dto, jwtOf(1L));
 
-        // 与现值相同直接短路，不触发唯一性查询
+        // 未变更的 slug 已被当前生效稿占用，无需再次查询。
         verify(articleMapper, never()).selectIdBySlugAny(anyString());
     }
 
@@ -1046,7 +1108,7 @@ class ArticleServiceImplTest {
         when(passwordEncoder.encode("newpass1")).thenReturn("$2a$new");
         ArticleSaveDTO dto = saveDto("标题", "正文", "DRAFT");
         dto.setAccessPassword("newpass1");
-        articleService.update(10L, dto, jwtOf(1L));
+        articleService.publish(10L, dto, jwtOf(1L));
         assertEquals("PASSWORD", old.getVisibility());
         assertEquals("$2a$new", old.getAccessPasswordHash());
     }

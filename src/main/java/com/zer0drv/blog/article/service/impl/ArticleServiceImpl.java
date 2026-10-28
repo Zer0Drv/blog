@@ -25,11 +25,13 @@ import com.zer0drv.blog.article.enums.EditorType;
 import com.zer0drv.blog.article.mapper.ArticleMapper;
 import com.zer0drv.blog.article.mapper.ArticleTagMapper;
 import com.zer0drv.blog.article.mapper.ArticleVersionMapper;
+import com.zer0drv.blog.article.mapper.ArticleWorkingCopyRepository;
 import com.zer0drv.blog.article.service.ArticleService;
 import com.zer0drv.blog.article.vo.ArchiveMonthVO;
 import com.zer0drv.blog.article.vo.ArticleAccessVO;
 import com.zer0drv.blog.article.vo.ArticleAuthorVO;
 import com.zer0drv.blog.article.vo.ArticleDetailVO;
+import com.zer0drv.blog.article.vo.ArticleEditingVO;
 import com.zer0drv.blog.article.vo.ArticleListVO;
 import com.zer0drv.blog.article.vo.ArticleSearchResultVO;
 import com.zer0drv.blog.article.vo.ArticleVersionDetailVO;
@@ -60,6 +62,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.beans.BeanUtils;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
@@ -88,6 +93,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
     @org.springframework.beans.factory.annotation.Autowired
     private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ArticleWorkingCopyRepository workingCopies;
 
     /**
      * 摘要缺省长度：取 content 纯文本前 200 字
@@ -100,10 +107,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     private static final long SCHEDULE_MIN_LEAD_SECONDS = 60;
 
     /**
-     * 自动保存草稿 Redis 键：blog:autosave:{articleId}:{userId}，TTL 2 小时
+     * 旧版自动保存 Redis 键：只读恢复来源，成功提交后清理
      */
     private static final String AUTOSAVE_KEY = "blog:autosave:%d:%d";
-    private static final Duration AUTOSAVE_TTL = Duration.ofHours(2);
 
     /**
      * 归档月份格式：yyyy-MM
@@ -323,6 +329,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         attachmentReferences.protect(dto.getContent(), dto.getCover(), dto.getSummary());
         validateSaveDTO(dto);
         Article article = new Article();
+        article.setEditRevision(0L);
         article.setTitle(dto.getTitle());
         // 存储型 XSS 防线（blog-ui#9 后端部分）：RICHTEXT 内容入库前白名单清洗
         String content = sanitizeContent(dto.getContent(), dto.getEditorType());
@@ -357,77 +364,185 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public ArticleEditingVO getEditing(Long id, Jwt jwt) {
+        Article active = requireArticle(id);
+        assertAuthorOrAdmin(active, jwt);
+        return editingView(active, workingCopies.find(id));
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
-    public void update(Long id, ArticleSaveDTO dto, Jwt jwt) {
-        // Saving also creates an old-content version, even when the incoming body has no images.
+    public ArticleEditingVO update(Long id, ArticleSaveDTO dto, Jwt jwt) {
         attachmentReferences.lock();
-        attachmentReferences.protect(dto.getContent(), dto.getCover(), dto.getSummary());
-        Article article = requireArticle(id);
-        assertAuthorOrAdmin(article, jwt);
+        Article active = lockedArticle(id, jwt);
+        assertEditRevision(active, dto.getEditRevision());
         validateSaveDTO(dto);
-        // P0 版本历史：先把更新前的整行快照为新版本（同事务；create/updateStatus 不产快照）
-        snapshotVersion(article);
-        article.setTitle(dto.getTitle());
-        // 存储型 XSS 防线（blog-ui#9 后端部分）：RICHTEXT 内容入库前白名单清洗
-        String content = sanitizeContent(dto.getContent(), dto.getEditorType());
-        article.setContent(content);
-        article.setContentText(toPlainText(content));
-        article.setEditorType(dto.getEditorType());
-        article.setSummary(resolveSummary(dto));
-        article.setCover(Objects.isNull(dto.getCover()) ? "" : dto.getCover());
-        article.setCategoryId(dto.getCategoryId());
-        // slug 固定链接（issue #14）：显式指定且与现值不同才校验唯一性并更新；
-        // 留空 = 保持现状（不重新生成，已分享出去的固定链接不因编辑正文而漂移）
-        if (Objects.nonNull(dto.getSlug()) && !dto.getSlug().isBlank()) {
+        Article editable = applyEditable(active, dto, false);
+        attachmentReferences.protect(editable.getContent(), editable.getCover(), editable.getSummary());
+        if (ArticleStatus.PUBLISHED.name().equals(active.getStatus())) {
+            saveWorkingCopy(active, editable, dto.getTagIds());
+        } else {
+            writeEffective(active, editable, dto.getTagIds(), false);
+        }
+        deleteAutosaveAfterCommit(id, JwtSubjects.userIdOf(jwt));
+        return editingView(active, workingCopies.find(id));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ArticleEditingVO publish(Long id, ArticleSaveDTO dto, Jwt jwt) {
+        attachmentReferences.lock();
+        Article active = lockedArticle(id, jwt);
+        assertEditRevision(active, dto.getEditRevision());
+        validateSaveDTO(dto);
+        Article editable = applyEditable(active, dto, false);
+        attachmentReferences.protect(editable.getContent(), editable.getCover(), editable.getSummary());
+        editable.setStatus(ArticleStatus.PUBLISHED.name());
+        if (!ArticleStatus.PUBLISHED.name().equals(active.getStatus())) {
+            if (active.getPublishTime() == null) editable.setPublishTime(resolvePublishTimeOnPublish(dto.getPublishTime()));
+            else if (active.getPublishTime().isAfter(LocalDateTime.now()) && dto.getPublishTime() != null)
+                editable.setPublishTime(resolvePublishTimeOnPublish(dto.getPublishTime()));
+            else editable.setPublishTime(active.getPublishTime());
+        } else editable.setPublishTime(active.getPublishTime());
+        writeEffective(active, editable, dto.getTagIds(), true);
+        deleteAutosaveAfterCommit(id, JwtSubjects.userIdOf(jwt));
+        return editingView(active, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ArticleEditingVO discardWorkingCopy(Long id, Long editRevision, Jwt jwt) {
+        Article active = lockedArticle(id, jwt);
+        assertEditRevision(active, editRevision);
+        workingCopies.delete(id);
+        advanceEditRevision(active);
+        deleteAutosaveAfterCommit(id, JwtSubjects.userIdOf(jwt));
+        return editingView(active, null);
+    }
+
+    private Article lockedArticle(Long id, Jwt jwt) {
+        Article article = baseMapper.selectForUpdate(id);
+        if (article == null) throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
+        assertAuthorOrAdmin(article, jwt);
+        return article;
+    }
+
+    private static long editRevision(Article article) {
+        return article.getEditRevision() == null ? 0 : article.getEditRevision();
+    }
+
+    private static void assertEditRevision(Article article, Long expected) {
+        if (expected == null || expected < 0)
+            throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "编辑已有文章必须携带非负 editRevision，请重新加载编辑器");
+        if (editRevision(article) != expected) throw new BusinessException(StatusCode.ARTICLE_EDIT_CONFLICT);
+    }
+
+    private void advanceEditRevision(Article article) {
+        long revision = editRevision(article);
+        if (baseMapper.advanceEditRevision(article.getId(), revision) != 1)
+            throw new BusinessException(StatusCode.ARTICLE_EDIT_CONFLICT);
+        article.setEditRevision(revision + 1);
+    }
+
+    private Article effectiveEditable(Article active, ArticleWorkingCopyRepository.Copy copy) {
+        Article result = new Article();
+        BeanUtils.copyProperties(active, result);
+        if (copy != null) copyEditable(copy.article(), result);
+        return result;
+    }
+
+    private void copyEditable(Article source, Article target) {
+        target.setTitle(source.getTitle()); target.setSlug(source.getSlug()); target.setSummary(source.getSummary());
+        target.setContent(source.getContent()); target.setEditorType(source.getEditorType()); target.setCover(source.getCover());
+        target.setCategoryId(source.getCategoryId()); target.setVisibility(source.getVisibility());
+        target.setAccessPasswordHash(source.getAccessPasswordHash()); target.setPublishTime(source.getPublishTime());
+    }
+
+    private Article applyEditable(Article active, ArticleSaveDTO dto, boolean incomplete) {
+        Article editable = effectiveEditable(active, workingCopies.find(active.getId()));
+        editable.setTitle(dto.getTitle() == null ? "" : dto.getTitle());
+        editable.setContent(sanitizeContent(dto.getContent() == null ? "" : dto.getContent(), dto.getEditorType()));
+        editable.setContentText(toPlainText(editable.getContent()));
+        editable.setEditorType(dto.getEditorType());
+        editable.setSummary(incomplete ? (dto.getSummary() == null ? "" : dto.getSummary()) : resolveSummary(dto));
+        editable.setCover(dto.getCover() == null ? "" : dto.getCover());
+        editable.setCategoryId(dto.getCategoryId());
+        if (dto.getSlug() != null && !dto.getSlug().isBlank()) {
             String slug = dto.getSlug().trim();
             assertSlugFormat(slug);
-            if (!slug.equals(article.getSlug())) {
-                assertSlugAvailable(slug, id);
-                article.setSlug(slug);
-            }
+            editable.setSlug(slug);
         }
-        // 可见性（issue #15）：留空 = 保持现状；PASSWORD 无既有口令时必须随本次设置新口令；
-        // 切回 PUBLIC / PRIVATE 时清空口令哈希（口令不残留在库）
-        boolean clearPasswordHash = false;
-        if ((Objects.nonNull(dto.getVisibility()) && !dto.getVisibility().isBlank())
-                || (Objects.nonNull(dto.getAccessPassword()) && !dto.getAccessPassword().isBlank())) {
-            String visibility = Objects.isNull(dto.getVisibility()) || dto.getVisibility().isBlank()
-                    ? article.getVisibility() : resolveVisibility(dto.getVisibility());
-            dto.setVisibility(visibility);
-            String passwordHash = resolvePasswordHash(dto, article);
-            article.setVisibility(visibility);
-            article.setAccessPasswordHash(passwordHash);
-            // MP updateById 默认 NOT_NULL 策略写不进 null，清哈希需随后显式 set null
-            clearPasswordHash = Objects.isNull(passwordHash);
+        if (editable.getSlug() == null) editable.setSlug("post-" + active.getId());
+        String visibility = dto.getVisibility() == null || dto.getVisibility().isBlank()
+                ? (editable.getVisibility() == null ? Visibility.PUBLIC.name() : editable.getVisibility()) : resolveVisibility(dto.getVisibility());
+        dto.setVisibility(visibility);
+        boolean emptyPassword = dto.getAccessPassword() == null || dto.getAccessPassword().isBlank();
+        if (incomplete && Visibility.PASSWORD.name().equals(visibility) && emptyPassword
+                && (editable.getAccessPasswordHash() == null || editable.getAccessPasswordHash().isBlank())) {
+            editable.setAccessPasswordHash(null);
+        } else editable.setAccessPasswordHash(resolvePasswordHash(dto, editable));
+        editable.setVisibility(visibility);
+        // Saving a working copy never reschedules an existing publication.
+        editable.setPublishTime(ArticleStatus.PUBLISHED.name().equals(active.getStatus())
+                ? active.getPublishTime() : (dto.getPublishTime() == null ? active.getPublishTime() : dto.getPublishTime()));
+        return editable;
+    }
+
+    private static List<Long> normalizedTags(List<Long> ids) {
+        return ids == null ? List.of() : ids.stream().distinct().toList();
+    }
+
+    private void saveWorkingCopy(Article active, Article editable, List<Long> tagIds) {
+        workingCopies.replace(editable, normalizedTags(tagIds));
+        advanceEditRevision(active);
+    }
+
+    private void writeEffective(Article active, Article editable, List<Long> tagIds, boolean publishing) {
+        if (!Objects.equals(editable.getSlug(), active.getSlug()))
+            assertSlugAvailable(editable.getSlug(), active.getId());
+        snapshotVersion(active);
+        editable.setEditRevision(editRevision(active) + 1);
+        editable.setUpdateTime(LocalDateTime.now().withNano(0));
+        if (!publishing) {
+            editable.setStatus(active.getStatus());
+            editable.setPublishTime(active.getPublishTime());
         }
-        if (Objects.nonNull(dto.getStatus()) && !dto.getStatus().isBlank()) {
-            String status = resolveSaveStatus(dto.getStatus());
-            article.setStatus(status);
-            if (ArticleStatus.PUBLISHED.name().equals(status)) {
-                if (Objects.isNull(article.getPublishTime())) {
-                    // 首次发布：写发布时间（可定时）
-                    article.setPublishTime(resolvePublishTimeOnPublish(dto.getPublishTime()));
-                } else if (article.getPublishTime().isAfter(LocalDateTime.now())
-                        && Objects.nonNull(dto.getPublishTime())) {
-                    // 定时中（未上线）：允许改档期；已上线（publish_time <= now）的文章忽略 DTO 的 publishTime，不可改档期
-                    article.setPublishTime(resolvePublishTimeOnPublish(dto.getPublishTime()));
-                }
-            }
+        // These two nullable fields are explicitly cleared; other partial updates retain their semantics.
+        try {
+            updateById(editable);
+        } catch (org.springframework.dao.DuplicateKeyException duplicate) {
+            throw new BusinessException(StatusCode.ARTICLE_SLUG_EXISTS);
         }
-        updateById(article);
-        // 完整保存的 null 分类表示清空；与口令清理共用显式 NULL 更新，
-        // 保留实体默认 NOT_NULL 策略，避免其他局部更新意外清空分类。
-        boolean clearCategory = Objects.isNull(article.getCategoryId());
-        if (clearPasswordHash || clearCategory) {
+        if (editable.getCategoryId() == null || editable.getAccessPasswordHash() == null)
             baseMapper.update(null, Wrappers.lambdaUpdate(Article.class)
-                    .set(clearPasswordHash, Article::getAccessPasswordHash, null)
-                    .set(clearCategory, Article::getCategoryId, null)
-                    .eq(Article::getId, id));
+                    .set(editable.getCategoryId() == null, Article::getCategoryId, null)
+                    .set(editable.getAccessPasswordHash() == null, Article::getAccessPasswordHash, null)
+                    .eq(Article::getId, active.getId()));
+        replaceTagRelations(active.getId(), tagIds);
+        workingCopies.delete(active.getId());
+        BeanUtils.copyProperties(editable, active);
+        if (publishing) queuePublication(active);
+    }
+
+    private ArticleEditingVO editingView(Article active, ArticleWorkingCopyRepository.Copy copy) {
+        Article editable = effectiveEditable(active, copy);
+        ArticleEditingVO vo = new ArticleEditingVO();
+        BeanUtils.copyProperties(editable, vo);
+        fillAssociations(List.of(vo), List.of(editable));
+        if (copy != null) {
+            vo.setTags(copy.tagIds().isEmpty() ? List.of() : tagMapper.selectByIds(copy.tagIds()).stream().map(tag -> {
+                TagVO value = new TagVO(); BeanUtils.copyProperties(tag, value); return value;
+            }).toList());
         }
-        replaceTagRelations(article.getId(), dto.getTagIds());
-        queuePublication(article);
-        // P0 自动保存：正式保存成功后删除该操作者的草稿
-        deleteAutosave(id, JwtSubjects.userIdOf(jwt));
+        vo.setPasswordRequired(false);
+        vo.setPasswordConfigured(editable.getAccessPasswordHash() != null && !editable.getAccessPasswordHash().isBlank());
+        vo.setEditRevision(editRevision(active));
+        vo.setHasWorkingCopy(copy != null);
+        vo.setWorkingCopyUpdatedAt(copy == null ? null : copy.updatedAt());
+        vo.setActiveStatus(active.getStatus()); vo.setActiveTitle(active.getTitle());
+        vo.setActiveVisibility(active.getVisibility()); vo.setActivePublishTime(active.getPublishTime());
+        return vo;
     }
 
     /**
@@ -437,8 +552,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id, Jwt jwt) {
-        Article article = requireArticle(id);
-        assertAuthorOrAdmin(article, jwt);
+        Article article = lockedArticle(id, jwt);
+        advanceEditRevision(article);
         removeById(id);
     }
 
@@ -446,8 +561,8 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Transactional(rollbackFor = Exception.class)
     public void restore(Long id, Jwt jwt) {
         // MP 逻辑删除会自动拼 deleted=0，回收站行必须手写 SQL 查
-        Article article = baseMapper.selectDeletedById(id);
-        if (Objects.isNull(article)) {
+        Article article = baseMapper.selectAnyForUpdate(id);
+        if (Objects.isNull(article) || !Short.valueOf((short) 1).equals(article.getDeleted())) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
         assertAuthorOrAdmin(article, jwt);
@@ -459,12 +574,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Transactional(rollbackFor = Exception.class)
     public void forceDelete(Long id, Jwt jwt) {
         // 彻底删除允许针对回收站中的行，存在性校验含已逻辑删除的行
-        Article article = baseMapper.selectAnyById(id);
+        Article article = baseMapper.selectAnyForUpdate(id);
         if (Objects.isNull(article)) {
             throw new BusinessException(StatusCode.ARTICLE_NOT_EXIST);
         }
         assertAuthorOrAdmin(article, jwt);
         // 物理删除本行 + article 自有级联（article_tag 无逻辑删除字段，物理删除；版本快照同理）
+        workingCopies.delete(id);
         baseMapper.physicalDeleteById(id);
         articleTagMapper.delete(Wrappers.lambdaQuery(ArticleTag.class).eq(ArticleTag::getArticleId, id));
         articleVersionMapper.physicalDeleteByArticleId(id);
@@ -485,11 +601,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateStatus(Long id, ArticleStatusDTO dto, Jwt jwt) {
-        Article article = requireArticle(id);
-        assertAuthorOrAdmin(article, jwt);
+        Article article = lockedArticle(id, jwt);
         if (!ArticleStatus.isValid(dto.getStatus())) {
             throw new BusinessException(StatusCode.ARTICLE_STATUS_INVALID);
         }
+        if (ArticleStatus.PUBLISHED.name().equals(dto.getStatus()) && workingCopies.exists(id))
+            throw new BusinessException(StatusCode.PARAM_INVALID.getCode(), "存在未发布修改，请在编辑器更新发布或先放弃工作稿");
+        article.setEditRevision(editRevision(article) + 1);
         article.setStatus(dto.getStatus());
         if (ArticleStatus.PUBLISHED.name().equals(dto.getStatus()) && Objects.isNull(article.getPublishTime())) {
             // 截断到秒，原因同 resolvePublishTimeOnPublish
@@ -513,7 +631,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         // P0 回收站伪状态：先拦截，MP 逻辑删除会自动拼 deleted=0，必须手写 SQL 绕过
         if (PSEUDO_STATUS_TRASH.equals(status)) {
             Page<Article> trash = baseMapper.selectTrashPage(new Page<>(page, size), userId);
-            return PageResult.of(assemble(trash.getRecords()), trash.getTotal(), page, size);
+            return PageResult.of(assembleManaged(trash.getRecords()), trash.getTotal(), page, size);
         }
         LambdaQueryWrapper<Article> wrapper = Wrappers.lambdaQuery(Article.class)
                 .eq(Article::getAuthorId, userId)
@@ -525,7 +643,13 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
             wrapper.eq(Article::getStatus, status);
         }
         Page<Article> result = page(new Page<>(page, size), wrapper);
-        return PageResult.of(assemble(result.getRecords()), result.getTotal(), page, size);
+        return PageResult.of(assembleManaged(result.getRecords()), result.getTotal(), page, size);
+    }
+
+    private List<ArticleListVO> assembleManaged(List<Article> articles) {
+        List<ArticleListVO> result = assemble(articles);
+        for (ArticleListVO article : result) article.setHasWorkingCopy(workingCopies.exists(article.getId()));
+        return result;
     }
 
     @Override
@@ -547,51 +671,46 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void restoreVersion(Long id, Integer version, Jwt jwt) {
+    public ArticleEditingVO restoreVersion(Long id, Integer version, Long editRevision, Jwt jwt) {
         attachmentReferences.lock();
-        Article article = requireArticle(id);
-        assertAuthorOrAdmin(article, jwt);
+        Article active = lockedArticle(id, jwt);
+        assertEditRevision(active, editRevision);
         ArticleVersion snapshot = requireVersion(id, version);
         attachmentReferences.protect(snapshot.getContent(), snapshot.getCover(), snapshot.getSummary());
-        // 恢复也留痕：覆盖前先对当前行产一个新快照
-        snapshotVersion(article);
-        article.setTitle(snapshot.getTitle());
-        article.setSummary(snapshot.getSummary());
-        // 存量快照可能产自 XSS 清洗上线前，恢复时同样过白名单（幂等，已清洗内容不受影响）
-        String content = sanitizeContent(snapshot.getContent(), snapshot.getEditorType());
-        article.setContent(content);
-        article.setContentText(toPlainText(content));
-        article.setEditorType(snapshot.getEditorType());
-        article.setCover(snapshot.getCover());
-        article.setCategoryId(snapshot.getCategoryId());
-        // status / publishTime 不动（SPEC：恢复不回改发布状态与档期）
-        updateById(article);
-        if (Objects.isNull(snapshot.getCategoryId())) {
-            baseMapper.update(null, Wrappers.lambdaUpdate(Article.class)
-                    .set(Article::getCategoryId, null)
-                    .eq(Article::getId, id));
-        }
+        // Historical versions contain content fields, not tags/slug/visibility/lifecycle.
+        // Restoring starts from the effective publication rather than mixing unrelated pending edits.
+        Article editable = effectiveEditable(active, null);
+        editable.setTitle(snapshot.getTitle()); editable.setSummary(snapshot.getSummary() == null ? "" : snapshot.getSummary());
+        if (editable.getSlug() == null) editable.setSlug("post-" + id);
+        editable.setContent(sanitizeContent(snapshot.getContent(), snapshot.getEditorType()));
+        editable.setContentText(toPlainText(editable.getContent()));
+        editable.setEditorType(snapshot.getEditorType()); editable.setCover(snapshot.getCover() == null ? "" : snapshot.getCover());
+        editable.setCategoryId(snapshot.getCategoryId());
+        List<Long> tags = articleTagMapper.selectList(Wrappers.lambdaQuery(ArticleTag.class).eq(ArticleTag::getArticleId, id))
+                .stream().map(ArticleTag::getTagId).toList();
+        if (ArticleStatus.PUBLISHED.name().equals(active.getStatus())) saveWorkingCopy(active, editable, tags);
+        else writeEffective(active, editable, tags, false);
+        deleteAutosaveAfterCommit(id, JwtSubjects.userIdOf(jwt));
+        return editingView(active, workingCopies.find(id));
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public Map<String, Object> saveAutosave(Long id, AutosaveDTO dto, Jwt jwt) {
-        attachmentReferences.protect(dto.getContent(), dto.getCover(), dto.getSummary());
-        Article article = requireArticle(id);
-        assertAuthorOrAdmin(article, jwt);
-        Long userId = JwtSubjects.userIdOf(jwt);
-        long savedAt = System.currentTimeMillis();
-        Map<String, Object> draft = new HashMap<>();
-        draft.put("title", dto.getTitle());
-        draft.put("content", dto.getContent());
-        draft.put("summary", dto.getSummary());
-        draft.put("cover", dto.getCover());
-        draft.put("categoryId", dto.getCategoryId());
-        if (Objects.nonNull(dto.getVisibility())) draft.put("visibility", resolveVisibility(dto.getVisibility()));
-        draft.put("savedAt", savedAt);
-        stringRedisTemplate.opsForValue().set(autosaveKey(id, userId),
-                objectMapper.writeValueAsString(draft), AUTOSAVE_TTL);
-        return Map.of("savedAt", savedAt);
+    public ArticleEditingVO saveAutosave(Long id, AutosaveDTO dto, Jwt jwt) {
+        attachmentReferences.lock();
+        Article active = lockedArticle(id, jwt);
+        assertEditRevision(active, dto.getEditRevision());
+        ArticleSaveDTO save = new ArticleSaveDTO();
+        save.setTitle(dto.getTitle()); save.setContent(dto.getContent()); save.setSummary(dto.getSummary());
+        save.setCover(dto.getCover()); save.setCategoryId(dto.getCategoryId()); save.setTagIds(dto.getTagIds());
+        save.setSlug(dto.getSlug()); save.setPublishTime(dto.getPublishTime()); save.setVisibility(dto.getVisibility());
+        save.setAccessPassword(dto.getAccessPassword());
+        save.setEditorType(dto.getEditorType() == null ? active.getEditorType() : dto.getEditorType());
+        validateSaveDTO(save);
+        Article editable = applyEditable(active, save, true);
+        attachmentReferences.protect(editable.getContent(), editable.getCover(), editable.getSummary());
+        saveWorkingCopy(active, editable, dto.getTagIds());
+        return editingView(active, workingCopies.find(id));
     }
 
     @Override
@@ -606,6 +725,9 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         try {
             Map<String, Object> draft = objectMapper.readValue(json, Map.class);
             draft.put("exists", true);
+            draft.put("legacy", true);
+            draft.remove("accessPassword");
+            draft.remove("accessPasswordHash");
             return draft;
         } catch (RuntimeException e) {
             // 草稿 JSON 损坏时按不存在处理，不影响正式编辑
@@ -666,7 +788,7 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     /**
      * 文章版本快照：把当前行（更新前的旧行）存为「当前最大版本 + 1」。
-     * 仅 update / restoreVersion 调用；create / updateStatus 不产快照；标签不纳入版本（SPEC 决策）。
+     * 仅写入生效文章时调用；工作稿保存 / 自动保存不产快照；标签不纳入历史版本。
      */
     private void snapshotVersion(Article article) {
         ArticleVersion latest = articleVersionMapper.selectOne(Wrappers.lambdaQuery(ArticleVersion.class)
@@ -747,6 +869,17 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
 
     private void deleteAutosave(Long articleId, Long userId) {
         stringRedisTemplate.delete(autosaveKey(articleId, userId));
+    }
+
+    private void deleteAutosaveAfterCommit(Long articleId, Long userId) {
+        Runnable cleanup = () -> {
+            try { deleteAutosave(articleId, userId); }
+            catch (RuntimeException unavailable) { log.warn("Legacy autosave cleanup deferred for article {}", articleId); }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) { cleanup.run(); return; }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() { cleanup.run(); }
+        });
     }
 
     private ArticleVersionVO toVersionVO(ArticleVersion snapshot) {
