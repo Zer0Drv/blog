@@ -127,7 +127,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: Zer0Drv/blog-ui
-          ref: d09dfa42ffe51d31a332f77e4d88d5bfabf2fe31
+          ref: 34062ca806b4be62cc7c5b20316a0a967cea3f52
           path: browser-ui
           persist-credentials: false
       - uses: actions/setup-java@v6
