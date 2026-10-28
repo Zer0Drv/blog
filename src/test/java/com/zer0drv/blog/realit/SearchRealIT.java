@@ -237,6 +237,37 @@ class SearchRealIT {
     }
 
     @Test
+    void fulltextPartialNgramHitsExposeMatchingContextAndTermsButLikeRemainsLiteral() throws Exception {
+        long bodyHit = article("正文分词样例", "前文".repeat(180) + " 搜索 " + "后文".repeat(180), PUBLISHED);
+        JsonNode partial = search(params("搜索功能"));
+        assertEquals("FULLTEXT", partial.path("searchMode").asString());
+        assertEquals(1, partial.path("total").asLong());
+        assertEquals(List.of(bodyHit), ids(partial));
+        JsonNode bodyRecord = partial.path("records").get(0);
+        assertTrue(bodyRecord.path("snippet").asString().contains("搜索"));
+        assertFalse(bodyRecord.path("snippet").asString().contains("搜索功能"));
+        assertTrue(terms(bodyRecord).contains("搜索"));
+        assertFalse(terms(bodyRecord).contains("搜索功能"));
+
+        long titleHit = article("功能解析", "无关正文".repeat(100), PUBLISHED);
+        JsonNode withTitle = search(params("搜索功能"));
+        assertEquals(2, withTitle.path("total").asLong());
+        JsonNode titleRecord = null;
+        for (JsonNode record : withTitle.path("records")) {
+            if (record.path("id").asLong() == titleHit) titleRecord = record;
+        }
+        assertNotNull(titleRecord);
+        assertTrue(terms(titleRecord).contains("功能"));
+        assertFalse(terms(titleRecord).contains("搜索功能"));
+
+        config.update(Map.of(FULLTEXT_KEY, false), userId);
+        JsonNode literal = search(params("搜索功能"));
+        assertEquals("LIKE", literal.path("searchMode").asString());
+        assertEquals(0, literal.path("total").asLong());
+        assertTrue(literal.path("records").isEmpty());
+    }
+
+    @Test
     void invalidRangesAndOversizedQueriesFailBeforeReturningData() throws Exception {
         List<Map<String, Object>> invalid = List.of(
                 Map.of("publishedFrom", "2020-06-11", "publishedTo", "2020-06-10"),
@@ -332,6 +363,16 @@ class SearchRealIT {
     private List<Long> ids(JsonNode data) {
         List<Long> result = new ArrayList<>();
         data.path("records").forEach(record -> result.add(record.path("id").asLong()));
+        return result;
+    }
+
+    private List<String> terms(JsonNode record) {
+        assertTrue(record.path("highlightTerms").isArray());
+        List<String> result = new ArrayList<>();
+        record.path("highlightTerms").forEach(term -> {
+            assertTrue(term.isString());
+            result.add(term.asString());
+        });
         return result;
     }
 }

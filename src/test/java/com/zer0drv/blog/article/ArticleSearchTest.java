@@ -6,6 +6,7 @@ import com.zer0drv.blog.common.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -66,6 +67,31 @@ class ArticleSearchTest {
         assertEquals("custom summary hit", ArticleSearchSnippet.of("unrelated body", "custom summary hit", "summary"));
         assertEquals("body hit", ArticleSearchSnippet.of("body hit", "summary hit", "hit"));
         assertEquals("unrelated body", ArticleSearchSnippet.of("unrelated body", "summary", "absent"));
+    }
+
+    @Test void fulltextPartialNgramHitCentersDeepBodyAndHighlightsOnlyDisplayedTerms() {
+        String body = "前".repeat(350) + "搜索" + "尾".repeat(350);
+        var excerpt = ArticleSearchSnippet.create("普通标题", body, "无关摘要", "搜索功能", true);
+        assertTrue(excerpt.snippet().contains("搜索"));
+        assertEquals(202, excerpt.snippet().codePointCount(0, excerpt.snippet().length()));
+        assertEquals(List.of("搜索"), excerpt.highlightTerms());
+        var literal = ArticleSearchSnippet.create("普通标题", body, "无关摘要", "搜索功能", false);
+        assertFalse(literal.snippet().contains("搜索"));
+        assertTrue(literal.highlightTerms().isEmpty());
+
+        var titleHit = ArticleSearchSnippet.create("功能解析", "无关正文", "", "搜索功能", true);
+        assertEquals(List.of("功能"), titleHit.highlightTerms());
+    }
+
+    @Test void strongerSummaryHitWinsAndLiteralMarkupNeverBecomesHighlightHtml() {
+        var excerpt = ArticleSearchSnippet.create("普通标题", "前".repeat(300) + "搜索", "完整搜索功能说明", "搜索功能", true);
+        assertEquals("完整搜索功能说明", excerpt.snippet());
+        assertTrue(excerpt.highlightTerms().contains("搜索功能"));
+        var markup = ArticleSearchSnippet.create("<img>", "literal <img> body", "", "<img>", false);
+        assertEquals(List.of("<img>"), markup.highlightTerms());
+        var supplementary = ArticleSearchSnippet.create("", "𠮷搜索", "", "𠮷搜索功能", true);
+        assertTrue(supplementary.highlightTerms().contains("𠮷搜"));
+        assertFalse(supplementary.highlightTerms().stream().anyMatch(term -> Character.isLowSurrogate(term.charAt(0))));
     }
 
     private static ArticleSearchCriteria query(String keyword) {

@@ -8,26 +8,27 @@
 - FULLTEXT 复用 MySQL ngram 自然语言搜索，按评分、发布时间、ID 排序；它按分词匹配，不能等同于整串包含匹配。短词、带标点的词、空词与关闭 FULLTEXT 的请求使用转义后的 LIKE。LIKE 请求相关度时返回实际排序 `newest`。
 - 最新/最早排序都有 ID 次序作为同时间的稳定顺序。分页属于普通 offset 分页，不承诺并发新增/删除时保持快照。
 - 复用 `ArticleVisibility.SQL`，草稿、下架、私密、密码、未来发布、空发布时间与删除文章均不进入结果和计数。
-- 命中片段最多 200 个 Unicode 码点，另有最多两个省略号；正文无命中而自定义摘要有命中时展示摘要。前端用文本节点和 `mark` 渲染，保留代码中的字面 HTML，不执行 HTML。
+- 命中片段最多 200 个 Unicode 码点，另有最多两个省略号；正文无命中而自定义摘要有命中时展示摘要。FULLTEXT 的二元分词部分命中同样用于片段定位，`highlightTerms` 返回标题/片段中匹配的字面词，LIKE 不扩展分词。前端用文本节点和 `mark` 渲染，保留代码中的字面 HTML，不执行 HTML。
 - URL 保存全部已提交条件和页码；前进/后退恢复，分页不使用尚未提交的表单改动。新请求和卸载使旧响应失效。
 
 ## 已完成的验证
 
-- 前端 `pnpm exec vitest run --maxWorkers 2`：64 文件、453 测试通过，含 11 项新增搜索行为测试。默认高并发首轮触发既有编辑器导入超时，降并发复跑全量通过，未改变测试超时。
+- 前端 `pnpm exec vitest run --maxWorkers 2`：64 文件、456 测试通过，含 14 项新增搜索行为测试。默认高并发首轮触发既有编辑器导入超时，降并发复跑全量通过，未改变测试超时。
 - 前端 `pnpm build`：最终源码生产构建通过，存在既有分包体积提示。
-- 后端 `mvn -B -Preal-it -Dtest=SearchRealIT,ArticleSearchTest test`：12 项通过，零失败/错误/跳过。使用独立 MySQL 8.4、Redis 和 MinIO，Flyway V20，不读取生产 `.env` 或数据。
-- HTTP 测试包含组合筛选/日期两端/相同时间分页、两种模式、七种受限状态、中文/单字/特殊字符、仅摘要命中、长命中词、无结果及非法输入。
-- 后端 `mvn -B verify`：598 项测试全部通过，含 5 项 ArticleBoundaryArchTest；未改动架构测试或增加豁免，JAR 打包成功。日志 `target/issue95-verify.log`。
+- 后端 `mvn -B -Preal-it -Dtest=SearchRealIT,ArticleSearchTest test`：15 项通过，零失败/错误/跳过。使用独立 MySQL 8.4、Redis 和 MinIO，Flyway V20，不读取生产 `.env` 或数据。
+- HTTP 测试包含组合筛选/日期两端/相同时间分页、两种模式、七种受限状态、中文/单字/特殊字符、仅摘要命中、长命中词、深处部分分词和标题部分分词命中、无结果及非法输入；部分分词样例关闭 FULLTEXT 后不匹配。
+- 后端 `mvn -B verify`：600 项测试全部通过，含 5 项 ArticleBoundaryArchTest；未改动架构测试或增加豁免，JAR 打包成功。日志 `target/issue95-verify.log`。
 - Chromium：既有“登录→编辑→自动保存→发布→匿名阅读与搜索”流程通过；新增搜索流程通过，包含真实后端的分类/标签/日期/排序组合、分页与刷新/历史导航、特殊字符摘要命中、无结果与清空条件。已查看桌面与 390px 手机截图，未发现横向溢出。日志为前端 `issue95-e2e.log`（既有流程）与 `issue95-search-e2e-final.log`（修正筛选控件标签后的搜索流程）。
+- 最终生产构建 preview 与真实后端复验同一搜索流程（含“搜索功能”仅命中正文深处“搜索”的片段与高亮）：通过，33.8 秒；日志 `issue95-production-e2e-final.log`。最终前端全量/构建日志分别为 `issue95-unit-highlight-final.log` 和 `issue95-build-highlight-final.log`。
 
 ## 代表性查询记录
 
-测量时间：2026-10-28 13:50:54（Asia/Shanghai）。1000 篇文章，每篇正文 1324 字符；关键词“蓝鲸”，分类过滤，最新发布排序，200 条命中。每页 100 条，两页 ID 顺序均验证；每种模式预热一次，再记录 7 次完整 HTTP 查询（包括 count、装配与传输）。
+测量时间：2026-10-28 14:10:42（Asia/Shanghai）。1000 篇文章，每篇正文 1324 字符；关键词“蓝鲸”，分类过滤，最新发布排序，200 条命中。每页 100 条，两页 ID 顺序均验证；每种模式预热一次，再记录 7 次完整 HTTP 查询（包括 count、装配与传输）。
 
 | 模式 | HTTP 中位数 | HTTP 最大值 |
 | --- | ---: | ---: |
-| FULLTEXT | 39.72 ms | 51.84 ms |
-| LIKE | 53.73 ms | 68.38 ms |
+| FULLTEXT | 43.73 ms | 61.52 ms |
+| LIKE | 56.15 ms | 66.33 ms |
 
 这是本机隔离样本的实测，不代表生产 SLA 或大数据量性能承诺。原始记录：`target/real-it-reports/search-benchmark.json`；日志：`target/search-real-it.log`。CI 的真实依赖 artifact 同样收集该 JSON。
 

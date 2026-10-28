@@ -37,6 +37,8 @@ class ArticleSearchIntegrationTests extends IntegrationTestSupport {
         assertEquals(first, filtered(category, tag, "newest", "3").path("records").get(0).path("id").asLong());
         assertEquals(first, filtered(category, tag, "oldest", "1").path("records").get(0).path("id").asLong());
         assertEquals("搜索正文", newest.path("records").get(0).path("snippet").asString());
+        assertEquals("搜索", newest.path("records").get(0).path("highlightTerms").get(0).asString());
+        assertEquals(1, newest.path("records").get(0).path("highlightTerms").size());
         assertFalse(newest.path("records").get(0).has("content"));
         assertFalse(newest.path("records").get(0).has("accessPasswordHash"));
     }

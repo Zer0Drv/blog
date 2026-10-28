@@ -623,8 +623,10 @@ public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> impl
         List<ArticleListVO> records = assemble(result.getRecords());
         for (int i = 0; i < records.size(); i++) {
             Article article = result.getRecords().get(i);
-            records.get(i).setSnippet(ArticleSearchSnippet.of(article.getContentText(),
-                    article.getSummary(), criteria.keyword()));
+            var excerpt = ArticleSearchSnippet.create(article.getTitle(), article.getContentText(),
+                    article.getSummary(), criteria.keyword(), criteria.fulltext());
+            records.get(i).setSnippet(excerpt.snippet());
+            records.get(i).setHighlightTerms(excerpt.highlightTerms());
         }
         ArticleSearchResultVO response = new ArticleSearchResultVO();
         response.setRecords(records);

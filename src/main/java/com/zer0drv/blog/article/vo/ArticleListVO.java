@@ -28,6 +28,9 @@ public class ArticleListVO {
     /** Public search excerpt, plain text; absent on other list endpoints. */
     private String snippet;
 
+    /** Literal terms present in this public search title/excerpt; never HTML or raw SQL offsets. */
+    private List<String> highlightTerms;
+
     private String cover;
 
     private Long categoryId;
