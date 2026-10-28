@@ -34,7 +34,7 @@ jobs:
           node-version: 24
       - name: Release certification and backup failure recovery tests
         run: |
-          node --test deploy/rollback.test.mjs
+          node --test deploy/rollback.test.mjs deploy/deployment-lock.test.mjs
           python3 -m unittest discover -s deploy -p 'test_*.py'
 
   # 用真实 MySQL 8.4 跑 Flyway 迁移，校验 db/migration 下的 SQL 可执行

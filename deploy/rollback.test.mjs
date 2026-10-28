@@ -16,7 +16,7 @@ test('host lock excludes concurrent operations and only its owner can release it
   const lock = join(root, 'operation.lock')
   const invoke = (mode, owner) => execFileSync(process.execPath,
     [fileURLToPath(new URL('./deployment-lock.mjs', import.meta.url)), mode, owner],
-    { env: { ...process.env, DEPLOYMENT_LOCK: lock }, stdio: 'pipe' })
+    { env: { ...process.env, DEPLOYMENT_LOCK: lock, DEPLOYMENT_LOCK_TIMEOUT_MS: '0' }, stdio: 'pipe' })
   try {
     invoke('acquire', 'owner-a')
     assert.throws(() => invoke('acquire', 'owner-b'))
