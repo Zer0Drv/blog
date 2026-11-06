@@ -1,5 +1,6 @@
 package com.zer0drv.blog.it;
 
+import com.zer0drv.blog.admin.service.SensitiveWordService;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -60,6 +61,9 @@ public abstract class IntegrationTestSupport {
 
     @Autowired
     protected JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private SensitiveWordService sensitiveWordService;
 
     /**
      * Boot 4 为 Jackson 3（tools.jackson），直接注入容器自动装配的 ObjectMapper
@@ -162,10 +166,10 @@ public abstract class IntegrationTestSupport {
     }
 
     /**
-     * 预置敏感词
+     * 通过业务服务预置敏感词，同时使词表缓存失效。
      */
     protected void seedSensitiveWord(String word) {
-        jdbcTemplate.update("INSERT INTO sensitive_word (word) VALUES (?)", word);
+        sensitiveWordService.add(word);
     }
 
     /**
