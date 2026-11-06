@@ -17,8 +17,7 @@ import java.util.Map;
 @Component
 @ConfigurationProperties(prefix = "blog.captcha")
 public class CaptchaProperties {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    private final com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
 
     /**
      * 未配置场景的兜底阈值（次数）

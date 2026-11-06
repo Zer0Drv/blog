@@ -48,7 +48,7 @@ public class OwnerOperations {
                 }
                 case "EMAIL" -> {
                     String email = request.email();
-                    if (email == null || email.length() > 128 || !email.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")) throw denied();
+                    if (email == null || email.length() > 128 || !email.matches("[^\\s@]++@(?=[^\\s@][^\\s@]*\\.[^\\s@])[^\\s@]++")) throw denied();
                     if (jdbc.queryForObject("SELECT COUNT(*) FROM `user` WHERE email=? AND id<>?", Long.class, email, target) > 0) throw denied();
                     jdbc.update("UPDATE `user` SET email=? WHERE id=?", email, target);
                 }

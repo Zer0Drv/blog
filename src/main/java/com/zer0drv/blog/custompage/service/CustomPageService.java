@@ -30,8 +30,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class CustomPageService extends ServiceImpl<CustomPageMapper, CustomPage> implements PageCatalog {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
+    private final com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
     private final SiteConfigService siteConfigService;
 
     public PageResult<PageVO> adminList(long page, long size) {

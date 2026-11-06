@@ -20,8 +20,8 @@ public final class PageNavigationSlugs {
             if (!array.isArray() || array.size() > 20) throw new IllegalArgumentException();
             List<String> result = new ArrayList<>();
             for (var node : array) {
-                if (!node.isString() || node.asString().length() > 200
-                        || !node.asString().matches("[a-z0-9]+(-[a-z0-9]+)*")
+                if (!node.isString() || node.asString().length() > SlugSyntax.MAX_LENGTH
+                        || !node.asString().matches(SlugSyntax.REGEX)
                         || result.contains(node.asString())) throw new IllegalArgumentException();
                 result.add(node.asString());
             }

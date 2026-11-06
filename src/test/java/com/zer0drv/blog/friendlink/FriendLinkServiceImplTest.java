@@ -48,11 +48,10 @@ class FriendLinkServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        friendLinkService = spy(new FriendLinkServiceImpl());
         siteConfig = org.mockito.Mockito.mock(com.zer0drv.blog.site.service.SiteConfigService.class);
         org.mockito.Mockito.lenient().when(siteConfig.getBool("site.friend_links_enabled", true)).thenReturn(true);
-        org.springframework.test.util.ReflectionTestUtils.setField(friendLinkService, "siteConfig", siteConfig);
-        org.springframework.test.util.ReflectionTestUtils.setField(friendLinkService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
+        friendLinkService = spy(new FriendLinkServiceImpl(
+                org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class), siteConfig));
     }
 
     private static FriendLink link(Long id, String name, short status) {

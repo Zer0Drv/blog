@@ -1,5 +1,6 @@
 package com.zer0drv.blog.custompage.dto;
 
+import com.zer0drv.blog.common.util.SlugSyntax;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -7,8 +8,8 @@ import lombok.Data;
 
 @Data
 public class PageSaveDTO {
-    @NotBlank @Size(max = 200)
-    @Pattern(regexp = "[a-z0-9]+(-[a-z0-9]+)*", message = "slug 仅允许小写字母、数字和连字符")
+    @NotBlank @Size(max = SlugSyntax.MAX_LENGTH)
+    @Pattern(regexp = SlugSyntax.REGEX, message = "slug 仅允许小写字母、数字和连字符")
     private String slug;
     @NotBlank @Size(max = 200)
     private String title;

@@ -35,8 +35,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final UserService userService;
     private final Converter converter;
     private final TokenService tokenService;
-    @org.springframework.beans.factory.annotation.Autowired
-    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private void lockOperations() {
         if (jdbc != null) jdbc.queryForList("SELECT id FROM owner_operation_lock WHERE id=1 FOR UPDATE");
     }

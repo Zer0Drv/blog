@@ -1,5 +1,6 @@
 package com.zer0drv.blog.seo.service;
 
+import com.zer0drv.blog.common.util.UrlPaths;
 import com.zer0drv.blog.article.api.ArticleCatalog;
 import com.zer0drv.blog.site.service.SiteConfigService;
 import lombok.RequiredArgsConstructor;
@@ -65,7 +66,7 @@ public class ArticleHtmlService {
             if (!("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))
                     || uri.getHost() == null || uri.getUserInfo() != null || uri.getQuery() != null
                     || uri.getFragment() != null || !(uri.getPath().isEmpty() || "/".equals(uri.getPath()))) return "";
-            return value.replaceAll("/+$", "");
+            return UrlPaths.trimTrailingSlashes(value);
         } catch (IllegalArgumentException exception) {
             return "";
         }

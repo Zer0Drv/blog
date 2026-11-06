@@ -1,5 +1,7 @@
 package com.zer0drv.blog.article.domain;
 
+import com.zer0drv.blog.common.util.SlugSyntax;
+
 import java.text.Normalizer;
 import java.util.Locale;
 import java.util.Objects;
@@ -17,12 +19,12 @@ public final class ArticleSlugger {
     /**
      * slug 最大长度：与 article.slug 列（VARCHAR(200)）一致
      */
-    public static final int MAX_LENGTH = 200;
+    public static final int MAX_LENGTH = SlugSyntax.MAX_LENGTH;
 
     /**
      * 合法 slug：小写字母/数字段，段间单连字符连接（不以连字符开头/结尾，无连续连字符）
      */
-    private static final Pattern VALID_PATTERN = Pattern.compile("^[a-z0-9]+(-[a-z0-9]+)*$");
+    private static final Pattern VALID_PATTERN = Pattern.compile(SlugSyntax.REGEX);
 
     /**
      * 清洗时的非法字符折叠：非小写字母/数字的连续区段折为一个连字符

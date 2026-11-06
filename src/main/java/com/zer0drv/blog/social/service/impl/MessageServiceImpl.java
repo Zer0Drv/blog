@@ -42,8 +42,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MessageServiceImpl extends ServiceImpl<PrivateMessageMapper, PrivateMessage>
         implements MessageService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
+    private final com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
      * 私信内容最大长度

@@ -45,7 +45,9 @@ class SiteConfigServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        service = new SiteConfigServiceImpl(siteConfigMapper);
+        service = new SiteConfigServiceImpl(
+                org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class),
+                siteConfigMapper);
         // 启动加载：模拟 DB 中的 8 个种子键（V10 起新增 site.friend_links_enabled，issue #17）
         lenient().when(siteConfigMapper.selectList(any())).thenReturn(List.of(
                 row("site.name", "Blog"),
@@ -57,7 +59,6 @@ class SiteConfigServiceImplTest {
                 row("comment.review_required", "false"),
                 row("site.friend_links_enabled", "true")));
         ReflectionTestUtils.invokeMethod(service, "init");
-        org.springframework.test.util.ReflectionTestUtils.setField(service, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     @Test

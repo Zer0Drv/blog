@@ -50,7 +50,7 @@ class WebSocketSessionInvalidationTest {
             if (event instanceof TokenRevoked token) push.onTokenRevoked(token);
             if (event instanceof UserTokensRevoked user) push.onUserTokensRevoked(user);
         };
-        tokens = new TokenServiceImpl(mock(JwtEncoder.class), redis, publisher);
+        tokens = new TokenServiceImpl(null, null, mock(JwtEncoder.class), redis, publisher);
         ReflectionTestUtils.setField(tokens, "expirationMs", 3600000L);
         push = new RealtimePushServiceImpl(JsonMapper.builder().build(), tokens);
     }
@@ -262,8 +262,7 @@ class WebSocketSessionInvalidationTest {
         var jwt = org.springframework.security.oauth2.jwt.Jwt.withTokenValue("test-issued-token")
                 .header("alg", "HS256").subject("1").issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(300)).build();
         when(encoder.encode(any())).thenReturn(jwt);
-        var service = new TokenServiceImpl(encoder, redis, event -> {});
-        ReflectionTestUtils.setField(service, "sysConfig", config);
+        var service = new TokenServiceImpl(config, null, encoder, redis, event -> {});
         when(redis.getExpire("blog:user-tokens:1")).thenReturn(7200L);
         service.generateToken(1L, java.util.List.of("ROLE_USER"));
         verify(redis, never()).expire(eq("blog:user-tokens:1"), any(Duration.class));

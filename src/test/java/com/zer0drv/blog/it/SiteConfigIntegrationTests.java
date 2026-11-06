@@ -1,9 +1,20 @@
 package com.zer0drv.blog.it;
 
+import com.zer0drv.blog.site.service.SiteConfigService;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -15,6 +26,45 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * @author Yoruhaki
  */
 class SiteConfigIntegrationTests extends IntegrationTestSupport {
+    private final SiteConfigService siteConfig;
+    private final PlatformTransactionManager transactionManager;
+
+    @Autowired
+    SiteConfigIntegrationTests(SiteConfigService siteConfig, PlatformTransactionManager transactionManager) {
+        this.siteConfig = siteConfig;
+        this.transactionManager = transactionManager;
+    }
+
+    @Test
+    void concurrentReadersKeepTheCommittedSnapshotWhenAWriteRollsBack() throws Exception {
+        var before = siteConfig.getAll();
+        var staged = new CountDownLatch(1);
+        var readerFinished = new CountDownLatch(1);
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            var write = executor.submit(() -> new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                siteConfig.setAll(Map.of("site.name", "uncommitted name", "site.description", "uncommitted description"));
+                staged.countDown();
+                try {
+                    assertTrue(readerFinished.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+                status.setRollbackOnly();
+            }));
+            try {
+                assertTrue(staged.await(10, TimeUnit.SECONDS));
+                assertEquals(before, siteConfig.getAll());
+            } finally {
+                readerFinished.countDown();
+            }
+            write.get(10, TimeUnit.SECONDS);
+        }
+        assertEquals(before, siteConfig.getAll());
+        assertEquals(before.get("site.name"), jdbcTemplate.queryForObject(
+                "SELECT config_value FROM site_config WHERE config_key='site.name'", String.class));
+    }
+
 
     @Test
     void publicConfigOnlyExposesWhitelistKeys() throws Exception {

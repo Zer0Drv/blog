@@ -1,5 +1,8 @@
 package com.zer0drv.blog.article.vo;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 /**
  * 文章导出结果：文件字节 + 文件名（不含扩展名）+ 扩展名（md / html）。
  * 由 Controller 组装 Content-Type 与 Content-Disposition，不落临时文件。
@@ -7,4 +10,21 @@ package com.zer0drv.blog.article.vo;
  * @author Yoruhaki
  */
 public record ArticleExportVO(byte[] body, String fileName, String extension) {
+    @Override
+    public boolean equals(Object other) {
+        return other instanceof ArticleExportVO value
+                && Arrays.equals(body, value.body)
+                && Objects.equals(fileName, value.fileName)
+                && Objects.equals(extension, value.extension);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(Arrays.hashCode(body), fileName, extension);
+    }
+
+    @Override
+    public String toString() {
+        return "ArticleExportVO[fileName=" + fileName + ", extension=" + extension + "]";
+    }
 }

@@ -27,10 +27,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class TokenServiceImpl implements TokenService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
-    @org.springframework.beans.factory.annotation.Autowired
-    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     private long lifetimeMs() { return Math.min(900000L, sysConfig == null ? expirationMs : sysConfig.getLong("jwt.expiration-ms")); }
 

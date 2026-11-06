@@ -89,12 +89,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ArticleServiceImpl extends ServiceImpl<ArticleMapper, Article> implements ArticleService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
-    @org.springframework.beans.factory.annotation.Autowired
-    private ArticleWorkingCopyRepository workingCopies;
+    private final com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
+    private final com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    private final ArticleWorkingCopyRepository workingCopies;
 
     /**
      * 摘要缺省长度：取 content 纯文本前 200 字

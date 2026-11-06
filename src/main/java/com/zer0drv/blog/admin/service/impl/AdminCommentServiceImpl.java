@@ -37,8 +37,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AdminCommentServiceImpl implements AdminCommentService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.comment.api.CommentNotificationState notificationState;
+    private final com.zer0drv.blog.comment.api.CommentNotificationState notificationState;
 
     /**
      * 列表 status 伪状态：回收站（deleted=1 的评论，P0 §2.4）
