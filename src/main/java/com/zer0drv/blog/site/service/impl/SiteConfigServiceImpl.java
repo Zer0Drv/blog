@@ -14,10 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 站点配置实现：DB 持久化 + ConcurrentHashMap 内存缓存（启动加载 + setAll 后刷新）。
+ * 站点配置实现：DB 持久化 + 不可变缓存快照（启动加载 + setAll 提交后刷新）。
  * 不依赖 Redis——配置量小且读多写少，缓存即全部已知键的最新值。
  * 键集合固定为 KNOWN_KEYS：setAll 对未知键静默忽略（防任意键注入）。
  *
@@ -26,8 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 @RequiredArgsConstructor
 public class SiteConfigServiceImpl implements SiteConfigService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
+    private final com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
      * 已知配置键（与 V9 种子一致），setAll 只接受这些键
@@ -49,7 +47,7 @@ public class SiteConfigServiceImpl implements SiteConfigService {
     /**
      * 配置缓存：键 -> 最新值
      */
-    private final ConcurrentHashMap<String, String> cache = new ConcurrentHashMap<>();
+    private volatile Map<String, String> cache = Map.of();
 
     /**
      * 启动加载缓存
@@ -79,16 +77,17 @@ public class SiteConfigServiceImpl implements SiteConfigService {
 
     @Override
     public Map<String, String> getAll() {
-        return Map.copyOf(cache);
+        return cache;
     }
 
     /**
      * 公开白名单视图（只出 PUBLIC_KEYS）
      */
     public Map<String, String> getPublic() {
+        Map<String, String> snapshot = cache;
         Map<String, String> result = new LinkedHashMap<>();
         for (String key : PUBLIC_KEYS) {
-            result.put(key, cache.getOrDefault(key, ""));
+            result.put(key, snapshot.getOrDefault(key, ""));
         }
         return result;
     }
@@ -135,13 +134,12 @@ public class SiteConfigServiceImpl implements SiteConfigService {
     /**
      * 从 DB 全量重载缓存
      */
-    private void refresh() {
+    private synchronized void refresh() {
         List<SiteConfig> rows = siteConfigMapper.selectList(Wrappers.lambdaQuery(SiteConfig.class));
         Map<String, String> loaded = new LinkedHashMap<>();
         for (SiteConfig row : rows) {
             loaded.put(row.getConfigKey(), Objects.nonNull(row.getConfigValue()) ? row.getConfigValue() : "");
         }
-        cache.clear();
-        cache.putAll(loaded);
+        cache = Map.copyOf(loaded);
     }
 }

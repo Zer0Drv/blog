@@ -136,7 +136,10 @@ class ArticleServiceImplTest {
         // 注意构造参数顺序与 @RequiredArgsConstructor 字段声明一致（baseMapper 由 MP 注入，此处反射补）
         // 跨模块级联清场以 ArticleCascade SPI mock 顶替（issue #24 第三步，外模块 Mapper 已退出编排）
         // 详情页互动/评论计数经 article.api 读端口 mock 顶替（issue #34 第三步，三 Mapper 已退出装配）
+        workingCopies = mock(com.zer0drv.blog.article.mapper.ArticleWorkingCopyRepository.class);
         articleService = spy(new ArticleServiceImpl(
+                org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class),
+                null, workingCopies,
                 articleTagMapper, tagMapper, categoryMapper, userService, converter,
                 articleInteractionPort, articleCommentStatsPort,
                 articleVersionMapper, stringRedisTemplate, objectMapper,
@@ -144,8 +147,6 @@ class ArticleServiceImplTest {
                 passwordEncoder, eventPublisher));
         ReflectionTestUtils.setField(articleService, "baseMapper", articleMapper);
         ReflectionTestUtils.setField(articleService, "fulltextEnabled", false);
-        workingCopies = mock(com.zer0drv.blog.article.mapper.ArticleWorkingCopyRepository.class);
-        ReflectionTestUtils.setField(articleService, "workingCopies", workingCopies);
         org.mockito.Mockito.lenient().when(articleMapper.selectForUpdate(anyLong())).thenAnswer(call -> articleService.getById((Long) call.getArgument(0)));
         org.mockito.Mockito.lenient().when(articleMapper.selectAnyForUpdate(anyLong())).thenAnswer(call -> {
             Article any = articleMapper.selectAnyById(call.getArgument(0));
@@ -153,7 +154,6 @@ class ArticleServiceImplTest {
         });
         org.mockito.Mockito.lenient().when(articleMapper.advanceEditRevision(anyLong(), anyLong())).thenReturn(1);
 
-        org.springframework.test.util.ReflectionTestUtils.setField(articleService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     @AfterEach

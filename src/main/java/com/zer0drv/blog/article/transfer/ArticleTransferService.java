@@ -354,14 +354,14 @@ public class ArticleTransferService {
         List<ArticleImportResultVO.ImportedItem> imported = new ArrayList<>();
         List<ArticleImportResultVO.FailedItem> failed = new ArrayList<>();
         for (ZipItem item : items) {
-            String entryName = item.name();
+            String entryName = item.name;
             if (!IMPORT_EDITOR_TYPES.containsKey(extensionOf(entryName))) {
                 failed.add(new ArticleImportResultVO.FailedItem(entryName,
                         "仅支持 .md/.markdown/.txt/.html 文件"));
                 continue;
             }
             try {
-                imported.add(importOne(entryName, item.bytes(), jwt));
+                imported.add(importOne(entryName, item.bytes, jwt));
             } catch (BusinessException e) {
                 failed.add(new ArticleImportResultVO.FailedItem(entryName, e.getMessage()));
             }
@@ -448,7 +448,14 @@ public class ArticleTransferService {
         return false;
     }
 
-    private record ZipItem(String name, byte[] bytes) {
+    private static final class ZipItem {
+        private final String name;
+        private final byte[] bytes;
+
+        private ZipItem(String name, byte[] bytes) {
+            this.name = name;
+            this.bytes = bytes;
+        }
     }
 
     /**

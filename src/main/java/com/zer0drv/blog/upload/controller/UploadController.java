@@ -29,8 +29,7 @@ import java.util.Map;
 @RequestMapping("/upload")
 @RequiredArgsConstructor
 public class UploadController {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    private final com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
 
     /**
      * 每用户每日上传计数键（#6-4）：blog:upload:daily:{userId}:{yyyy-MM-dd}

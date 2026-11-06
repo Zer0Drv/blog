@@ -1,5 +1,6 @@
 package com.zer0drv.blog.auth.service;
 
+import lombok.RequiredArgsConstructor;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -18,13 +19,11 @@ import java.time.Duration;
  * @author Yoruhaki
  */
 @Component
+@RequiredArgsConstructor
 public class AuthCookieService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
-    @org.springframework.beans.factory.annotation.Autowired
-    private RefreshSessionService refreshSessions;
-    @org.springframework.beans.factory.annotation.Autowired
-    private org.springframework.security.oauth2.jwt.JwtDecoder decoder;
+    private final com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    private final RefreshSessionService refreshSessions;
+    private final org.springframework.security.oauth2.jwt.JwtDecoder decoder;
 
     private long lifetimeMs() { return Math.min(900000L, sysConfig == null ? expirationMs : sysConfig.getLong("jwt.expiration-ms")); }
     private String activeSameSite() { return sysConfig == null ? sameSite : sysConfig.getString("blog.auth.cookie.same-site"); }

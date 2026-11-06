@@ -20,18 +20,26 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
  * 本机连接表；每帧检查共享黑名单，空闲连接每秒复检。
- * 发送、检查和吊销关闭共用 session 锁：本机吊销返回时，已进入的发送已结束。
+ * 发送、检查和吊销关闭共用服务持有的连接锁：本机吊销返回时，已进入的发送已结束。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RealtimePushServiceImpl implements RealtimePushService {
 
-    private final Map<Long, CopyOnWriteArraySet<WebSocketSession>> sessions = new ConcurrentHashMap<>();
+    private final Map<Long, ConcurrentHashMap<WebSocketSession, Connection>> sessions = new ConcurrentHashMap<>();
+
+    private static final class Connection {
+        private final WebSocketSession session;
+        private final Object lock = new Object();
+
+        private Connection(WebSocketSession session) {
+            this.session = session;
+        }
+    }
     private final ObjectMapper objectMapper;
     private final TokenService tokenService;
 
@@ -43,13 +51,16 @@ public class RealtimePushServiceImpl implements RealtimePushService {
             return;
         }
         // 先入表再复检，收口握手校验与注册之间的吊销竞态。
-        sessions.compute(userId, (_, bucket) -> {
-            if (bucket == null) bucket = new CopyOnWriteArraySet<>();
-            bucket.add(session);
-            return bucket;
+        var bucket = sessions.compute(userId, (_, existing) -> {
+            var connections = existing == null ? new ConcurrentHashMap<WebSocketSession, Connection>() : existing;
+            connections.computeIfAbsent(session, Connection::new);
+            return connections;
         });
-        synchronized (session) {
-            validateOrEvict(userId, session);
+        Connection connection = bucket.get(session);
+        if (connection != null) {
+            synchronized (connection.lock) {
+                validateOrEvict(userId, connection);
+            }
         }
     }
 
@@ -72,7 +83,7 @@ public class RealtimePushServiceImpl implements RealtimePushService {
             frame.put("type", type);
             frame.put("data", payload);
             TextMessage message = new TextMessage(objectMapper.writeValueAsString(frame));
-            for (WebSocketSession session : bucket) sendOrEvict(userId, session, message);
+            for (Connection connection : bucket.values()) sendOrEvict(userId, connection, message);
         } catch (Exception e) {
             // 不记录异常消息，避免第三方异常带入原始凭据或消息正文。
             log.warn("实时推送失败：userId={}, type={}", userId, type);
@@ -81,24 +92,28 @@ public class RealtimePushServiceImpl implements RealtimePushService {
 
     @Override
     public void pong(Long userId, WebSocketSession session) {
-        if (userId != null && session != null) sendOrEvict(userId, session, new TextMessage("pong"));
+        if (userId == null || session == null) return;
+        var bucket = sessions.get(userId);
+        Connection connection = bucket == null ? null : bucket.get(session);
+        if (connection != null) sendOrEvict(userId, connection, new TextMessage("pong"));
     }
 
-    private void sendOrEvict(Long userId, WebSocketSession session, TextMessage message) {
-        synchronized (session) {
-            if (!validateOrEvict(userId, session)) return;
+    private void sendOrEvict(Long userId, Connection connection, TextMessage message) {
+        synchronized (connection.lock) {
+            if (!validateOrEvict(userId, connection)) return;
             try {
-                session.sendMessage(message);
+                connection.session.sendMessage(message);
             } catch (Exception e) {
-                evict(userId, session, CloseStatus.SERVER_ERROR);
+                evict(userId, connection, CloseStatus.SERVER_ERROR);
             }
         }
     }
 
-    // 调用方持有 session 锁。即使发送拿到了旧 bucket 快照，移除后也不能继续发送。
-    private boolean validateOrEvict(Long userId, WebSocketSession session) {
+    // Callers hold the connection lock. A stale iterator cannot send on a removed connection.
+    private boolean validateOrEvict(Long userId, Connection connection) {
+        WebSocketSession session = connection.session;
         var bucket = sessions.get(userId);
-        if (bucket == null || !bucket.contains(session)) return false;
+        if (bucket == null || bucket.get(session) != connection) return false;
         if (!session.isOpen()) {
             unregister(userId, session);
             return false;
@@ -111,16 +126,16 @@ public class RealtimePushServiceImpl implements RealtimePushService {
         } catch (Exception e) {
             // Redis 不可用时关闭连接，禁止继续发送未经确认授权的帧。
         }
-        evict(userId, session, CloseStatus.POLICY_VIOLATION);
+        evict(userId, connection, CloseStatus.POLICY_VIOLATION);
         return false;
     }
 
     @EventListener
     public void onTokenRevoked(TokenRevoked event) {
         sessions.forEach((userId, bucket) -> {
-            for (WebSocketSession session : bucket) {
-                if (event.jti() != null && event.jti().equals(session.getAttributes().get(WebSocketConfig.ATTR_TOKEN_ID))) {
-                    synchronized (session) { evict(userId, session, CloseStatus.POLICY_VIOLATION); }
+            for (Connection connection : bucket.values()) {
+                if (event.jti() != null && event.jti().equals(connection.session.getAttributes().get(WebSocketConfig.ATTR_TOKEN_ID))) {
+                    synchronized (connection.lock) { evict(userId, connection, CloseStatus.POLICY_VIOLATION); }
                 }
             }
         });
@@ -130,8 +145,8 @@ public class RealtimePushServiceImpl implements RealtimePushService {
     public void onUserTokensRevoked(UserTokensRevoked event) {
         var bucket = sessions.get(event.userId());
         if (bucket == null) return;
-        for (WebSocketSession session : bucket) {
-            synchronized (session) { evict(event.userId(), session, CloseStatus.POLICY_VIOLATION); }
+        for (Connection connection : bucket.values()) {
+            synchronized (connection.lock) { evict(event.userId(), connection, CloseStatus.POLICY_VIOLATION); }
         }
     }
 
@@ -144,15 +159,21 @@ public class RealtimePushServiceImpl implements RealtimePushService {
     @Scheduled(fixedDelay = 1000, initialDelay = 1000)
     public void sweepSessions() {
         sessions.forEach((userId, bucket) -> {
-            for (WebSocketSession session : bucket) {
-                synchronized (session) { validateOrEvict(userId, session); }
+            for (Connection connection : bucket.values()) {
+                synchronized (connection.lock) { validateOrEvict(userId, connection); }
             }
         });
     }
 
-    private void evict(Long userId, WebSocketSession session, CloseStatus status) {
-        unregister(userId, session);
-        close(session, status);
+    private void evict(Long userId, Connection connection, CloseStatus status) {
+        // Close while still registered and locked, so a duplicate registration cannot acquire a new lock mid-close.
+        var bucket = sessions.get(userId);
+        if (bucket == null || bucket.get(connection.session) != connection) return;
+        close(connection.session, status);
+        sessions.computeIfPresent(userId, (_, connections) -> {
+            connections.remove(connection.session, connection);
+            return connections.isEmpty() ? null : connections;
+        });
     }
 
     private void close(WebSocketSession session, CloseStatus status) {
@@ -166,8 +187,8 @@ public class RealtimePushServiceImpl implements RealtimePushService {
     @PreDestroy
     public void shutdown() {
         sessions.forEach((userId, bucket) -> {
-            for (WebSocketSession session : bucket) {
-                synchronized (session) { evict(userId, session, CloseStatus.GOING_AWAY); }
+            for (Connection connection : bucket.values()) {
+                synchronized (connection.lock) { evict(userId, connection, CloseStatus.GOING_AWAY); }
             }
         });
     }

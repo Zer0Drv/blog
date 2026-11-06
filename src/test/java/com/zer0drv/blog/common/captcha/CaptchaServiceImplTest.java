@@ -43,7 +43,7 @@ class CaptchaServiceImplTest {
     @BeforeEach
     void setUp() {
         lenient().when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
-        CaptchaProperties properties = new CaptchaProperties();
+        CaptchaProperties properties = new CaptchaProperties(null);
         properties.setScenes(Map.of(SCENE, new CaptchaProperties.Scene(5, 600)));
         captchaService = new CaptchaServiceImpl(stringRedisTemplate, properties);
     }

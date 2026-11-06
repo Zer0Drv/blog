@@ -29,8 +29,7 @@ import java.util.UUID;
 @Slf4j
 @Service
 public class UploadServiceImpl implements UploadService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
+    private final com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig;
 
     /**
      * 单文件大小上限：5MB（另有 spring.servlet.multipart 配置兜底）
@@ -67,7 +66,9 @@ public class UploadServiceImpl implements UploadService {
 
     private final ObjectProvider<MinioClient> minioClientProvider;
 
-    public UploadServiceImpl(ObjectProvider<MinioClient> minioClientProvider) {
+    public UploadServiceImpl(ObjectProvider<MinioClient> minioClientProvider,
+                             com.zer0drv.blog.sysconfig.service.SysConfigService sysConfig) {
+        this.sysConfig = sysConfig;
         this.minioClientProvider = minioClientProvider;
     }
 

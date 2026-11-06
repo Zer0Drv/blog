@@ -45,7 +45,7 @@ class UploadServiceImplTest {
      * 组装被测服务：@Value 字段用 ReflectionTestUtils 注入（uploadDir 指向临时目录）
      */
     private UploadServiceImpl service(ObjectProvider<MinioClient> provider, boolean minioEnabled) {
-        UploadServiceImpl service = new UploadServiceImpl(provider);
+        UploadServiceImpl service = new UploadServiceImpl(provider, null);
         ReflectionTestUtils.setField(service, "uploadDir", tempDir.toString());
         ReflectionTestUtils.setField(service, "minioEnabled", minioEnabled);
         ReflectionTestUtils.setField(service, "minioBucket", "blog-images");

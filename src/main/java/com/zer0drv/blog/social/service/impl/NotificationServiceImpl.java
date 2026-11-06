@@ -47,12 +47,9 @@ public class NotificationServiceImpl extends ServiceImpl<NotificationMapper, Not
     private final UserService userService;
     private final RealtimePushService realtimePushService;
     private final NotificationMailService notificationMailService;
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.comment.api.CommentNotificationState commentState;
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.article.api.ArticleCatalog articleCatalog;
-    @org.springframework.beans.factory.annotation.Autowired
-    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final com.zer0drv.blog.comment.api.CommentNotificationState commentState;
+    private final com.zer0drv.blog.article.api.ArticleCatalog articleCatalog;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Override
     public PageResult<NotificationVO> pageMine(long page, long size, String type, Jwt jwt) {

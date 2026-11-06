@@ -1,4 +1,6 @@
 package com.zer0drv.blog.subscription.service;
+
+import com.zer0drv.blog.common.util.UrlPaths;
 import com.zer0drv.blog.subscription.repository.SubscriptionRepository;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.zer0drv.blog.article.api.ArticleCatalog;
@@ -93,7 +95,7 @@ public class SubscriptionWorker {
         if (!repository.reserveEmail(user.getId())) return "LIMITED";
         JavaMailSender sender = mail.getIfAvailable();
         if (sender == null) { log.info("【dev-email-fallback】订阅邮件 userId={} articleId={}", user.getId(), article.id()); return "DEV"; }
-        String base = site.getValue("site.base_url", "http://localhost:5173").replaceAll("/+$", "");
+        String base = UrlPaths.trimTrailingSlashes(site.getValue("site.base_url", "http://localhost:5173"));
         SimpleMailMessage message = new SimpleMailMessage();
         message.setTo(user.getEmail());
         if (from != null && !from.isBlank()) message.setFrom(from);

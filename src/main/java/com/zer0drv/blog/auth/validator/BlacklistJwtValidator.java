@@ -19,8 +19,7 @@ public class BlacklistJwtValidator implements OAuth2TokenValidator<Jwt> {
     public static final String BLACKLIST_PREFIX = "blog:blacklist:jwt:";
 
     private final StringRedisTemplate stringRedisTemplate;
-    @org.springframework.beans.factory.annotation.Autowired
-    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
     @Override
     @NullMarked

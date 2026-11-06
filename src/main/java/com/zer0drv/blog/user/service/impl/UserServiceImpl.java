@@ -27,8 +27,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
+    private final com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
 
     /**
      * 通知偏好键：评论邮件通知开关

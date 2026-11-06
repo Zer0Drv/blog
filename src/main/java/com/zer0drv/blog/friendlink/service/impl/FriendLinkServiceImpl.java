@@ -1,5 +1,6 @@
 package com.zer0drv.blog.friendlink.service.impl;
 
+import lombok.RequiredArgsConstructor;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.spring.service.impl.ServiceImpl;
@@ -26,12 +27,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * @author Yoruhaki
  */
 @Service
+@RequiredArgsConstructor
 public class FriendLinkServiceImpl extends ServiceImpl<FriendLinkMapper, FriendLink>
         implements FriendLinkService {
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
-    @org.springframework.beans.factory.annotation.Autowired
-    private com.zer0drv.blog.site.service.SiteConfigService siteConfig;
+    private final com.zer0drv.blog.attachment.service.AttachmentReferenceGuard attachmentReferences;
+    private final com.zer0drv.blog.site.service.SiteConfigService siteConfig;
 
     /**
      * 启用列表缓存 TTL 兜底：即使存在绕过本服务的改库路径，也最多滞后 5 分钟生效

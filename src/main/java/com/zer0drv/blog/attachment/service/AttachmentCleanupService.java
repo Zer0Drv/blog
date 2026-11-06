@@ -12,8 +12,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -164,7 +166,25 @@ public class AttachmentCleanupService {
         }
     }
 
-    public record Preview(byte[] bytes, String filename, String contentType) {}
+    public record Preview(byte[] bytes, String filename, String contentType) {
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Preview value
+                    && Arrays.equals(bytes, value.bytes)
+                    && Objects.equals(filename, value.filename)
+                    && Objects.equals(contentType, value.contentType);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(Arrays.hashCode(bytes), filename, contentType);
+        }
+
+        @Override
+        public String toString() {
+            return "Preview[filename=" + filename + ", contentType=" + contentType + "]";
+        }
+    }
 
     public Preview preview(long id) {
         return tx.execute(status -> {

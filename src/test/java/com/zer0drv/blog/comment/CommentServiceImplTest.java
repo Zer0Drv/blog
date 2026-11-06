@@ -84,14 +84,13 @@ class CommentServiceImplTest {
     @BeforeEach
     void setUp() {
         commentService = spy(new CommentServiceImpl(
+                org.mockito.Mockito.mock(com.zer0drv.blog.comment.api.CommentNotificationState.class),
+                org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class),
                 articleCatalog, commentLikeMapper, userService, converter,
                 notificationService, sensitiveWordChecker, siteConfigServiceProvider));
-        org.springframework.test.util.ReflectionTestUtils.setField(commentService, "notificationState",
-                org.mockito.Mockito.mock(com.zer0drv.blog.comment.api.CommentNotificationState.class));
         // 默认：SiteConfigService 可用但审核开关关闭（非 create 路径的测试不触达该桩，lenient 防误报）
         lenient().when(siteConfigServiceProvider.getIfAvailable()).thenReturn(siteConfigService);
         lenient().when(siteConfigService.getBool(anyString(), anyBoolean())).thenReturn(false);
-        org.springframework.test.util.ReflectionTestUtils.setField(commentService, "attachmentReferences", org.mockito.Mockito.mock(com.zer0drv.blog.attachment.service.AttachmentReferenceGuard.class));
     }
 
     @AfterEach
