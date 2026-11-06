@@ -21,6 +21,7 @@ public class ArticleAttachmentReferencesImpl implements ArticleAttachmentReferen
     private final ObjectMapper mapper;
 
     @Override
+    @SuppressWarnings("java:S2077") // Table names come only from the fixed list below.
     public Set<String> retainedAttachmentFilenames() {
         Set<String> references = new HashSet<>();
         // No deleted / visibility filter: trash and retained versions remain restorable.

@@ -54,6 +54,8 @@ public class TotpCrypto {
         }
         return out;
     }
+    // RFC 6238 Appendix B uses HMAC-SHA1 for this OTP profile. Existing authenticator bindings depend on it.
+    @SuppressWarnings("java:S4790")
     public static String code(String secret, long step, int digits) {
         try {
             Mac mac = Mac.getInstance("HmacSHA1");

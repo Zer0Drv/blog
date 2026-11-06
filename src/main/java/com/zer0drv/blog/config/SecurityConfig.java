@@ -39,9 +39,12 @@ public class SecurityConfig {
     private String oauthFailureRedirect;
 
     @Bean
+    @SuppressWarnings("java:S4502") // CsrfHeaderCheckFilter and explicit credentialed CORS protect the SPA's writes.
     @org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication(type = org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type.SERVLET)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) {
-        http.csrf(csrf -> csrf.disable())
+        // Cookie-authenticated writes use CsrfHeaderCheckFilter and exact credentialed CORS origins.
+        http.cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.disable())
                 // 安全响应头（#6-1）：CSP 默认仅 self（img-src 额外放行 http/https/data：
                 // 文章图床可走独立 MinIO 域名）；nosniff / frame DENY / no-referrer / HSTS（仅 HTTPS 请求生效）
                 .headers(headers -> headers

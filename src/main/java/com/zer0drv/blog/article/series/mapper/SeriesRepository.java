@@ -44,6 +44,8 @@ public class SeriesRepository {
                             String cover, String slug, String status, long revision, long articleCount,
                             LocalDateTime updateTime) { }
 
+    // SQL fragments depend only on flags; owner, offset and size are bound separately.
+    @SuppressWarnings("java:S2077")
     public List<SeriesRow> list(boolean published, Long ownerId, long offset, long size) {
         String where = published ? "WHERE s.status='PUBLISHED' " : "WHERE 1=1 ";
         List<Object> args = new ArrayList<>();
@@ -53,6 +55,8 @@ public class SeriesRepository {
         return jdbc.query(SERIES_SELECT + where + "ORDER BY s.update_time DESC,s.id DESC LIMIT ? OFFSET ?", SERIES, args.toArray());
     }
 
+    // Only fixed predicates are selected; the optional owner is a bound parameter.
+    @SuppressWarnings("java:S2077")
     public long count(boolean published, Long ownerId) {
         String sql = "SELECT COUNT(*) FROM article_series WHERE " + (published ? "status='PUBLISHED'" : "1=1");
         return ownerId == null ? jdbc.queryForObject(sql, Long.class)
@@ -104,6 +108,8 @@ public class SeriesRepository {
                 + "AND LOWER(title) LIKE ? ESCAPE '!'", Long.class, ownerId, searchPattern(keyword));
     }
 
+    // Only the number of '?' markers is dynamic; every ID is bound separately.
+    @SuppressWarnings("java:S2077")
     public boolean lockOwnedArticles(long ownerId, List<Long> ids) {
         if (ids.isEmpty()) return true;
         String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));

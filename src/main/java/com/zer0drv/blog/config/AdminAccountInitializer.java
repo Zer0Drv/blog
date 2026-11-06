@@ -1,6 +1,5 @@
 package com.zer0drv.blog.config;
 
-import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.zer0drv.blog.user.domain.User;
 import com.zer0drv.blog.user.enums.UserRole;
@@ -14,10 +13,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
+import java.util.UUID;
 
 /**
- * 初始管理员引导（#2）：历史 V2 迁移曾种子 admin/admin123，其 BCrypt 哈希随仓库公开，
- * 必须视为已泄露。本初始化器在启动期兜底（Flyway 迁移完成后执行）：
+ * 初始管理员引导（#2）：Flyway 禁用历史 V2 种子凭据。本初始化器在迁移完成后执行：
  * <ul>
  *   <li>admin 账号仍为公开种子口令 → 原地轮换（保留用户 id，不影响其文章归属）；</li>
  *   <li>库内已无任何 ADMIN → 重建初始管理员。</li>
@@ -32,11 +31,7 @@ import java.util.Objects;
 @ConditionalOnProperty(prefix = "blog.admin", name = "bootstrap-enabled", havingValue = "true", matchIfMissing = true)
 public class AdminAccountInitializer implements ApplicationRunner {
 
-    /**
-     * 已泄露的 V2 种子口令哈希（admin/admin123），仅用于识别「尚未改密」的种子账号
-     */
-    private static final String LEGACY_SEED_PASSWORD_HASH =
-            "$2a$10$ubGNSIh9Rg5Nl49HPoOD6ecRzSTnf6TgNBBPaN2uEpPS2eoPB2hXS";
+    private static final String DISABLED_SEED_MARKER = "!legacy-admin-seed-disabled";
 
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
@@ -55,11 +50,11 @@ public class AdminAccountInitializer implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        User seeded = userService.getOne(Wrappers.lambdaQuery(User.class)
-                .eq(User::getUsername, adminUsername));
-        if (Objects.nonNull(seeded) && LEGACY_SEED_PASSWORD_HASH.equals(seeded.getPassword())) {
-            // 种子口令从未修改：原地轮换，不重建（保留 id 与文章归属）
-            rotatePassword(seeded);
+        User disabledSeed = userService.getOne(Wrappers.lambdaQuery(User.class)
+                .eq(User::getPassword, DISABLED_SEED_MARKER)
+                .in(User::getRole, UserRole.ADMIN.name(), UserRole.SUPER_ADMIN.name()));
+        if (disabledSeed != null) {
+            rotatePassword(disabledSeed);
             return;
         }
         long adminCount = userService.count(Wrappers.lambdaQuery(User.class)
@@ -67,7 +62,9 @@ public class AdminAccountInitializer implements ApplicationRunner {
         if (adminCount > 0) {
             return;
         }
-        if (Objects.nonNull(seeded)) {
+        User occupied = userService.getOne(Wrappers.lambdaQuery(User.class)
+                .eq(User::getUsername, adminUsername));
+        if (occupied != null) {
             log.error("库内无 ADMIN 且用户名 '{}' 已被非管理员账号占用，请人工处理初始管理员账号", adminUsername);
             return;
         }
@@ -79,15 +76,20 @@ public class AdminAccountInitializer implements ApplicationRunner {
      */
     private void rotatePassword(User admin) {
         boolean fromEnv = Objects.nonNull(configuredPassword) && !configuredPassword.isBlank();
-        String rawPassword = fromEnv ? configuredPassword : RandomUtil.randomString(16);
-        admin.setPassword(passwordEncoder.encode(rawPassword));
-        userService.updateById(admin);
+        String rawPassword = fromEnv ? configuredPassword : UUID.randomUUID().toString();
+        // Compare against the marker so another instance or a completed reset cannot be overwritten.
+        boolean rotated = userService.update(Wrappers.lambdaUpdate(User.class)
+                .eq(User::getId, admin.getId())
+                .eq(User::getPassword, DISABLED_SEED_MARKER)
+                .in(User::getRole, UserRole.ADMIN.name(), UserRole.SUPER_ADMIN.name())
+                .set(User::getPassword, passwordEncoder.encode(rawPassword)));
+        if (!rotated) return;
         if (fromEnv) {
             log.warn("检测到已泄露的种子管理员口令，已按 ADMIN_INITIAL_PASSWORD 轮换（账号 '{}'），请首登后立即修改",
-                    adminUsername);
+                    admin.getUsername());
         } else {
             log.warn("检测到已泄露的种子管理员口令，已轮换为随机密码（账号 '{}'）：{}（仅本次打印，请立即登录并修改）",
-                    adminUsername, rawPassword);
+                    admin.getUsername(), rawPassword);
         }
     }
 
@@ -96,7 +98,7 @@ public class AdminAccountInitializer implements ApplicationRunner {
      */
     private void createAdmin() {
         boolean fromEnv = Objects.nonNull(configuredPassword) && !configuredPassword.isBlank();
-        String rawPassword = fromEnv ? configuredPassword : RandomUtil.randomString(16);
+        String rawPassword = fromEnv ? configuredPassword : UUID.randomUUID().toString();
         User admin = new User();
         admin.setUsername(adminUsername);
         admin.setPassword(passwordEncoder.encode(rawPassword));
