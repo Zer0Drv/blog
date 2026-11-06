@@ -150,7 +150,7 @@ mvn spring-boot:run         # 或 java -jar target/blog-0.0.1-SNAPSHOT.jar
 
 - 服务端口 **8082**；默认数据源 `localhost:3307/blog_dev`（账号口令由 `.env` 注入，**仓库不再内置任何默认口令/密钥**）
 - **`JWT_SECRET` 必须注入**（≥32 字节强随机值），未配置或强度不足时应用启动直接失败（fail-fast）并打印明确提示
-- **初始管理员**：库内无 ADMIN（或 `admin` 仍为历史公开种子口令）时，启动期自动重建/轮换：密码取 `ADMIN_INITIAL_PASSWORD`，未注入则随机生成并**仅打印一次到启动日志**，请首登后立即通过「修改密码」更换
+- **初始管理员**：启用启动引导时，若 V23 禁用了历史种子口令，则原地轮换；若无管理员，则创建初始账号：密码取 `ADMIN_INITIAL_PASSWORD`，未注入则随机生成并**仅打印一次到启动日志**，请首登后立即通过「修改密码」更换
 - **邮件 fallback**：未配置 SMTP 时验证码与通知邮件不发送；验证码仅写入 Redis（日志不再打印明文），本地联调用 `redis-cli GET blog:email-code:<scene>:<email>` 读取；接真实邮件取消 `application-dev.yaml` 中 `spring.mail.*` 注释并配置 `MAIL_USERNAME` / `MAIL_PASSWORD` 即可
 - **本地上传目录** `./uploads`（`BLOG_UPLOAD_DIR` 可覆盖，`MINIO_ENABLED=false` 时的磁盘 fallback）为运行时目录，已 gitignore 不入库
 - **MinIO 首次起容器必做一步**：`alpine/minio` 以 `100:101` 运行，而 Docker 新建命名卷属主是 `root:root` → 容器反复重启并报 `unable to create (/data/.minio.sys/tmp) file access denied`。修法（一次性，2026-10-02 实测新卷同样复现）：
@@ -385,7 +385,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 | 迁移 | 内容 |
 |---|---|
 | V1 `init_user` | `user` 表（逻辑删除 `deleted`、`uk_username`、`uk_email`、`idx_github_id`） |
-| V2 `seed_admin` | 种子管理员（**历史公开口令已废弃**：已应用的迁移不改内容，启动期由 `AdminAccountInitializer` 检测公开种子哈希并原地轮换/重建，密码随机生成打印日志或取 `ADMIN_INITIAL_PASSWORD`） |
+| V2 `seed_admin` | 种子管理员（**历史公开口令已废弃**：已应用的迁移不改内容，V23 禁用仍在使用的历史种子口令并使对应会话失效） |
 | V3 `content` | `category` / `tag`（`uk_name`）/ `article` / `article_tag`（`uk_article_tag`） |
 | V4 `interaction` | `article` 加 `view_count`；`comment` / `article_like` / `article_favorite` / `comment_like` |
 | V5 `social` | `follow`（`uk_follow`）/ `notification` / `private_message` |
@@ -403,6 +403,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 | V17 `totp` | TOTP 加密绑定、一次性恢复码与短期登录挑战 |
 | V21 `article_series` | 作者文章系列、有序成员关系与 revision 并发保护 |
 | V22 `article_working_copy` | 持久文章工作稿与 edit_revision 编辑冲突保护 |
+| V23 `disable_legacy_admin_seed` | 禁用仍使用 V2 种子口令的账号凭据并提升会话版本，保留账号和文章归属。启用启动引导时原地设置新口令。 |
 
 文章系列的 API、权限、实时可见性、附件引用与发布回滚边界见 [文章系列](docs/article-series.md)。
 

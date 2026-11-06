@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /** Real MySQL upgrade with retained data, not just empty-schema DDL execution. */
 class MigrationUpgradeRealIT {
     @ParameterizedTest
-    @ValueSource(ints={13,15})
+    @ValueSource(ints={13,15,22})
     void retainedContentSurvivesUpgradeToCurrentSchema(int baseline) throws Exception {
         assertEquals("true",System.getProperty("blog.real-it.run"));
         String url=System.getenv().getOrDefault("REAL_IT_MYSQL_URL","jdbc:mysql://127.0.0.1:23307/blog_it?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=utf8");
@@ -30,6 +30,7 @@ class MigrationUpgradeRealIT {
             Flyway.configure().dataSource(source).locations("classpath:db/migration")
                     .target(MigrationVersion.fromVersion(String.valueOf(baseline))).cleanDisabled(true).load().migrate();
             var db=new JdbcTemplate(source);
+            long seededAdminId = db.queryForObject("SELECT id FROM `user` WHERE username='admin'", Long.class);
             String content="历史正文 ![](/uploads/202001/1234567890abcdef1234567890abcdef.png)";
             String hash=new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode("Upgrade-only-password");
             db.update("INSERT INTO `user`(id,username,password,email,nickname,role) VALUES(700001,'upgrade_user',?,'upgrade@real-it.invalid','升级作者','AUTHOR')",hash);
@@ -54,6 +55,9 @@ class MigrationUpgradeRealIT {
             var result=current.migrate();assertTrue(result.migrationsExecuted>0);assertTrue(current.validateWithResult().validationSuccessful);
             assertEquals(content,db.queryForObject("SELECT content FROM article WHERE id=700002",String.class));
             assertEquals(hash,db.queryForObject("SELECT password FROM `user` WHERE id=700001",String.class));
+            assertEquals("!legacy-admin-seed-disabled",
+                    db.queryForObject("SELECT password FROM `user` WHERE id=?", String.class, seededAdminId));
+            assertEquals(1L, db.queryForObject("SELECT session_version FROM `user` WHERE id=?", Long.class, seededAdminId));
             assertEquals("PRIVATE",db.queryForObject("SELECT visibility FROM article WHERE id=700002",String.class));
             assertEquals(700003L,db.queryForObject("SELECT category_id FROM article WHERE id=700002",Long.class));
             assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM article_tag WHERE article_id=700002 AND tag_id=700004",Integer.class));

@@ -6,7 +6,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -45,6 +47,24 @@ class CsrfHeaderIntegrationTests extends IntegrationTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value("200"))
                 .andExpect(jsonPath("$.data.nickname").value("放行后昵称"));
+    }
+
+    @Test
+    void onlyAnExplicitOriginCanPreflightCookieAuthenticatedWrites() throws Exception {
+        for (String origin : new String[]{"https://untrusted.example", "http://localhost:5173"}) {
+            var result = mockMvc.perform(options("/users/me")
+                    .header(HttpHeaders.ORIGIN, origin)
+                    .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "PUT")
+                    .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "X-Requested-With"));
+            if ("http://localhost:5173".equals(origin)) {
+                result.andExpect(status().isOk())
+                        .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin))
+                        .andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"));
+            } else {
+                result.andExpect(status().isForbidden())
+                        .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN));
+            }
+        }
     }
 
     @Test

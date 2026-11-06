@@ -15,11 +15,13 @@ public class RegisterDTO {
     /**
      * 密码复杂度（#6-2）：8~64 位，须同时包含字母和数字；注册/改密/重置三处统一
      */
+    @SuppressWarnings("java:S2068") // Bean Validation syntax, not an authentication secret.
     public static final String PASSWORD_PATTERN = "^(?=.*[A-Za-z])(?=.*\\d)\\S{8,64}$";
 
     /**
      * 密码复杂度提示文案（三处统一）
      */
+    @SuppressWarnings("java:S2068") // User-facing validation text.
     public static final String PASSWORD_MESSAGE = "密码须为 8~64 位，且同时包含字母和数字";
 
     @NotBlank(message = "用户名不能为空")
