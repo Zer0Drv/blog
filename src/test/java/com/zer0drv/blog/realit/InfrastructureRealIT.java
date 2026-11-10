@@ -394,6 +394,8 @@ class InfrastructureRealIT {
                 });
                 start.countDown();
                 assertEquals(1, ok(send("POST", path, Map.of("password", PASSWORD), token, null)).path("count").asInt());
+                assertTrue(redis.getExpire(BlacklistJwtValidator.BLACKLIST_PREFIX + rotatedJwt.getId()) > 900,
+                        "Revocation must outlast the decoder's clock skew");
                 closed.get(10, TimeUnit.SECONDS);
                 var response = refresh.get(20, TimeUnit.SECONDS);
                 if (response.statusCode() == 200) {

@@ -22,6 +22,8 @@ import java.util.Set;
 @Transactional(noRollbackFor = BusinessException.class)
 public class RefreshSessionService {
     public static final long TTL = 30L * 24 * 3600;
+    // Cover a full 15-minute access token plus the JWT decoder's 60-second clock skew.
+    private static final long ACCESS_REVOCATION_SECONDS = 16 * 60;
     private final JdbcTemplate jdbc;
     private final TokenService tokens;
     private final org.springframework.security.oauth2.jwt.JwtDecoder decoder;
@@ -119,7 +121,7 @@ public class RefreshSessionService {
         var active = Set.copyOf(jdbc.queryForList("""
                 SELECT DISTINCT family FROM auth_refresh_session
                 WHERE user_id=? AND session_version=? AND family<>? AND revoked=FALSE AND expires_at>?
-                """, String.class, user, version, current, now - 900));
+                """, String.class, user, version, current, now - ACCESS_REVOCATION_SECONDS));
         var targets = families.stream().filter(active::contains).toList();
         if (targets.isEmpty()) return 0;
         totp.reauthenticate(user, password, code);
@@ -179,7 +181,7 @@ public class RefreshSessionService {
                 """, String.class, user, family);
         // Mark first so nested TokenRevoked listeners do not reprocess this family.
         jdbc.update("UPDATE auth_refresh_session SET revoked=TRUE WHERE user_id=? AND family=? AND revoked=FALSE", user, family);
-        Instant revokeUntil = Instant.now().plusSeconds(900);
+        Instant revokeUntil = Instant.now().plusSeconds(ACCESS_REVOCATION_SECONDS);
         issued.stream().distinct().filter(jti -> !jti.equals(alreadyRevoked))
                 .forEach(jti -> tokens.blackToken(jti, revokeUntil));
     }
