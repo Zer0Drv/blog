@@ -431,7 +431,11 @@ CREATE TABLE IF NOT EXISTS auth_refresh_session (
     expires_at BIGINT NOT NULL,
     consumed BOOLEAN NOT NULL DEFAULT FALSE,
     revoked BOOLEAN NOT NULL DEFAULT FALSE,
-    INDEX idx_refresh_user(user_id)
+    device_label VARCHAR(64),
+    last_active_at BIGINT,
+    INDEX idx_refresh_user(user_id),
+    INDEX idx_refresh_user_family(user_id, family),
+    INDEX idx_refresh_access_jti(access_jti)
 );
 
 CREATE TABLE IF NOT EXISTS owner_operation_lock (id INT PRIMARY KEY);
