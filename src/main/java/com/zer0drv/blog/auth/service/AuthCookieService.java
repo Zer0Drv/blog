@@ -54,8 +54,8 @@ public class AuthCookieService {
     /**
      * 下发认证 Cookie：Set-Cookie: AUTH_TOKEN=<jwt>; HttpOnly; Secure; Path=/; Max-Age=<token有效期秒>
      */
-    public void writeTokenCookie(HttpServletResponse response, String token) {
-        if (refreshSessions != null) writeRefreshCookie(response, refreshSessions.create(decoder.decode(token)), RefreshSessionService.TTL);
+    public void writeTokenCookie(HttpServletResponse response, String token, String userAgent) {
+        if (refreshSessions != null) writeRefreshCookie(response, refreshSessions.create(decoder.decode(token), userAgent), RefreshSessionService.TTL);
         writeAccessCookie(response, token);
     }
 

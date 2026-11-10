@@ -4,6 +4,7 @@ import com.zer0drv.blog.auth.service.AuthCookieService;
 import com.zer0drv.blog.auth.service.TotpService;
 import com.zer0drv.blog.common.response.Result;
 import com.zer0drv.blog.common.util.JwtSubjects;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -43,8 +44,9 @@ public class TotpController {
         var codes = totp.regenerate(JwtSubjects.userIdOf(jwt), dto.password(), dto.code());
         cookies.clearTokenCookie(response); return Result.ok(codes);
     }
-    @PostMapping("/login") public Result<Map<String, String>> login(@Valid @RequestBody Login dto, HttpServletResponse response) {
+    @PostMapping("/login") public Result<Map<String, String>> login(@Valid @RequestBody Login dto, HttpServletRequest request,
+                                                                   HttpServletResponse response) {
         var result = totp.complete(dto.challenge(), dto.code());
-        cookies.writeTokenCookie(response, result.get("access_token")); return Result.ok(result);
+        cookies.writeTokenCookie(response, result.get("access_token"), request.getHeader("User-Agent")); return Result.ok(result);
     }
 }

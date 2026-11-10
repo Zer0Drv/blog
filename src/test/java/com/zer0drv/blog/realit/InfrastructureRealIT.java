@@ -347,6 +347,112 @@ class InfrastructureRealIT {
     }
 
     @Test
+    void deviceRevocationClosesPeerInstanceSocketAndSurvivesRefreshRace() throws Exception {
+        String other = login(null, null);
+        String firstRefresh = refreshSessions.create(decoder.decode(other),
+                "Mozilla/5.0 (Linux; Android 14) Chrome/120.0 Mobile Safari/537.36");
+        var rotated = refreshSessions.rotate(firstRefresh);
+        var rotatedJwt = decoder.decode(rotated.access());
+        redisKeys.add(BlacklistJwtValidator.BLACKLIST_PREFIX + rotatedJwt.getId());
+        var current = ok(send("GET", "/auth/sessions", null, token, null)).get(0);
+        assertTrue(current.path("current").asBoolean());
+        assertEquals("未知设备", current.path("label").asString());
+        var target = ok(send("GET", "/auth/sessions", null, rotated.access(), null)).get(0);
+        assertEquals("Chrome · Android", target.path("label").asString());
+        assertTrue(target.path("lastActiveAt").asLong() >= target.path("signedInAt").asLong());
+        String id = target.path("id").asString();
+        assertNotEquals(rotatedJwt.getId(), id);
+        assertFalse(target.has("family"));
+        assertFalse(target.has("accessJti"));
+
+        String path = "/auth/sessions/" + id + "/revoke";
+        assertEquals("40081", body(send("POST", path, Map.of("password", "incorrect"), token, null)).path("code").asString());
+        assertEquals(200, send("GET", "/auth/me", null, rotated.access(), null).statusCode());
+        assertEquals("40062", body(send("POST", "/auth/sessions/" + current.path("id").asString() + "/revoke",
+                Map.of("password", PASSWORD), token, null)).path("code").asString());
+
+        try (var peer = new org.springframework.boot.builder.SpringApplicationBuilder(com.zer0drv.blog.BlogApplication.class)
+                .initializers(new RealInfrastructureSafety()).run(
+                        "--spring.config.location=classpath:/application-real-it.yaml",
+                        "--server.port=0", "--blog.minio.bucket=" + BUCKET,
+                        "--blog.upload-dir=" + UPLOADS.resolve("peer"))) {
+            var peerPort = peer.getEnvironment().getRequiredProperty("local.server.port");
+            var closed = new CompletableFuture<Integer>();
+            var socket = http.newWebSocketBuilder().header("Cookie", "AUTH_TOKEN=" + rotated.access())
+                    .buildAsync(URI.create("ws://127.0.0.1:" + peerPort + "/ws"), new WebSocket.Listener() {
+                        @Override public void onOpen(WebSocket ws) { ws.request(1); }
+                        @Override public CompletionStage<?> onClose(WebSocket ws, int status, String reason) {
+                            closed.complete(status);
+                            return null;
+                        }
+                    }).get(10, TimeUnit.SECONDS);
+            try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+                var start = new CountDownLatch(1);
+                var refresh = pool.submit(() -> {
+                    start.await();
+                    return send("POST", "/auth/refresh", Map.of(), null, "REFRESH_TOKEN=" + rotated.refresh());
+                });
+                start.countDown();
+                assertEquals(1, ok(send("POST", path, Map.of("password", PASSWORD), token, null)).path("count").asInt());
+                closed.get(10, TimeUnit.SECONDS);
+                var response = refresh.get(20, TimeUnit.SECONDS);
+                if (response.statusCode() == 200) {
+                    var cookie = response.headers().allValues("set-cookie").stream().filter(value -> value.startsWith("AUTH_TOKEN="))
+                            .findFirst().orElseThrow().split(";", 2)[0];
+                    assertEquals(401, send("GET", "/auth/me", null, null, cookie).statusCode());
+                } else assertEquals(401, response.statusCode());
+            } finally {
+                socket.abort();
+            }
+        }
+
+        assertEquals(401, send("POST", "/auth/refresh", Map.of(), null, "REFRESH_TOKEN=" + firstRefresh).statusCode());
+        assertEquals(401, send("POST", "/auth/refresh", Map.of(), null, "REFRESH_TOKEN=" + rotated.refresh()).statusCode());
+        assertEquals(401, send("GET", "/auth/me", null, rotated.access(), null).statusCode());
+        assertEquals(0, ok(send("POST", path, Map.of("password", PASSWORD), token, null)).path("count").asInt());
+        assertEquals(200, send("GET", "/auth/me", null, token, null).statusCode());
+        assertEquals(1, ok(send("GET", "/auth/sessions", null, token, null)).size());
+        jdbc.queryForList("SELECT access_jti FROM auth_refresh_session WHERE user_id=?", String.class, userId)
+                .forEach(jti -> redisKeys.add(BlacklistJwtValidator.BLACKLIST_PREFIX + jti));
+    }
+
+    @Test
+    void deviceListAndBulkRevocationAreScopedAndKeepTheCurrentDevice() throws Exception {
+        String foreignName = username + "_foreign";
+        jdbc.update("INSERT INTO `user`(username,password,email,nickname,role,status) VALUES(?,?,?,'Foreign IT','USER',0)",
+                foreignName, HASH, foreignName + "@real-it.invalid");
+        long foreignId = jdbc.queryForObject("SELECT id FROM `user` WHERE username=?", Long.class, foreignName);
+        try {
+            String foreign = tokens.generateToken(foreignId, List.of("ROLE_USER"));
+            String foreignRefresh = refreshSessions.create(decoder.decode(foreign));
+            String foreignDevice = ok(send("GET", "/auth/sessions", null, foreign, null)).get(0).path("id").asString();
+            String expired = login(null, null);
+            jdbc.update("UPDATE auth_refresh_session SET expires_at=? WHERE access_jti=?",
+                    Instant.now().minusSeconds(3600).getEpochSecond(), decoder.decode(expired).getId());
+            String oldDevice = login(null, null);
+            jdbc.update("UPDATE auth_refresh_session SET device_label=NULL,last_active_at=NULL WHERE access_jti=?",
+                    decoder.decode(oldDevice).getId());
+            var devices = ok(send("GET", "/auth/sessions", null, token, null));
+            assertEquals(2, devices.size());
+            assertTrue(devices.get(0).path("current").asBoolean());
+            assertEquals("未知设备", devices.get(1).path("label").asString());
+            assertTrue(devices.get(1).path("lastActiveAt").isNull());
+            assertEquals("40013", body(send("POST", "/auth/sessions/" + foreignDevice + "/revoke",
+                    Map.of("password", PASSWORD), token, null)).path("code").asString());
+            String bulk = "/auth/sessions/others/revoke";
+            assertEquals(1, ok(send("POST", bulk, Map.of("password", PASSWORD), token, null)).path("count").asInt());
+            assertEquals(0, ok(send("POST", bulk, Map.of("password", PASSWORD), token, null)).path("count").asInt());
+            assertEquals(401, send("GET", "/auth/me", null, oldDevice, null).statusCode());
+            assertEquals(200, send("GET", "/auth/me", null, token, null).statusCode());
+            assertNotNull(refreshSessions.rotate(foreignRefresh));
+        } finally {
+            redis.delete("blog:user-tokens:" + foreignId);
+            jdbc.update("DELETE FROM auth_refresh_session WHERE user_id=?", foreignId);
+            jdbc.update("DELETE FROM `user` WHERE id=?", foreignId);
+        }
+    }
+
+    @Test
     void concurrentOwnershipTransfersHaveOneWinnerAndPreserveAnActiveOwner() throws Exception {
         jdbc.update("UPDATE `user` SET role='SUPER_ADMIN' WHERE id=?", userId);
         var targets = new LinkedHashMap<Long,String>();

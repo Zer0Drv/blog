@@ -74,7 +74,7 @@ public class AuthController {
         captchaGuard.verifyAndRecord(CaptchaService.SCENE_REGISTER, ip, dto.getCaptchaId(), dto.getCaptchaCode());
         Map<String, String> tokens = authService.register(dto);
         // blog-ui#13 契约第 1 条：注册成功统一下发 HttpOnly Cookie（响应体 access_token 过渡期保留）
-        authCookieService.writeTokenCookie(response, tokens.get("access_token"));
+        authCookieService.writeTokenCookie(response, tokens.get("access_token"), request.getHeader("User-Agent"));
         return Result.ok(tokens);
     }
 
@@ -91,7 +91,7 @@ public class AuthController {
         Map<String, String> tokens = captchaGuard.guarded(CaptchaService.SCENE_LOGIN, ip, userKey,
                 dto.getCaptchaId(), dto.getCaptchaCode(), () -> authService.userLogin(dto));
         // blog-ui#13 契约第 1 条：登录成功统一下发 HttpOnly Cookie（响应体 access_token 过渡期保留）
-        if (tokens.containsKey("access_token")) authCookieService.writeTokenCookie(response, tokens.get("access_token"));
+        if (tokens.containsKey("access_token")) authCookieService.writeTokenCookie(response, tokens.get("access_token"), request.getHeader("User-Agent"));
         else authCookieService.clearTokenCookie(response);
         return Result.ok(tokens);
     }
@@ -161,7 +161,7 @@ public class AuthController {
      */
     @PostMapping("/oauth/exchange")
     public Result<Map<String, Object>> exchangeOAuthCode(@RequestBody @Valid OAuthExchangeDTO dto,
-                                                       HttpServletResponse response) {
+                                                       HttpServletRequest request, HttpServletResponse response) {
         String token = oAuthCodeStore.consume(dto.getCode());
         if (Objects.isNull(token)) {
             throw new BusinessException(StatusCode.OAUTH_CODE_INVALID);
@@ -170,7 +170,7 @@ public class AuthController {
             authCookieService.clearTokenCookie(response);
             return Result.ok(Map.of("mfa_required", "true", "challenge", token.substring(4)));
         }
-        authCookieService.writeTokenCookie(response, token);
+        authCookieService.writeTokenCookie(response, token, request.getHeader("User-Agent"));
         return Result.ok(Map.of("expiresIn", authCookieService.getExpiresInSeconds()));
     }
 }
