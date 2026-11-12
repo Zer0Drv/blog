@@ -61,7 +61,7 @@ frontend `438f8df0e8c849754b1bdcf6531afef5b811cb6f`，实现位于两仓 `fix/no
 | Node 发布/回滚认证测试 | 3/3；这是脚本验证，不是生产回滚 |
 | Docker 网关 IP 变化演练 | 原 IP `172.23.0.2` → `172.23.0.4`，复现失败；reload 后首页、入口脚本、release.json、站点配置、文章列表、文章 HTML 全部恢复 |
 
-原始本地日志分别为两仓 `non-ai-*.log`、前端 `e2e-artifacts/` 与后端
+原始本地日志位于后端 `logs/test-archive/non-ai-*.log`、前端 `non-ai-*.log` 和 `e2e-artifacts/`，以及后端
 `target/blog-gateway-it-*/report.json`；均为忽略文件，不提交业务数据或凭据。
 新增网关演练已纳入 CI real-it job，并保留脱敏 JSON 证据。
 

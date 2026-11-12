@@ -412,6 +412,7 @@ Flyway 迁移位于 `src/main/resources/db/migration/`：
 
 - 快速测试：服务层单测 + MockMvc 接口级集成测试（H2 / Redis 桩）+ ArchUnit 架构红线；用例数量与结果以对应提交的 [CI 日志](https://github.com/Zer0Drv/blog/actions/workflows/ci.yml) 为准
 - 本地执行：`mvn verify`
+- 保存本地测试日志时，先创建 `logs/`（PowerShell 用 `New-Item -ItemType Directory -Force logs`，Bash 用 `mkdir -p logs`）。用 `mvn -B -l logs/verify-20261112-143000.log verify` 保存 Maven 日志，并替换为本次运行的时间戳。Node、Python 等测试输出也保存到 `logs/`。
 - 真实依赖回归：`mvn -B -Preal-it verify`，使用专用 MySQL / Redis / MinIO 和真实 HTTP / WebSocket；配置、覆盖与隔离规程见 [真实依赖测试](docs/real-dependency-tests.md)
 - 隔离恢复演练：同一 profile 包含真实 SQL 导出/重载、本地/MinIO 附件恢复及恢复应用 HTTP 验收；[复现与现场策略待确认项](docs/backup-restore-drill.md)。合成测试耗时不代表业务 RPO/RTO
 - CI（`.github/workflows/ci.yml`）四个独立 job：
