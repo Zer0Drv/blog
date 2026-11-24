@@ -76,6 +76,7 @@ public class SiteConfigServiceImpl implements SiteConfigService {
     }
 
     @Override
+    @SuppressWarnings("java:S2886") // The volatile cache publishes each immutable snapshot atomically.
     public Map<String, String> getAll() {
         return cache;
     }
